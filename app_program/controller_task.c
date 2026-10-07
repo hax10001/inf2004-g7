@@ -27,7 +27,6 @@ EXPORT void controller_task(INT stacd, void *exinf)
 
     tm_printf((UB *)"[CTRL] Controller started\n");
 
-
     while (1) {
 
         IR_SNAPSHOT ir;
@@ -105,7 +104,6 @@ EXPORT void controller_task(INT stacd, void *exinf)
                 );
 
                 if (action == LINE_UNCERTAIN) {
-                    //state = ROBOT_STOPPED;
                     motor_controller_apply(LINE_UNCERTAIN);
 
                     tm_printf(

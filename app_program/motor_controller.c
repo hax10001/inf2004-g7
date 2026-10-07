@@ -3,8 +3,13 @@
 
 #include "motor_controller.h"
 
-#define BASE_SPEED 25U
-#define TURN_SPEED 12U
+#define RIGHT_OFFSET 5U
+
+#define BASE_SPEED 20U
+#define BASE_LEFT_SPEED 15U
+#define BASE_RIGHT_SPEED 15U
+#define TURN_SPEED 20U
+
 #define MOTOR_M1A 8U
 #define MOTOR_M1B 9U
 #define MOTOR_M2A 10U
@@ -25,22 +30,9 @@ static UINT speed_to_pwm(UINT speed_percent) {
 
 void motor_controller_init(void)
 {
-    // gpio_set_pin(MOTOR_M1A, GPIO_MODE_OUT);
-    // gpio_set_pin(MOTOR_M1B, GPIO_MODE_OUT);
-
-    // gpio_set_val(MOTOR_M1A, 0);
-    // gpio_set_val(MOTOR_M1B, 0);
-
-    // gpio_set_pin(MOTOR_M2A, GPIO_MODE_OUT);
-    // gpio_set_pin(MOTOR_M2B, GPIO_MODE_OUT);
-
-    // gpio_set_val(MOTOR_M2A, 0);
-    // gpio_set_val(MOTOR_M2B, 0);
-
     /* Initialize motor pins as PWM and set them LOW */
     ER er;
     UW duty;
-
     /* GP8, GP9, GP10, GP11 -> PWM function */
     er = pwm_set_pin(MOTOR_M1A);
     tm_printf((UB *)"M1A pin: %d\n", er);
@@ -54,8 +46,6 @@ void motor_controller_init(void)
     er = pwm_set_pin(MOTOR_M2B);
     tm_printf((UB *)"M2B pin: %d\n", er);
 
-
-
     pwm_set_wrap(MOTOR_M1A, PWM_WRAP);
     pwm_set_wrap(MOTOR_M2A, PWM_WRAP);
 
@@ -67,7 +57,6 @@ void motor_controller_init(void)
 
     pwm_set_enabled(MOTOR_M1A, TRUE);
     pwm_set_enabled(MOTOR_M2A, TRUE);
-
 
     tm_printf((UB *)"[MOTOR INIT] Motor controller initialized PWM successfully.\n");
 }
@@ -98,21 +87,23 @@ void motor_controller_apply(LINE_ACTION action)
 
     switch (action) {
         case LINE_FORWARD:
-            left_speed  = BASE_SPEED;
-            right_speed = BASE_SPEED;
+            left_speed  = BASE_LEFT_SPEED;
+            right_speed = BASE_RIGHT_SPEED;
             break;
 
         case LINE_CORRECT_LEFT:
-            left_speed  = TURN_SPEED;
-            right_speed = BASE_SPEED;
+            left_speed  = 0U;
+            right_speed = BASE_RIGHT_SPEED;
             break;
 
         case LINE_CORRECT_RIGHT:
-            left_speed  = BASE_SPEED;
-            right_speed = TURN_SPEED;
+            left_speed  = BASE_LEFT_SPEED;
+            right_speed = 0U;
             break;
 
         case LINE_UNCERTAIN:
+            left_speed  = 0U;
+            right_speed = 0U;
             break;
         default:
             motor_controller_stop();
@@ -125,24 +116,13 @@ void motor_controller_apply(LINE_ACTION action)
     UINT left_pwm = speed_to_pwm(left_speed);
     UINT right_pwm = speed_to_pwm(right_speed);
 
-    gpio_set_pin(MOTOR_M1B, GPIO_MODE_OUT);
-    gpio_set_pin(MOTOR_M2B, GPIO_MODE_OUT);
-    gpio_set_val(MOTOR_M1B, 0);
-    gpio_set_val(MOTOR_M2B, 0);
-
-    pwm_set_pin(MOTOR_M1A);
-    pwm_set_pin(MOTOR_M2A);
-
     // Assuiming M1A/M2A = forward direction, M1B/M2B = reverse direction
     // Currently this is hardcoded to only go forward, so M1B/M2B are always 0 with varying speed.
-    pwm_set_cc(MOTOR_M1A, left_pwm);
-    // pwm_set_cc(MOTOR_M1B, 0U); // Ensure reverse is off
+    pwm_set_cc(MOTOR_M1A, 0U); // Ensure reverse is off
+    pwm_set_cc(MOTOR_M1B, left_pwm); 
 
     pwm_set_cc(MOTOR_M2A, right_pwm);
-    // pwm_set_cc(MOTOR_M2B, 0U); // Ensure reverse is off
-
-    pwm_set_enabled(MOTOR_M1A, TRUE);
-    pwm_set_enabled(MOTOR_M2A, TRUE);
+    pwm_set_cc(MOTOR_M2B, 0U); // Ensure reverse is off
 
     tm_printf(
         (UB *)"[MOTOR REQUEST] LEFT=%d RIGHT=%d\n",

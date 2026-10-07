@@ -123,7 +123,7 @@ EXPORT INT usermain(void)
     //     return 1;
     // }
 
-    // Start Controller task
+    // Create Controller task
     tid = tk_cre_tsk(&ctsk_controller);
     if (tid <= E_OK) {
         tm_printf(
@@ -135,6 +135,7 @@ EXPORT INT usermain(void)
 
     tm_printf((UB *)"[MAIN] Before controller start\n");
 
+    //Start Controller task
     er = tk_sta_tsk(tid, 0);
     if (er < E_OK) {
         tm_printf(

@@ -58,9 +58,8 @@ LOCAL const UW module_tbl[] = {
 	RESETS_RESET_DMA,		/* CYW43439 PIO-SPI transfers */
 #endif
 
-#if USE_PTMR
-	RESETS_RESET_PWM,		/* PWM */
-#endif	/* USE_PTMR */
+	/* Application uses PWM for motor control */
+	RESETS_RESET_PWM,
 
 #if USE_SDEV_DRV	// Do not use sample device driver
 	RESETS_RESET_ADC,		/* A/DC */

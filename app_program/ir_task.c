@@ -10,7 +10,7 @@
 #define IR_LEFT_PIN 6
 #define IR_RIGHT_PIN 2
 // This pin is currently conflicting with another device using GP26 as well.
-#define IR_BARCODE_PIN 26
+#define IR_BARCODE_PIN 27
 
 /* -------------------------------------------------
  * IR application task - IR sensor monitoring
