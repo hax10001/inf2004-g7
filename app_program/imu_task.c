@@ -1,6 +1,6 @@
 /*
  * GY-511 / LSM303DLHC test, ported from the working Pico SDK imu.c.
- * Uses the pin map of the uploaded vehicle main.c: I2C0 SDA=GP4, SCL=GP5.
+ * Uses the pin map of the uploaded vehicle main.c: I2C0 SDA=GP16, SCL=GP17.
  * The other robot components are deliberately not initialized or started.
  */
 #include <stdint.h>
@@ -132,7 +132,7 @@ EXPORT void imu_task(INT stacd, void *exinf)
     for (i = 0; i < 200 && tm_usb_state() < 2; ++i) tk_dly_tsk(100);
     tk_dly_tsk(500);
 
-    tm_printf((UB *)"\n=== RoboPico LSM303DLHC microT test: GP4/GP5 ===\n");
+    tm_printf((UB *)"\n=== RoboPico LSM303DLHC microT test: GP16/GP17 ===\n");
     if (!lsm303_init(dd)) {
         tm_printf((UB *)"IMU: failed to initialize accelerometer or magnetometer\n");
         (void)tk_cls_dev(dd, 0);

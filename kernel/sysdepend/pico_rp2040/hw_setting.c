@@ -57,9 +57,13 @@ LOCAL const UW module_tbl[] = {
 	RESETS_RESET_PIO1,		/* PIO allocator may select either instance */
 	RESETS_RESET_DMA,		/* CYW43439 PIO-SPI transfers */
 #endif
-
-	/* Application uses PWM for motor control */
+// Before
+#if USE_PTMR
 	RESETS_RESET_PWM,
+#endif
+// After remove the #if USE_PTMR
+	// /* Application uses PWM for motor control */
+	// RESETS_RESET_PWM,
 
 #if USE_SDEV_DRV	// Do not use sample device driver
 	RESETS_RESET_ADC,		/* A/DC */
