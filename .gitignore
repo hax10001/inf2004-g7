@@ -24,3 +24,6 @@ config/tcp_test_config.h
 # Python
 __pycache__/
 *.pyc
+
+# Local validation outputs and pre-refactor snapshots.
+/tmp/

@@ -220,9 +220,14 @@ build_make/        GNU make build; pico_rp2040.mk is the Pico target
 etc/linker/pico_rp2040/
                    Linker script
 tools/elf2uf2/     UF2 packaging tool, built from source
-app_program/       The demo: the tasks, the kernel objects, and usermain()
+app_program/       Robot subsystems, tasks, BSP/device drivers, and usermain()
 docs/              Getting started and port feature status
 ```
+
+For the robot application's current architecture and checks, see
+[app_program/README.md](app_program/README.md) and the
+[application code review](docs/ROBOT_CODE_REVIEW.md). Demo descriptions elsewhere
+in this port README refer to the upstream examples.
 
 ---
 
