@@ -85,7 +85,11 @@ ER terrain_start (void)
 ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                  float *p_roll_deg, float *p_pitch_deg)
 {
-    if (!tilt_math_angles(axis_x, axis_y, axis_z, p_roll_deg, p_pitch_deg))
+    // Remember that the x,y,z needs to be remap
+    // robotX = -Y
+    // robotY = X
+    // robotZ = Z
+    if (!tilt_math_angles(-(axis_y), axis_x, axis_z, p_roll_deg, p_pitch_deg))
     {
         return E_PAR;
     }

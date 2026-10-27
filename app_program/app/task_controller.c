@@ -116,7 +116,7 @@ static robot_state_t handle_idle (void)
     {
         /* UB views the same string bytes; tm_printf does not modify them. */
         tm_printf((UB *)"[CTRL] IDLE -> LINE_FOLLOWING\n");
-        return ROBOT_IDLE;
+        return ROBOT_LINE_FOLLOWING;
     }
 
     return ROBOT_IDLE;

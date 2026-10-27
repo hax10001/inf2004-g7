@@ -45,6 +45,10 @@ ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                  float *p_roll_deg, float *p_pitch_deg);
 /** @brief Save averaged stationary axes as the startup reference, once.
  * @note Call only from the IMU task before motion. Reference is RAM-only.
+ * Note that x,y,z needs to be remapped to robot's forward
+ * robotX = -Y
+ * robotY = X
+ * robotZ = Z
  */
 ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z);
 /** @brief Return false until calibration is saved, or if locking fails. */
