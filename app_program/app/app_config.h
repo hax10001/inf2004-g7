@@ -16,8 +16,8 @@
 #define APP_USB_WAIT_PERIOD_MSEC 100
 #define APP_USB_SETTLE_MSEC 500
 
-/* WARNING: The tested startup creates the IMU task but does not start it. */
-#define APP_IMU_ENABLED 0
+/* Enabled IMU calibrates at startup; the controller waits before moving. */
+#define APP_IMU_ENABLED 1
 
 #endif /* APP_CONFIG_H */
 
