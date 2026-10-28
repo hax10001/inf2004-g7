@@ -14,6 +14,16 @@ static ir_shared_snapshot_t volatile g_latest_ir = {.left           = 0U,
                                                     .timestamp_msec = 0U,
                                                     .b_valid        = false};
 
+/* Set by any both-black sample; held until the controller takes it, so a
+ * junction shorter than the controller period is not lost between reads.
+ */
+static bool volatile gb_junction_latched = false;
+/* Set by any black sample on that side, for the same reason: a brief touch
+ * of the line edge would otherwise be overwritten before it is acted on.
+ */
+static bool volatile gb_left_latched  = false;
+static bool volatile gb_right_latched = false;
+
 /* Initialize once from usermain(), before starting tasks. */
 ER ir_shared_init (void)
 {
@@ -63,6 +73,75 @@ ER ir_shared_publish (uint32_t left, uint32_t right, uint32_t barcode)
     g_latest_ir.barcode        = barcode;
     g_latest_ir.timestamp_msec = now.lo;
     g_latest_ir.b_valid        = true;
+
+    if ((1U == left) && (1U == right))
+    {
+        gb_junction_latched = true;
+    }
+
+    if (1U == left)
+    {
+        gb_left_latched = true;
+    }
+
+    if (1U == right)
+    {
+        gb_right_latched = true;
+    }
+
+    return tk_unl_mtx(gh_ir_mutex);
+}
+
+/* The controller is the only consumer; taking the latch clears it. */
+ER ir_shared_take_junction (bool * p_b_seen)
+{
+    if (NULL == p_b_seen)
+    {
+        return E_PAR;
+    }
+
+    if (gh_ir_mutex <= E_OK)
+    {
+        return E_OBJ;
+    }
+
+    ER error = tk_loc_mtx(gh_ir_mutex, TMO_FEVR);
+
+    if (error < E_OK)
+    {
+        return error;
+    }
+
+    *p_b_seen           = gb_junction_latched;
+    gb_junction_latched = false;
+
+    return tk_unl_mtx(gh_ir_mutex);
+}
+
+/* The controller is the only consumer; taking the latches clears them. */
+ER ir_shared_take_sides (bool * p_b_left, bool * p_b_right)
+{
+    if ((NULL == p_b_left) || (NULL == p_b_right))
+    {
+        return E_PAR;
+    }
+
+    if (gh_ir_mutex <= E_OK)
+    {
+        return E_OBJ;
+    }
+
+    ER error = tk_loc_mtx(gh_ir_mutex, TMO_FEVR);
+
+    if (error < E_OK)
+    {
+        return error;
+    }
+
+    *p_b_left        = gb_left_latched;
+    *p_b_right       = gb_right_latched;
+    gb_left_latched  = false;
+    gb_right_latched = false;
 
     return tk_unl_mtx(gh_ir_mutex);
 }

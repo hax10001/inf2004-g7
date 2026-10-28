@@ -33,6 +33,9 @@ INT usermain(void);
 #include "modules/motion/motion.h"
 #include "drivers/lsm303.h"
 #include "modules/terrain/terrain.h"
+#include "modules/motion/wheel_speed.h"
+#include "modules/motion/steering.h"
+#include "board/board_config.h"
 #define RUN_CTRL task_controller_task
 #define RUN_IR task_ir_task
 #define RUN_IMU task_imu_task
@@ -104,7 +107,31 @@ ER tk_dly_tsk(UINT delay)
     {
         if (variant == 2 && delays >= 2) { fail_lock = 1; }
         if (variant == 3 && delays >= 2) { fail_time = time_calls + 1; }
-        if (variant != 1 && variant != 2 && variant != 3)
+        if (variant == 6 && delays == 2)
+        {
+            /* A junction shorter than one controller period. */
+            ir_shared_publish(1U, 1U, 1U);
+            ir_shared_publish(0U, 0U, 1U);
+        }
+        else if (variant == 7)
+        {
+            /* Stops on a junction, lifted (reads black), placed on a line. */
+            unsigned black = delays >= 2 && delays < 20;
+            ir_shared_publish(black, black, 1U);
+        }
+        else if (variant == 8)
+        {
+            /* Coasts off the junction at once and is never touched. */
+            unsigned black = delays == 2;
+            ir_shared_publish(black, black, 1U);
+        }
+        else if (variant == 9 && delays == 2)
+        {
+            /* A left edge touch shorter than one controller period. */
+            ir_shared_publish(1U, 0U, 1U);
+            ir_shared_publish(0U, 0U, 1U);
+        }
+        else if (variant != 1 && variant != 2 && variant != 3)
         {
             unsigned left = delays == 2 || delays == 4;
             unsigned right = delays == 3 || delays == 4;
@@ -175,9 +202,116 @@ ER tk_swri_dev(ID device, W start, void *data, SZ size, SZ *actual)
     return fail_write == write_calls ? -5 : E_OK;
 }
 
+/* The timer follows simulated time; reset has completed; other reads are 0. */
+UW in_w(UW address)
+{
+    if (address == TIMER_TIMERAWL) { return now_msec * 1000U; }
+    if (address == RESETS_RESET_DONE) { return RESETS_RESET_TIMER; }
+    return 0U;
+}
+void out_w(UW address, UW value) { (void)address; (void)value; }
+ER tk_def_int(UINT intno, const T_DINT *config)
+{
+    (void)intno; (void)config; return E_OK;
+}
+void EnableInt(UINT intno, INT level) { (void)intno; (void)level; }
+void ClearInt(UINT intno) { (void)intno; }
+
 #if !LEGACY
+static void run_wheel_speed_units(void)
+{
+    wheel_speed_t speed;
+    float const counts = (float)BOARD_ENC_COUNTS_PER_REV;
+
+    wheel_speed_reset(&speed, 0, 1000U);
+    assert(0.0f == speed.rpm);
+    /* 10 edges in 10 ms is 1000 edges per second. */
+    float rpm = wheel_speed_update(&speed, 10, 11000U, 12000U);
+    assert(fabsf(rpm - 60000.0f / counts) < 0.01f);
+    /* Reverse direction reports the same magnitude. */
+    rpm = wheel_speed_update(&speed, 0, 21000U, 21000U);
+    assert(fabsf(rpm - 60000.0f / counts) < 0.01f);
+    /* No edge for 50 ms: at most one edge per 50 ms. */
+    rpm = wheel_speed_update(&speed, 0, 21000U, 71000U);
+    assert(fabsf(rpm - 1200.0f / counts) < 0.01f);
+    /* No edge beyond the stop interval reads as stopped. */
+    rpm = wheel_speed_update(&speed, 0, 21000U,
+                             21001U + WHEEL_SPEED_STOP_USEC);
+    assert(0.0f == rpm);
+    /* The first edge after rest has no full interval to measure. */
+    rpm = wheel_speed_update(&speed, 1, 900000U, 900000U);
+    assert(0.0f == rpm);
+    /* Timer and count wraparound still give the true difference. */
+    wheel_speed_reset(&speed, INT32_MAX, UINT32_MAX - 499U);
+    rpm = wheel_speed_update(&speed, INT32_MIN, 500U, 500U);
+    assert(fabsf(rpm - 60000.0f / counts) < 0.01f);
+}
+
 static void run_units(void)
 {
+    run_wheel_speed_units();
+    motion_status_t status;
+    assert(E_PAR == motion_get_status(NULL));
+    assert(E_OBJ == motion_get_status(&status));
+    quiet = 1;
+    assert(E_OK == motion_init());
+    assert(E_OK == motion_get_status(&status) && !status.b_valid);
+    /* Base speed ramps 8 RPM per period; first period is feedforward only:
+     * deadband 8 + (21 - 8) x 8/40 = 10.6 percent of 12499 on the left,
+     * and 8 + (22 - 8) x 8/40 = 10.8 percent on the right.
+     */
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status) && status.b_valid);
+    assert(8.0f == status.left_target_rpm && 8.0f == status.right_target_rpm);
+    assert(1324U == status.left_pwm && 1349U == status.right_pwm);
+    for (int period = 0; period < 4; ++period) { motion_apply(LINE_FORWARD); }
+    assert(E_OK == motion_get_status(&status));
+    assert(40.0f == status.left_target_rpm && 0.0f == status.steer);
+    /* Off-centre asks for 0.3 + 2.0 x 0.05; steer moves 0.3 per period,
+     * and the speed drops by 0.6 x 0.3 to 32.8.
+     */
+    motion_apply(LINE_CORRECT_LEFT);
+    assert(E_OK == motion_get_status(&status));
+    assert(fabsf(status.steer - 0.3f) < 1e-5f);
+    assert(fabsf(status.left_target_rpm - 22.96f) < 1e-3f);
+    assert(fabsf(status.right_target_rpm - 42.64f) < 1e-3f);
+    assert(status.left_pwm > 0U && status.left_pwm < status.right_pwm);
+    /* Back on the line after a short touch: the nudge ends at once. */
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status));
+    assert(0.0f == status.steer);
+    /* Crossing over: the old left turn is dropped at once, and steer heads
+     * towards -0.4 by one 0.3 step.
+     */
+    motion_apply(LINE_CORRECT_RIGHT);
+    assert(E_OK == motion_get_status(&status));
+    assert(fabsf(status.steer + 0.3f) < 1e-5f);
+    /* Staying off-centre saturates the steer. */
+    for (int period = 0; period < 20; ++period)
+    {
+        motion_apply(LINE_CORRECT_RIGHT);
+    }
+    assert(E_OK == motion_get_status(&status));
+    assert(-STEERING_MAX == status.steer);
+    assert(fabsf(status.left_target_rpm - 37.44f) < 1e-3f);
+    assert(fabsf(status.right_target_rpm - 4.16f) < 1e-3f);
+    /* After a long touch (a curve) the turn decays instead of ending. */
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status));
+    assert(fabsf(status.steer + 0.68f) < 1e-5f);
+    /* Uncertain stops at once, unramped, and clears steering. */
+    motion_apply(LINE_UNCERTAIN);
+    assert(E_OK == motion_get_status(&status));
+    assert(0U == status.left_pwm && 0U == status.right_pwm);
+    assert(0.0f == status.left_target_rpm && 0.0f == status.steer);
+    /* Starting off-centre turns at once, scaled to the ramping speed. */
+    motion_apply(LINE_CORRECT_LEFT);
+    assert(E_OK == motion_get_status(&status));
+    assert(fabsf(status.left_target_rpm - 4.592f) < 1e-3f);
+    assert(fabsf(status.right_target_rpm - 8.528f) < 1e-3f);
+    motion_apply(LINE_UNCERTAIN);
+    quiet = 0;
+
     assert(LINE_FORWARD == line_follow_decide(0U, 0U));
     assert(LINE_CORRECT_LEFT == line_follow_decide(1U, 0U));
     assert(LINE_CORRECT_RIGHT == line_follow_decide(0U, 1U));
@@ -203,6 +337,37 @@ static void run_units(void)
     fail_time = 0;
     assert(E_OK == ir_shared_get_latest(&snapshot));
     assert(snapshot.left == 1U && snapshot.right == 0U);
+
+    /* A both-black sample is held after newer samples, until taken once. */
+    bool b_junction = true;
+    assert(E_PAR == ir_shared_take_junction(NULL));
+    assert(E_OK == ir_shared_take_junction(&b_junction) && !b_junction);
+    assert(E_OK == ir_shared_publish(1U, 1U, 0U));
+    assert(E_OK == ir_shared_publish(0U, 0U, 0U));
+    assert(E_OK == ir_shared_publish(1U, 0U, 0U));
+    assert(E_OK == ir_shared_take_junction(&b_junction) && b_junction);
+    assert(E_OK == ir_shared_take_junction(&b_junction) && !b_junction);
+    fail_lock = 1;
+    assert(-5 == ir_shared_take_junction(&b_junction));
+    fail_lock = 0;
+
+    /* A one-sided touch is held the same way, per side. */
+    bool b_left = true;
+    bool b_right = true;
+    assert(E_PAR == ir_shared_take_sides(NULL, &b_right));
+    assert(E_PAR == ir_shared_take_sides(&b_left, NULL));
+    assert(E_OK == ir_shared_take_sides(&b_left, &b_right));
+    assert(E_OK == ir_shared_take_sides(&b_left, &b_right));
+    assert(!b_left && !b_right);
+    assert(E_OK == ir_shared_publish(0U, 1U, 0U));
+    assert(E_OK == ir_shared_publish(0U, 0U, 0U));
+    assert(E_OK == ir_shared_take_sides(&b_left, &b_right));
+    assert(!b_left && b_right);
+    assert(E_OK == ir_shared_take_sides(&b_left, &b_right));
+    assert(!b_left && !b_right);
+    fail_lock = 1;
+    assert(-5 == ir_shared_take_sides(&b_left, &b_right));
+    fail_lock = 0;
 
     quiet = exhaustive = 1;
     for (uint32_t word = 0; word <= UINT16_MAX; ++word)
@@ -267,6 +432,7 @@ int main(int argc, char **argv)
     {
         mode = 1;
         if (variant == 5) { now_msec = UINT32_MAX - 100U; }
+        if (variant >= 7) { delay_limit = 40; }
         ir_shared_init();
         if (variant != 4) { ir_shared_publish(0U, 0U, 1U); }
         if (setjmp(escape_task) == 0) { in_task = 1; RUN_CTRL(0, NULL); }

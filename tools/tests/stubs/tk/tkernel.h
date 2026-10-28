@@ -49,4 +49,28 @@ ER tk_get_otm(SYSTIM *time);
 ID tk_opn_dev(UB *name, UINT mode);
 ER tk_cls_dev(ID device, UINT option);
 ER tk_swri_dev(ID device, W start, void *data, SZ size, SZ *actual);
+
+/* Encoder driver: interrupts and RP2040 registers, simulated by the harness. */
+typedef struct { UW intatr; FP inthdr; } T_DINT;
+ER tk_def_int(UINT intno, const T_DINT *config);
+void EnableInt(UINT intno, INT level);
+void ClearInt(UINT intno);
+#define DI(intsts) ((intsts) = 0U)
+#define EI(intsts) ((void)(intsts))
+UW in_w(UW address);
+void out_w(UW address, UW value);
+#define set_w(address, bits) out_w((address), in_w(address) | (bits))
+#define clr_w(address, bits) out_w((address), in_w(address) & ~(UW)(bits))
+#define XOSC_MHz 12
+#define IO_BANK0_BASE 0x40014000U
+#define PADS_BANK0_BASE 0x4001c000U
+#define GPIO(n) (PADS_BANK0_BASE + 0x4U + ((n) * 4U))
+#define GPIO_PUE (1U << 3)
+#define GPIO_PDE (1U << 2)
+#define SIO_BASE 0xD0000000U
+#define GPIO_IN (SIO_BASE + 0x004U)
+#define TIMER_TIMERAWL 0x40054028U
+#define RESETS_RESET 0x4000C000U
+#define RESETS_RESET_DONE 0x4000C008U
+#define RESETS_RESET_TIMER 0x00200000U
 #endif

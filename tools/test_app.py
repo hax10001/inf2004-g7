@@ -83,7 +83,7 @@ def main():
     print("PASS: TEST=1 host link and 11 non-mutating subsystem checks.")
 
     scenarios = ([("startup", i) for i in range(10)] + [("motor", 0)] +
-                 [("controller", i) for i in range(6)] +
+                 [("controller", i) for i in range(10)] +
                  [("ir", i) for i in range(4)] +
                  [("imu", i) for i in range(10)])
     if args.baseline_json:
