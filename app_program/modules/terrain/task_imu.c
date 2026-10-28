@@ -18,14 +18,51 @@
 #define IMU_CALIBRATION_MAX_MG 1200
 #define IMU_CALIBRATION_CHANGE_MG 50
 
-// Static variables for hump detection
+/* Fraction of each new reading kept by the smoothing filter. Lower is
+ * smoother but lags more and trims the peak; motor vibration needs some.
+ */
+#define IMU_FILTER_ALPHA 0.2F
+/* A 1 cm hump under one wheel rolls the robot about 5.2 degrees
+ * (asin(10 / 110)). Starting and ending at different angles stops noise
+ * near one value from flickering.
+ */
+/* Readings whose total acceleration is this far from the calibrated
+ * gravity are being shoved, not just tilted, so they are left out. Without
+ * a gyroscope this is the only way to keep a jolt from reading as tilt.
+ */
+#define IMU_GRAVITY_TOLERANCE_MG 50
+#define HUMP_START_DEG 3.0F
+#define HUMP_LEVEL_DEG 1.5F
+/* Samples in a row above HUMP_START_DEG that count as a real tilt, so a
+ * single vibration spike neither starts a hump nor cancels its ending.
+ */
+#define HUMP_TILT_CONFIRM_SAMPLES 3U
+/* Level samples needed to end a hump. Noise between the two angles above
+ * neither counts nor resets them; only a sustained tilt starts over.
+ */
 #define HUMP_LEVEL_CONFIRM_SAMPLES 15U
-static bool isLevel = true;
-static bool onHump = false;
-static uint16_t max_hump_height_mm = 0;
-static uint16_t last_hump_height_mm = 0;
-static uint16_t hump_height_mm = 0;
-static uint8_t level_count = 0;
+/* Drop below the peak that counts as descending, ignoring jitter. */
+#define HUMP_DESCENT_MM 1.5F
+
+typedef struct
+{
+    float              filtered[3];  /**< Smoothed axes, mg. */
+    bool               b_filter_ready;
+    int32_t            gravity_mg;   /**< Total acceleration at rest. */
+    uint16_t           rejected;     /**< Shoved samples since last log. */
+    bool               b_on_hump;
+    terrain_hump_phase phase;
+    uint8_t            level_count;
+    uint8_t            tilted_count; /**< Samples in a row above start. */
+    float              tilt_deg;     /**< Size of the roll, degrees. */
+    float              height_mm;
+    float              peak_mm;      /**< Highest point of this hump. */
+    uint16_t           last_peak_mm;
+    uint16_t           max_peak_mm;
+    uint8_t            hump_count;
+} hump_state_t;
+
+static hump_state_t g_hump = {0};
 
 typedef struct
 {
@@ -61,6 +98,12 @@ static bool calibration_sample_valid (int16_t const * p_axes,
                                       int16_t const * p_first_axes);
 /** @brief Report angles relative to the startup level reference. */
 static void log_tilt(terrain_snapshot const *p_snapshot);
+/** @brief Low-pass filter the accelerometer axes against vibration. */
+static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes);
+/** @brief Update hump start, climb, descent and end from a valid tilt. */
+static void update_hump (terrain_snapshot const * p_snapshot);
+/** @brief Round a non-negative height to whole millimetres. */
+static uint16_t round_mm (float height_mm);
 
 void task_imu_task (INT start_code, void * p_context)
 {
@@ -177,6 +220,15 @@ static bool calibrate_sensor (ID h_device)
     int16_t avg_z = (int16_t)(sums[2] / IMU_CALIBRATION_SAMPLES);
 
     ER error = terrain_calibrate(avg_x, avg_y, avg_z);
+
+    /* Start the smoothing filter from the level reference, not from the
+     * first noisy reading, so it cannot begin with a false hump.
+     */
+    g_hump.filtered[0]    = (float)avg_x;
+    g_hump.filtered[1]    = (float)avg_y;
+    g_hump.filtered[2]    = (float)avg_z;
+    g_hump.b_filter_ready = true;
+    g_hump.gravity_mg     = terrain_magnitude(avg_x, avg_y, avg_z);
 
     if (error < E_OK)
     {
@@ -302,11 +354,14 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                 p_history->previous_magnitude,
                 now_msec - p_history->previous_time_msec);
         }
-        // Compute the tilt of the robot using the accelerometer
-        // readings and save it into the snapshot
+        // Compute the tilt from smoothed readings: raw ones swing by
+        // several degrees with motor vibration.
+        int16_t smoothed[3] = {0};
+        smooth_axes(&sample, smoothed);
+
         ER tilt_error = terrain_relative_tilt(
-            sample.axis_x, sample.axis_y,
-            sample.axis_z,
+            smoothed[0], smoothed[1],
+            smoothed[2],
             &snapshot.roll_deg,
             &snapshot.pitch_deg
         );
@@ -317,109 +372,40 @@ static void process_sample (ID h_device, imu_history_t * p_history)
 
         if (snapshot.b_valid)
         {
-            // Calculate estimated height from current roll
-            float height_mm = terrain_hump_height(snapshot.roll_deg);
-            hump_height_mm = (uint16_t)(height_mm + 0.5F);
-
-            snapshot.height_valid = true;
-
-            // Check whether the robot is approximately level
-            isLevel = terrain_is_level(&snapshot);
-
-            if (!onHump)
-            {
-                // Possible beginning of a hump
-                if (!isLevel)
-                {
-                    onHump = true;
-                    level_count = 0;
-
-                    tm_printf((UB *)"HUMP STARTED\n");
-                }
-            }
-            else
-            {
-                // Robot is already crossing a hump
-
-                // Compare current height against previous height
-                int32_t height_change =
-                (int32_t)hump_height_mm -
-                (int32_t)last_hump_height_mm;
-
-                if (height_change > 2)
-                {
-                    // Estimated height increasing: possible climbing
-                }
-                else if (height_change < -2)
-                {
-                    // Estimated height decreasing: possible descending
-                }
-                else
-                {
-                    // Height approximately unchanged
-                }
-
-                // Confirm whether the robot has returned to level
-                if (isLevel)
-                {
-                    if (level_count < HUMP_LEVEL_CONFIRM_SAMPLES)
-                    {
-                        level_count++;
-                    }
-
-                    if (level_count >= HUMP_LEVEL_CONFIRM_SAMPLES)
-                    {
-                        onHump = false;
-                        level_count = 0;
-
-                        tm_printf((UB *)"HUMP LEVEL CONFIRMED\n");
-                    }
-                }
-                else
-                {
-                    // Tilt detected again; reset confirmation
-                    level_count = 0;
-                }
-            }
-
-            // Update mission maximum while crossing
-            if (onHump && hump_height_mm > max_hump_height_mm)
-            {
-                max_hump_height_mm = hump_height_mm;
-            }
-
-            // Publish the previous height before updating it
-            snapshot.last_hump_height_mm = last_hump_height_mm;
-
-            // Save current height for the next sampling cycle
-            last_hump_height_mm = hump_height_mm;
+            update_hump(&snapshot);
         }
         else
         {
             // Invalid measurements cannot confirm completion
-            level_count = 0;
+            g_hump.level_count = 0U;
         }
 
         // Assign the values to the snapshot for publishing
-        snapshot.onHump = onHump;
+        snapshot.onHump = g_hump.b_on_hump;
+        snapshot.hump_phase = g_hump.phase;
+        snapshot.height_valid = snapshot.b_valid;
         snapshot.hump_height_mm =
-            snapshot.b_valid ? hump_height_mm : 0U;
-        snapshot.max_hump_height_mm = max_hump_height_mm;
-
-        tm_printf(
-            (UB *)"HUMP: on=%u level=%u count=%u current=%u max=%u\n",
-            (UINT)onHump,
-            (UINT)isLevel,
-            (UINT)level_count,
-            (UINT)hump_height_mm,
-            (UINT)max_hump_height_mm
-        );
+            snapshot.b_valid ? round_mm(g_hump.height_mm) : 0U;
+        snapshot.last_hump_height_mm = g_hump.last_peak_mm;
+        snapshot.max_hump_height_mm = g_hump.max_peak_mm;
+        snapshot.hump_count = g_hump.hump_count;
 
         // This is for logging (printfs) the readings to the console every 100ms
-        if ((now_msec - p_history->last_log_msec) >= IMU_LOG_PERIOD_MSEC)
+        if ((0 != APP_IMU_DEBUG_LOG) &&
+            ((now_msec - p_history->last_log_msec) >= IMU_LOG_PERIOD_MSEC))
         {
             log_sample(now_msec, &sample);
             log_tilt(&snapshot);
+            /* Tenths keep sub-millimetre detail without float printing. */
+            tm_printf((UB *)"HUMP: on=%u phase=%u tilt_mdeg=%d "
+                            "height_x10mm=%d peak_x10mm=%d count=%u "
+                            "rejected=%u\n",
+                      (UINT)g_hump.b_on_hump, (UINT)g_hump.phase,
+                      (INT)(g_hump.tilt_deg * 1000.0F),
+                      (INT)(g_hump.height_mm * 10.0F),
+                      (INT)(g_hump.peak_mm * 10.0F),
+                      (UINT)g_hump.hump_count, (UINT)g_hump.rejected);
+            g_hump.rejected = 0U;
             p_history->last_log_msec = now_msec;
         }
 
@@ -443,6 +429,152 @@ static void process_sample (ID h_device, imu_history_t * p_history)
             (INT)publish_error
         );
     }
+}
+
+static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes)
+{
+    float const raw[3] = {(float)p_sample->axis_x, (float)p_sample->axis_y,
+                          (float)p_sample->axis_z};
+
+    int32_t const excess_mg = p_sample->magnitude - g_hump.gravity_mg;
+    bool const    b_shoved  = g_hump.b_filter_ready &&
+                           ((excess_mg > IMU_GRAVITY_TOLERANCE_MG) ||
+                            (excess_mg < -IMU_GRAVITY_TOLERANCE_MG));
+
+    if (b_shoved && (g_hump.rejected < UINT16_MAX))
+    {
+        g_hump.rejected++;
+    }
+
+    for (INT axis = 0; axis < 3; ++axis)
+    {
+        if (!g_hump.b_filter_ready)
+        {
+            g_hump.filtered[axis] = raw[axis];
+        }
+        else if (!b_shoved)
+        {
+            g_hump.filtered[axis] +=
+                IMU_FILTER_ALPHA * (raw[axis] - g_hump.filtered[axis]);
+        }
+        else
+        {
+            /* Hold the last trustworthy estimate. */
+        }
+
+        /* Averages of 12-bit readings stay within int16_t. */
+        p_axes[axis] = (int16_t)g_hump.filtered[axis];
+    }
+
+    g_hump.b_filter_ready = true;
+}
+
+static void update_hump (terrain_snapshot const * p_snapshot)
+{
+    g_hump.tilt_deg = (p_snapshot->roll_deg < 0.0F) ? -p_snapshot->roll_deg
+                                                     : p_snapshot->roll_deg;
+    g_hump.height_mm = terrain_hump_height(p_snapshot->roll_deg);
+
+    if (g_hump.tilt_deg <= HUMP_START_DEG)
+    {
+        g_hump.tilted_count = 0U;
+    }
+    else if (g_hump.tilted_count < HUMP_TILT_CONFIRM_SAMPLES)
+    {
+        g_hump.tilted_count++;
+    }
+    else
+    {
+        /* Already confirmed; the count only needs to reach the limit. */
+    }
+
+    bool const b_tilted = (g_hump.tilted_count >= HUMP_TILT_CONFIRM_SAMPLES);
+
+    if (!g_hump.b_on_hump)
+    {
+        if (b_tilted)
+        {
+            g_hump.b_on_hump   = true;
+            g_hump.phase       = TERRAIN_HUMP_CLIMBING;
+            g_hump.level_count = 0U;
+            g_hump.peak_mm     = g_hump.height_mm;
+            /* UB views read-only string bytes. */
+            tm_printf((UB *)"HUMP STARTED: climbing\n");
+        }
+
+        return;
+    }
+
+    if (g_hump.height_mm > g_hump.peak_mm)
+    {
+        /* A new high point: still on the way up. */
+        g_hump.peak_mm = g_hump.height_mm;
+
+        if (TERRAIN_HUMP_CLIMBING != g_hump.phase)
+        {
+            /* UB views read-only string bytes. */
+            tm_printf((UB *)"HUMP: climbing\n");
+        }
+
+        g_hump.phase = TERRAIN_HUMP_CLIMBING;
+    }
+    else if (g_hump.height_mm < (g_hump.peak_mm - HUMP_DESCENT_MM))
+    {
+        /* Clearly below the top: past it and on the way down. */
+        if (TERRAIN_HUMP_DESCENDING != g_hump.phase)
+        {
+            /* UB views read-only string bytes. */
+            tm_printf((UB *)"HUMP: descending\n");
+        }
+
+        g_hump.phase = TERRAIN_HUMP_DESCENDING;
+    }
+    else
+    {
+        /* Near the top: keep the current phase. */
+    }
+
+    if (b_tilted)
+    {
+        /* Tilt detected again; reset confirmation */
+        g_hump.level_count = 0U;
+        return;
+    }
+
+    if (g_hump.tilt_deg >= HUMP_LEVEL_DEG)
+    {
+        /* Between the thresholds, or a brief spike: hold the count. */
+        return;
+    }
+
+    g_hump.level_count++;
+
+    if (g_hump.level_count < HUMP_LEVEL_CONFIRM_SAMPLES)
+    {
+        return;
+    }
+
+    uint16_t const peak_mm = round_mm(g_hump.peak_mm);
+
+    g_hump.b_on_hump    = false;
+    g_hump.phase        = TERRAIN_HUMP_LEVEL;
+    g_hump.level_count  = 0U;
+    g_hump.last_peak_mm = peak_mm;
+    g_hump.hump_count++;
+
+    if (peak_mm > g_hump.max_peak_mm)
+    {
+        g_hump.max_peak_mm = peak_mm;
+    }
+
+    /* UB views read-only string bytes; tenths avoid float printing. */
+    tm_printf((UB *)"HUMP DONE: peak_x10mm=%d count=%u\n",
+              (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count);
+}
+
+static uint16_t round_mm (float height_mm)
+{
+    return (uint16_t)(height_mm + 0.5F);
 }
 
 static void log_tilt(terrain_snapshot const *p_snapshot)

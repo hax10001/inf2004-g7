@@ -10,8 +10,8 @@
 /** @brief Convert sensor axes to degrees; reject undefined roll or outputs. */
 bool tilt_math_angles (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                        float * p_roll_deg, float * p_pitch_deg);
-/** @brief Compute the hump height using roll_deg. */
-float tilt_math_hump_height(float roll_deg, float wheel_spacing_mm);
+/** @brief Height of one wheel above the other, from the roll angle. */
+float tilt_math_hump_height (float roll_deg, float wheel_spacing_mm);
 
 #endif /* TILT_MATH_H */
 

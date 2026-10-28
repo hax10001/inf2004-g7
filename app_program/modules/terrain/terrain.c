@@ -151,9 +151,13 @@ bool terrain_is_calibrated (void)
     return (error >= E_OK) && b_valid;
 }
 
-float terrain_hump_height(float roll_deg)
+float terrain_hump_height (float roll_deg)
 {
-    return tilt_math_hump_height(roll_deg, WHEEL_SPACING_MM);
+    /* The hump is under one wheel, so the robot tips sideways about the
+     * other: roll alone measures it, and pitch from speeding up or slowing
+     * down does not leak in.
+     */
+    return tilt_math_hump_height(roll_deg, (float)WHEEL_SPACING_MM);
 }
 
 bool terrain_is_level (terrain_snapshot const * p_snapshot)

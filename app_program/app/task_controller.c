@@ -315,6 +315,30 @@ static robot_state_t apply_action (ir_shared_snapshot_t const * p_reading,
     line_follow_action_t action =
         line_follow_decide(p_reading->left, p_reading->right);
 
+    bool const b_new_junction =
+        (LINE_UNCERTAIN == action) &&
+        ((!p_history->b_have_previous_action) ||
+         (LINE_UNCERTAIN != p_history->previous_action));
+
+    if ((LINE_UNCERTAIN == action) && (0 == APP_JUNCTION_STOP_ENABLED))
+    {
+        /* Stopping is overridden: drive straight across the junction. */
+        motion_apply(LINE_FORWARD);
+
+        if (b_new_junction)
+        {
+            p_history->junction_count++;
+            /* UINT matches %u on the 32-bit target; UB preserves bytes. */
+            tm_printf((UB *)"[CTRL] Junction %u -> crossing (stop "
+                            "disabled)\n",
+                      (UINT)p_history->junction_count);
+        }
+
+        p_history->previous_action        = LINE_UNCERTAIN;
+        p_history->b_have_previous_action = true;
+        return ROBOT_LINE_FOLLOWING;
+    }
+
     if (LINE_UNCERTAIN == action)
     {
         motion_apply(LINE_UNCERTAIN);

@@ -45,6 +45,7 @@ ER tk_slp_tsk(TMO timeout);
 ID tk_cre_mtx(const T_CMTX *config);
 ER tk_loc_mtx(ID mutex, TMO timeout);
 ER tk_unl_mtx(ID mutex);
+ER tk_del_mtx(ID mutex);
 ER tk_get_otm(SYSTIM *time);
 ID tk_opn_dev(UB *name, UINT mode);
 ER tk_cls_dev(ID device, UINT option);

@@ -17,12 +17,16 @@
 #include "drivers/motor.h"
 #include <tm/tmonitor.h>
 
-/* Open-loop duty percent that gives about MOTION_TARGET_RPM. Measured on
- * the track: the speed loop settled near 21 and 22 percent, so the trim
+/* Open-loop duty percent that gives MOTION_CAL_RPM. Measured on the track:
+ * the speed loop settled near 21 and 22 percent at 40 RPM, so the trim
  * keeps headroom for steering instead of sitting at its limit.
  */
 #define MOTION_LEFT_SPEED 21.0f
 #define MOTION_RIGHT_SPEED 22.0f
+/* The RPM the two duties above were measured at. Feedforward for any other
+ * speed is interpolated from it, so MOTION_TARGET_RPM can change freely.
+ */
+#define MOTION_CAL_RPM 40.0f
 /* Deadband: the duty a wheel needs before it turns at all.
  * WARNING: Uncalibrated. With APP_SPEED_CONTROL_ENABLED 0, lower the
  * matching speed above until that wheel stops, then use the last duty
@@ -32,10 +36,8 @@
 #define MOTION_RIGHT_MIN_DUTY 8.0f
 #define MOTION_MAX_PERCENT 100.0f
 
-/* WARNING: Uncalibrated. Run with APP_SPEED_CONTROL_ENABLED 0 and set this
- * between the left and right RPM logged at the feedforward duty above.
- */
-#define MOTION_TARGET_RPM 40.0f
+/* Driving speed on a straight. 40 RPM is about 140 mm/s. */
+#define MOTION_TARGET_RPM 20.0f
 /* Largest change in the base speed per period, when starting or stopping. */
 #define MOTION_RAMP_RPM 8.0f
 /* Largest growth in steer per period; lower is smoother, but too low lags
@@ -46,6 +48,11 @@
  * the outer one speeds up, giving the sensors more time on a curve.
  */
 #define MOTION_CURVE_SLOWDOWN 0.6f
+/* Targets below this stop the wheel: a fifth of the driving speed, so only
+ * the inner wheel of a turn near full steer gets this low. Driving it there
+ * gave about 15 RPM instead of 4 at 40 RPM.
+ */
+#define MOTION_STOP_RPM (0.2f * MOTION_TARGET_RPM)
 /* Duty percent per RPM of error, and per RPM-second of accumulated error. */
 #define MOTION_KP 0.1f
 #define MOTION_KI 0.5f
@@ -84,7 +91,7 @@ static motion_status_t volatile g_status        = {0};
 static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
                             float target_rpm, float measured_rpm);
 /** @brief Open-loop duty for a target: deadband plus a line through the
- * calibrated duty at MOTION_TARGET_RPM; zero for a zero target.
+ * calibrated duty at MOTION_CAL_RPM; zero below MOTION_STOP_RPM.
  */
 static float feedforward (float target_rpm, float min_duty,
                           float target_duty);
@@ -321,13 +328,16 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
 static float feedforward (float target_rpm, float min_duty,
                           float target_duty)
 {
-    if (target_rpm <= 0.0f)
+    if (target_rpm < MOTION_STOP_RPM)
     {
+        /* Too slow to hold: the inner wheel of a hard turn is dragged
+         * along at about 15 RPM instead, so stop it and pivot instead.
+         */
         return 0.0f;
     }
 
     return min_duty +
-           (((target_duty - min_duty) * target_rpm) / MOTION_TARGET_RPM);
+           (((target_duty - min_duty) * target_rpm) / MOTION_CAL_RPM);
 }
 
 static void stop_wheels (void)

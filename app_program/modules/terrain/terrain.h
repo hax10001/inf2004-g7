@@ -16,16 +16,25 @@ typedef struct
     bool  b_valid;
 } terrain_calibration;
 
+/** @brief Where the robot is on a hump. */
+typedef enum
+{
+    TERRAIN_HUMP_LEVEL,
+    TERRAIN_HUMP_CLIMBING,   /**< Estimated height rising. */
+    TERRAIN_HUMP_DESCENDING  /**< Estimated height falling. */
+} terrain_hump_phase;
+
 /** @brief A snapshot of the current terrain state. */
 typedef struct
 {
     float roll_deg;
     float pitch_deg;
     float peak_roll_deg;
-    uint16_t hump_height_mm;
-    uint16_t last_hump_height_mm;
-    uint16_t max_hump_height_mm;
-    uint8_t hump_count;
+    uint16_t hump_height_mm;      /**< Current estimate. */
+    uint16_t last_hump_height_mm; /**< Peak of the last completed hump. */
+    uint16_t max_hump_height_mm;  /**< Highest completed hump this run. */
+    uint8_t hump_count;           /**< Completed humps this run. */
+    terrain_hump_phase hump_phase;
     bool onHump;
     bool height_valid;
     uint32_t timestamp_msec;
@@ -56,8 +65,8 @@ ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
 ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z);
 /** @brief Return false until calibration is saved, or if locking fails. */
 bool terrain_is_calibrated (void);
-/** @brief Compute the hump height using roll_deg. */
-float terrain_hump_height(float roll_deg);
+/** @brief Height of one wheel above the other, from the roll angle. */
+float terrain_hump_height (float roll_deg);
 /** @brief Check if the robot is level. */
 bool terrain_is_level(terrain_snapshot const *p_snapshot);
 

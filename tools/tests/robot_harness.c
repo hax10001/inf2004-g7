@@ -84,6 +84,7 @@ ER tk_loc_mtx(ID mutex, TMO timeout)
     return fail_lock ? -5 : E_OK;
 }
 ER tk_unl_mtx(ID mutex) { return E_OK; }
+ER tk_del_mtx(ID mutex) { return E_OK; }
 ER tk_get_otm(SYSTIM *time)
 {
     if (++time_calls == fail_time) { return -5; }
@@ -295,7 +296,18 @@ static void run_units(void)
     assert(-STEERING_MAX == status.steer);
     assert(fabsf(status.left_target_rpm - 37.44f) < 1e-3f);
     assert(fabsf(status.right_target_rpm - 4.16f) < 1e-3f);
-    /* After a long touch (a curve) the turn decays instead of ending. */
+    /* After a full-strength turn the line may have slipped round beside the
+     * robot: the turn is held for 12 more periods, then decays.
+     */
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status));
+    assert(-STEERING_MAX == status.steer);
+    for (int period = 0; period < 12; ++period)
+    {
+        motion_apply(LINE_FORWARD);
+    }
+    assert(E_OK == motion_get_status(&status));
+    assert(-STEERING_MAX == status.steer);
     motion_apply(LINE_FORWARD);
     assert(E_OK == motion_get_status(&status));
     assert(fabsf(status.steer + 0.68f) < 1e-5f);
@@ -309,6 +321,75 @@ static void run_units(void)
     assert(E_OK == motion_get_status(&status));
     assert(fabsf(status.left_target_rpm - 4.592f) < 1e-3f);
     assert(fabsf(status.right_target_rpm - 8.528f) < 1e-3f);
+    motion_apply(LINE_UNCERTAIN);
+    /* A lone short touch ends its turn, but another on the same side soon
+     * after is a bend: that turn is kept, decaying 0.1 x 0.85.
+     */
+    motion_apply(LINE_CORRECT_LEFT);
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status) && 0.0f == status.steer);
+    motion_apply(LINE_FORWARD);
+    motion_apply(LINE_FORWARD);
+    motion_apply(LINE_CORRECT_LEFT);
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status));
+    assert(fabsf(status.steer - 0.085f) < 1e-5f);
+    motion_apply(LINE_UNCERTAIN);
+    /* After a full-strength left turn, a swing past the line onto the right
+     * sensor must not make the next short left touch count as a nudge: the
+     * full turn resumes, rising 0.3 per period from 0.3.
+     */
+    for (int period = 0; period < 10; ++period)
+    {
+        motion_apply(LINE_CORRECT_LEFT);
+    }
+    motion_apply(LINE_FORWARD);
+    motion_apply(LINE_CORRECT_RIGHT);
+    motion_apply(LINE_FORWARD);
+    motion_apply(LINE_CORRECT_LEFT);
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status));
+    assert(fabsf(status.steer - 0.6f) < 1e-5f);
+    /* Short touches do not extend the bend: well after the last long full
+     * turn, a short left touch is a straight-line nudge again.
+     */
+    for (int period = 0; period < 30; ++period)
+    {
+        motion_apply(LINE_CORRECT_RIGHT);
+        motion_apply(LINE_FORWARD);
+    }
+    motion_apply(LINE_CORRECT_LEFT);
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status));
+    assert(0.0f == status.steer);
+    motion_apply(LINE_UNCERTAIN);
+    /* A long touch continuing a resumed full turn is still the bend: it
+     * restarts the window, so a swing past the line long after the first
+     * full turn, but soon after the long touch, is survived.
+     */
+    for (int period = 0; period < 10; ++period)
+    {
+        motion_apply(LINE_CORRECT_LEFT);
+    }
+    motion_apply(LINE_FORWARD);
+    motion_apply(LINE_CORRECT_RIGHT);
+    motion_apply(LINE_FORWARD);
+    motion_apply(LINE_CORRECT_LEFT);
+    motion_apply(LINE_FORWARD);
+    for (int period = 0; period < 10; ++period)
+    {
+        motion_apply(LINE_CORRECT_LEFT);
+    }
+    for (int period = 0; period < 12; ++period)
+    {
+        motion_apply(LINE_FORWARD);
+    }
+    motion_apply(LINE_CORRECT_RIGHT);
+    motion_apply(LINE_FORWARD);
+    motion_apply(LINE_CORRECT_LEFT);
+    motion_apply(LINE_FORWARD);
+    assert(E_OK == motion_get_status(&status));
+    assert(fabsf(status.steer - 0.6f) < 1e-5f);
     motion_apply(LINE_UNCERTAIN);
     quiet = 0;
 
@@ -435,6 +516,11 @@ int main(int argc, char **argv)
         if (variant >= 7) { delay_limit = 40; }
         ir_shared_init();
         if (variant != 4) { ir_shared_publish(0U, 0U, 1U); }
+#if !LEGACY
+        /* The controller waits for the IMU level reference; give it one. */
+        terrain_init();
+        terrain_calibrate(0, 0, 1000);
+#endif
         if (setjmp(escape_task) == 0) { in_task = 1; RUN_CTRL(0, NULL); }
         puts("TASK_END");
     }
