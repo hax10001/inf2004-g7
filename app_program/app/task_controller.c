@@ -6,6 +6,7 @@
 #include "modules/line_barcode/ir_shared.h"
 #include "modules/line_barcode/line_follow.h"
 #include "modules/motion/motion.h"
+#include "modules/terrain/terrain.h"
 #include <tm/tmonitor.h>
 
 #define JUNCTION_HOLD_CYCLES \
@@ -32,7 +33,7 @@ typedef struct
     bool                 b_rearmed;       /**< Both black after the hold. */
 } controller_history_t;
 
-/** @brief Remain idle until fresh IR data is available. */
+/** @brief Wait for startup calibration and fresh IR data. */
 static robot_state_t handle_idle (void);
 /** @brief Follow the line, preserving stop and error behaviour. */
 static robot_state_t handle_following (controller_history_t * p_history);
@@ -61,6 +62,12 @@ void task_controller_task (INT start_code, void * p_context)
 
     /* UB views the same string bytes; tm_printf does not modify them. */
     tm_printf((UB *)"[CTRL] Controller started\n");
+
+#if APP_IMU_ENABLED
+    motion_apply(LINE_UNCERTAIN);
+    /* UB views read-only string bytes; the monitor does not modify them. */
+    tm_printf((UB *)"[CTRL] Waiting for IMU level reference\n");
+#endif
 
     for (;;)
     {
@@ -98,6 +105,13 @@ void task_controller_task (INT start_code, void * p_context)
 
 static robot_state_t handle_idle (void)
 {
+#if APP_IMU_ENABLED
+    if (!terrain_is_calibrated())
+    {
+        return ROBOT_IDLE;
+    }
+#endif
+
     ir_shared_snapshot_t reading = {0};
     ER                   error   = ir_shared_get_latest(&reading);
 
