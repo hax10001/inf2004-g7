@@ -1,62 +1,62 @@
 /** @file task_ir.c
- * @brief Periodic sampling; GPIO operations remain in the IR driver.
+ * @brief Bounded three-IR sampling and perception loop (task context).
  */
 #include "task_ir.h"
 #include "ir_shared.h"
+#include "line_barcode.h"
 #include "drivers/ir.h"
-#include "app/app_config.h"
-#include "platform/console.h"
-#include <tm/tmonitor.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+/* Requested 4 ms, but current kernel is configured for 10 ms SysTick.
+ * The scheduler cannot guarantee 4 ms until the kernel timer is reviewed.
+ * The team must validate the actual interval before physical scanning.
+ */
+#define B3_IR_REQUEST_PERIOD_MSEC 4U
 
 void task_ir_task (INT start_code, void * p_context)
 {
-    /* Casting unused arguments to void cannot alter their values. */
+    bool b_sleep_on_error = true;
+    ER error = E_OK;
+
     (void)start_code;
     (void)p_context;
-
-    for (INT attempt = 0;
-         (attempt < APP_USB_WAIT_ATTEMPTS) && (console_state() < 2U); attempt++)
-    {
-        tk_dly_tsk(APP_USB_WAIT_PERIOD_MSEC);
-    }
-
-    tk_dly_tsk(APP_USB_SETTLE_MSEC);
-
-    /* UB views the same string bytes; tm_printf does not modify them. */
-    tm_printf((UB *)"\n=== RoboPico IR Task ===\n");
-
-    bool b_sleep_on_error = true;
-    ER   error            = ir_init(&b_sleep_on_error);
-
+    error = ir_init(&b_sleep_on_error);
     if (error < E_OK)
     {
-        if (b_sleep_on_error)
-        {
-            tk_slp_tsk(TMO_FEVR);
-        }
-
+        (void)b_sleep_on_error;
+        (void)line_barcode_report_fault();
         return;
     }
-
-    /* UB views the same string bytes; tm_printf does not modify them. */
-    tm_printf((UB *)"IR sensors initialized.\n");
-
     for (;;)
     {
-        uint32_t left_raw    = 0U;
-        uint32_t right_raw   = 0U;
-        uint32_t barcode_raw = 0U;
+        uint32_t left = 0U;
+        uint32_t right = 0U;
+        uint32_t barcode = 0U;
+        uint8_t bits = 0U;
 
-        ir_read(&left_raw, &right_raw, &barcode_raw);
-        error = ir_shared_publish(left_raw, right_raw, barcode_raw);
-
+        ir_read(&left, &right, &barcode);
+        if (((left | right | barcode) & ~1U) != 0U)
+        {
+            /* Invalid electrical reading: do not publish or steer. */
+            (void)line_barcode_report_fault();
+            return;
+        }
+        error = ir_shared_publish(left, right, barcode);
         if (error < E_OK)
         {
-            /* UB views the same bytes; tm_printf does not modify them. */
-            tm_printf((UB *)"[IR] Publish error: %d\n", error);
+            /* A failed update must not be mistaken for a fresh sample. */
+            (void)line_barcode_report_fault();
+            return;
         }
-
-        tk_dly_tsk(APP_IR_PERIOD_MSEC);
+        bits = (uint8_t)(left | (right << 1U) | (barcode << 2U));
+        error = line_barcode_process(bits);
+        if (error < E_OK)
+        {
+            (void)line_barcode_report_fault();
+            return;
+        }
+        (void)tk_dly_tsk(B3_IR_REQUEST_PERIOD_MSEC);
     }
 }
 
