@@ -21,9 +21,13 @@ typedef struct
 {
     float roll_deg;
     float pitch_deg;
-    // Future variables
-    // uint8_t terrain_state;
-    // uint16_t hump_height_mm;
+    float peak_roll_deg;
+    uint16_t hump_height_mm;
+    uint16_t last_hump_height_mm;
+    uint16_t max_hump_height_mm;
+    uint8_t hump_count;
+    bool onHump;
+    bool height_valid;
     uint32_t timestamp_msec;
     bool b_valid;
 } terrain_snapshot;
@@ -43,19 +47,20 @@ int32_t terrain_jerk (int32_t magnitude, int32_t previous,
  */
 ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                  float *p_roll_deg, float *p_pitch_deg);
+/** @brief Compute current angles relative to the saved startupreference. */
+ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
+                          float *p_roll_deg, float *p_pitch_deg);
 /** @brief Save averaged stationary axes as the startup reference, once.
  * @note Call only from the IMU task before motion. Reference is RAM-only.
- * Note that x,y,z needs to be remapped to robot's forward
- * robotX = -Y
- * robotY = X
- * robotZ = Z
  */
 ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z);
 /** @brief Return false until calibration is saved, or if locking fails. */
 bool terrain_is_calibrated (void);
-/** @brief Compute current angles relative to the saved startupreference. */
-ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
-                          float *p_roll_deg, float *p_pitch_deg);
+/** @brief Compute the hump height using roll_deg. */
+float terrain_hump_height(float roll_deg);
+/** @brief Check if the robot is level. */
+bool terrain_is_level(terrain_snapshot const *p_snapshot);
+
 /** @brief Publish a new terrain snapshot.
  * @note This function is thread-safe and should be called from the IMU task.
  */

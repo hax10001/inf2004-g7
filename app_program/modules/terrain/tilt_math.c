@@ -33,5 +33,11 @@ bool tilt_math_angles (int16_t axis_x, int16_t axis_y, int16_t axis_z,
     return true;
 }
 
+float tilt_math_hump_height(float roll_deg, float wheel_spacing_mm)
+{
+    float roll_rad = fabsf(roll_deg) * 0.0174532925F;
+
+    return wheel_spacing_mm * sinf(roll_rad);
+}
 /*** end of file ***/
 

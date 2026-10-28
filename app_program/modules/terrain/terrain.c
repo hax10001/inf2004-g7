@@ -10,12 +10,13 @@
 #define TERRAIN_ROOT_START_BIT (1U << 30U)
 #define TERRAIN_MSEC_PER_SECOND 1000
 #define TERRAIN_SIGNED_TIME_MAX 0x7FFFFFFFU
+#define TERRAIN_LEVEL_TOLERANCE_DEG 5.0F
 
 /* Initialise before tasks start; protect all subsequent shared access. */
-static ID gh_calibration_mutex = 0;
-static ID gh_snapshot_mutex = 0;
-static terrain_calibration g_calibration = {0.0f, 0.0f, false};
-static terrain_snapshot g_snapshot = {0.0f, 0.0f, 0U, false};
+static ID volatile gh_calibration_mutex = 0;
+static ID volatile gh_snapshot_mutex = 0;
+static terrain_calibration volatile g_calibration = {0};
+static terrain_snapshot volatile g_snapshot = {0};
 
 /** @brief Compute an integer square root without the floating-point library. */
 static uint32_t integer_sqrt (uint32_t number);
@@ -60,7 +61,7 @@ ER terrain_init(void)
 
     g_calibration = (terrain_calibration){0.0F, 0.0F, false};
 
-    g_snapshot = (terrain_snapshot){0.0f, 0.0f, 0U, false};
+    g_snapshot = (terrain_snapshot){0};
 
     return E_OK;
 }
@@ -148,6 +149,25 @@ bool terrain_is_calibrated (void)
     bool b_valid = g_calibration.b_valid;
     ER error = tk_unl_mtx(gh_calibration_mutex);
     return (error >= E_OK) && b_valid;
+}
+
+float terrain_hump_height(float roll_deg)
+{
+    return tilt_math_hump_height(roll_deg, WHEEL_SPACING_MM);
+}
+
+bool terrain_is_level (terrain_snapshot const * p_snapshot)
+{
+    if ((NULL == p_snapshot) || (!p_snapshot->b_valid))
+    {
+        return false;
+    }
+
+    return
+        (p_snapshot->roll_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
+        (p_snapshot->roll_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG) &&
+        (p_snapshot->pitch_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
+        (p_snapshot->pitch_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG);
 }
 
 ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,

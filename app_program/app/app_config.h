@@ -15,7 +15,7 @@
 #define APP_USB_WAIT_ATTEMPTS 200
 #define APP_USB_WAIT_PERIOD_MSEC 100
 #define APP_USB_SETTLE_MSEC 500
-
+#define WHEEL_SPACING_MM 110
 /* Enabled IMU calibrates at startup; the controller waits before moving. */
 #define APP_IMU_ENABLED 1
 

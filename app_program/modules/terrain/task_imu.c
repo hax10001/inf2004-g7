@@ -18,6 +18,15 @@
 #define IMU_CALIBRATION_MAX_MG 1200
 #define IMU_CALIBRATION_CHANGE_MG 50
 
+// Static variables for hump detection
+#define HUMP_LEVEL_CONFIRM_SAMPLES 15U
+static bool isLevel = true;
+static bool onHump = false;
+static uint16_t max_hump_height_mm = 0;
+static uint16_t last_hump_height_mm = 0;
+static uint16_t hump_height_mm = 0;
+static uint8_t level_count = 0;
+
 typedef struct
 {
     int32_t  previous_magnitude;
@@ -293,7 +302,8 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                 p_history->previous_magnitude,
                 now_msec - p_history->previous_time_msec);
         }
-
+        // Compute the tilt of the robot using the accelerometer
+        // readings and save it into the snapshot
         ER tilt_error = terrain_relative_tilt(
             sample.axis_x, sample.axis_y,
             sample.axis_z,
@@ -304,6 +314,107 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         {
             snapshot.b_valid = true;
         }
+
+        if (snapshot.b_valid)
+        {
+            // Calculate estimated height from current roll
+            float height_mm = terrain_hump_height(snapshot.roll_deg);
+            hump_height_mm = (uint16_t)(height_mm + 0.5F);
+
+            snapshot.height_valid = true;
+
+            // Check whether the robot is approximately level
+            isLevel = terrain_is_level(&snapshot);
+
+            if (!onHump)
+            {
+                // Possible beginning of a hump
+                if (!isLevel)
+                {
+                    onHump = true;
+                    level_count = 0;
+
+                    tm_printf((UB *)"HUMP STARTED\n");
+                }
+            }
+            else
+            {
+                // Robot is already crossing a hump
+
+                // Compare current height against previous height
+                int32_t height_change =
+                (int32_t)hump_height_mm -
+                (int32_t)last_hump_height_mm;
+
+                if (height_change > 2)
+                {
+                    // Estimated height increasing: possible climbing
+                }
+                else if (height_change < -2)
+                {
+                    // Estimated height decreasing: possible descending
+                }
+                else
+                {
+                    // Height approximately unchanged
+                }
+
+                // Confirm whether the robot has returned to level
+                if (isLevel)
+                {
+                    if (level_count < HUMP_LEVEL_CONFIRM_SAMPLES)
+                    {
+                        level_count++;
+                    }
+
+                    if (level_count >= HUMP_LEVEL_CONFIRM_SAMPLES)
+                    {
+                        onHump = false;
+                        level_count = 0;
+
+                        tm_printf((UB *)"HUMP LEVEL CONFIRMED\n");
+                    }
+                }
+                else
+                {
+                    // Tilt detected again; reset confirmation
+                    level_count = 0;
+                }
+            }
+
+            // Update mission maximum while crossing
+            if (onHump && hump_height_mm > max_hump_height_mm)
+            {
+                max_hump_height_mm = hump_height_mm;
+            }
+
+            // Publish the previous height before updating it
+            snapshot.last_hump_height_mm = last_hump_height_mm;
+
+            // Save current height for the next sampling cycle
+            last_hump_height_mm = hump_height_mm;
+        }
+        else
+        {
+            // Invalid measurements cannot confirm completion
+            level_count = 0;
+        }
+
+        // Assign the values to the snapshot for publishing
+        snapshot.onHump = onHump;
+        snapshot.hump_height_mm =
+            snapshot.b_valid ? hump_height_mm : 0U;
+        snapshot.max_hump_height_mm = max_hump_height_mm;
+
+        tm_printf(
+            (UB *)"HUMP: on=%u level=%u count=%u current=%u max=%u\n",
+            (UINT)onHump,
+            (UINT)isLevel,
+            (UINT)level_count,
+            (UINT)hump_height_mm,
+            (UINT)max_hump_height_mm
+        );
+
         // This is for logging (printfs) the readings to the console every 100ms
         if ((now_msec - p_history->last_log_msec) >= IMU_LOG_PERIOD_MSEC)
         {
