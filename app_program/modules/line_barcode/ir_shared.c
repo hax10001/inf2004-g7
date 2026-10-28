@@ -2,7 +2,7 @@
  * @brief Single packed IR state with mutex and legacy layout conversion.
  */
 #include "ir_shared.h"
-#include <stddef.h>
+//#include <stddef.h>
 
 #define IR_ENCODER_MAX_AGE_MSEC 40U
 
