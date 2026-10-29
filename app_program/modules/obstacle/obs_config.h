@@ -23,24 +23,32 @@
 #define OBS_CONFIRM_HITS 3U
 #define OBS_NO_ECHO_LIMIT 5U
 /* A value of 1 stops the robot when the sensor stays silent. */
-#define OBS_FAILSAFE_NO_ECHO 1
+#define OBS_FAILSAFE_NO_ECHO 0
 
 /* Servo (SG90). Measure every value in this group. */
-#define OBS_SERVO_FRONT_USEC 1500
+#define OBS_SERVO_FRONT_USEC 800
 #define OBS_SERVO_USEC_PER_DEG 10
 /* A value of 1 means that a longer pulse turns the sensor left. */
-#define OBS_SERVO_LEFT_SIGN 1
+#define OBS_SERVO_LEFT_SIGN -1
 #define OBS_SERVO_MIN_USEC 600
 #define OBS_SERVO_MAX_USEC 2400
-#define OBS_SERVO_LIMIT_DEG 80
+/* Measure: how far the servo can turn each side before it is blocked. */
+#define OBS_SERVO_LEFT_LIMIT_DEG 40
+#define OBS_SERVO_RIGHT_LIMIT_DEG 40
+/* The larger side; kept for code that assumes a symmetric sweep. */
+#define OBS_SERVO_LIMIT_DEG 40
 #define OBS_SERVO_SETTLE_BASE_MSEC 40
 #define OBS_SERVO_SETTLE_PER_DEG_MSEC 3
 
 /* Panning scan. The step must be a multiple of 10 degrees. */
 #define OBS_SCAN_STEP_DEG 10
-#define OBS_SCAN_LIMIT_DEG 70
-/* Equals two times the limit divided by the step, plus one. */
-#define OBS_SCAN_POINTS 15
+/* Sweep each side of FRONT; never more than the servo limits above. */
+#define OBS_SCAN_LEFT_DEG 40
+#define OBS_SCAN_RIGHT_DEG 40
+/* The larger side; kept for code that assumes a symmetric sweep. */
+#define OBS_SCAN_LIMIT_DEG 40
+/* Equals the left plus right sweep divided by the step, plus one. */
+#define OBS_SCAN_POINTS 9
 #define OBS_SCAN_PINGS 3U
 #define OBS_SCAN_RANGE_MM 600
 #define OBS_EDGE_JUMP_MM 80
@@ -65,7 +73,7 @@
 #define OBS_STATE_TIMEOUT_MSEC 15000U
 
 /* Passing the object and finding the line again. */
-#define OBS_SIDE_LOOK_DEG 70
+#define OBS_SIDE_LOOK_DEG 40
 #define OBS_SIDE_NEAR_MM 400
 #define OBS_SIDE_CLEAR_HITS 3U
 #define OBS_PASS_MAX_MM 800

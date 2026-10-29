@@ -3,9 +3,12 @@
  * @brief Packed status word, event flags and plan hand-off.
  *
  * Every field of the status word has one writer at a time, and each update
- * is a protected read-modify-write, so packed fields cannot race.
+ * is a read-modify-write protected by a binary semaphore, so packed fields
+ * cannot race. A semaphore is used instead of a mutex because the kernel
+ * configuration allows only a few mutexes.
  */
 #include "obs_state.h"
+#include <stdbool.h>
 
 #define STATUS_PHASE_SHIFT 0U
 #define STATUS_PHASE_MASK 0xFU
@@ -23,30 +26,36 @@
 #define STATUS_WIDTH_LIMIT_CM 254
 #define MM_PER_CM 10
 
-static ID gh_mutex                     = 0;
+static ID gh_sem                       = 0;
 static ID gh_flag                      = 0;
 static uint32_t volatile g_status      = 0U;
 static uint32_t volatile g_plan_word_a = 0U;
 static uint32_t volatile g_plan_word_b = 0U;
 static int32_t volatile g_watch_side   = 1;
 
-/** @brief Replace one field of the status word under the mutex. */
+/** @brief Take the lock; false if the lock does not exist yet. */
+static bool lock_take (void);
+/** @brief Release the lock taken by lock_take(). */
+static void lock_give (void);
+/** @brief Replace one field of the status word under the lock. */
 static void status_update (uint32_t shift, uint32_t mask, uint32_t value);
 /** @brief Read one field of the status word. */
 static uint32_t field_get (uint32_t shift, uint32_t mask);
 
 ER obs_state_init (void)
 {
-    T_CMTX mutex_config = {0};
-    T_CFLG flag_config  = {0};
-    ER     error        = E_OK;
+    T_CSEM sem_config  = {0};
+    T_CFLG flag_config = {0};
+    ER     error       = E_OK;
 
-    mutex_config.mtxatr = TA_INHERIT;
-    gh_mutex            = tk_cre_mtx(&mutex_config);
+    sem_config.sematr  = TA_TFIFO | TA_FIRST;
+    sem_config.isemcnt = 1;
+    sem_config.maxsem  = 1;
+    gh_sem             = tk_cre_sem(&sem_config);
 
-    if (gh_mutex <= E_OK)
+    if (gh_sem <= E_OK)
     {
-        error = (E_OK == gh_mutex) ? E_OBJ : gh_mutex;
+        error = (E_OK == gh_sem) ? E_OBJ : gh_sem;
     }
     else
     {
@@ -96,10 +105,10 @@ uint32_t obs_state_status_get (void)
 {
     uint32_t word = 0U;
 
-    if ((gh_mutex > E_OK) && (tk_loc_mtx(gh_mutex, TMO_FEVR) >= E_OK))
+    if (lock_take())
     {
         word = g_status;
-        tk_unl_mtx(gh_mutex);
+        lock_give();
     }
 
     return word;
@@ -203,14 +212,14 @@ void obs_state_count_bypass (void)
 
 void obs_state_faults_update (uint32_t set_mask, uint32_t clear_mask)
 {
-    if ((gh_mutex > E_OK) && (tk_loc_mtx(gh_mutex, TMO_FEVR) >= E_OK))
+    if (lock_take())
     {
         uint32_t faults = (g_status >> STATUS_FAULT_SHIFT) & STATUS_FAULT_MASK;
 
         faults   = (faults | set_mask) & ~clear_mask;
         g_status = (g_status & ~(STATUS_FAULT_MASK << STATUS_FAULT_SHIFT)) |
                    ((faults & STATUS_FAULT_MASK) << STATUS_FAULT_SHIFT);
-        tk_unl_mtx(gh_mutex);
+        lock_give();
     }
 }
 
@@ -236,12 +245,22 @@ int32_t obs_state_watch_side_get (void)
     return g_watch_side;
 }
 
+static bool lock_take (void)
+{
+    return (gh_sem > E_OK) && (tk_wai_sem(gh_sem, 1, TMO_FEVR) >= E_OK);
+}
+
+static void lock_give (void)
+{
+    tk_sig_sem(gh_sem, 1);
+}
+
 static void status_update (uint32_t shift, uint32_t mask, uint32_t value)
 {
-    if ((gh_mutex > E_OK) && (tk_loc_mtx(gh_mutex, TMO_FEVR) >= E_OK))
+    if (lock_take())
     {
         g_status = (g_status & ~(mask << shift)) | ((value & mask) << shift);
-        tk_unl_mtx(gh_mutex);
+        lock_give();
     }
 }
 

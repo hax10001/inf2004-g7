@@ -19,6 +19,7 @@
 #define SERVO_REG_DIV (SERVO_SLICE_BASE + 0x04U)
 #define SERVO_WRAP 19999U
 #define SERVO_DIV_INT_SHIFT 4U
+#define SERVO_SPAN_DEG (OBS_SERVO_LEFT_LIMIT_DEG + OBS_SERVO_RIGHT_LIMIT_DEG)
 
 static int32_t g_angle_deg = 0;
 
@@ -47,15 +48,15 @@ ER servo_init (void)
 
 uint32_t servo_set_angle (int32_t angle_deg)
 {
-    int32_t const angle =
-        clamp_int(angle_deg, -OBS_SERVO_LIMIT_DEG, OBS_SERVO_LIMIT_DEG);
+    int32_t const angle = clamp_int(angle_deg, -OBS_SERVO_RIGHT_LIMIT_DEG,
+                                    OBS_SERVO_LEFT_LIMIT_DEG);
     int32_t const raw_pulse =
         OBS_SERVO_FRONT_USEC +
         (OBS_SERVO_LEFT_SIGN * angle * OBS_SERVO_USEC_PER_DEG);
     int32_t const pulse =
         clamp_int(raw_pulse, OBS_SERVO_MIN_USEC, OBS_SERVO_MAX_USEC);
-    int32_t const moved = clamp_int(
-        angle - g_angle_deg, -2 * OBS_SERVO_LIMIT_DEG, 2 * OBS_SERVO_LIMIT_DEG);
+    int32_t const moved =
+        clamp_int(angle - g_angle_deg, -SERVO_SPAN_DEG, SERVO_SPAN_DEG);
     int32_t const travel = (moved < 0) ? -moved : moved;
     int32_t const settle =
         OBS_SERVO_SETTLE_BASE_MSEC + (travel * OBS_SERVO_SETTLE_PER_DEG_MSEC);

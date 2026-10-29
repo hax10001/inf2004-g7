@@ -27,7 +27,7 @@
  * across it instead. WARNING: with zero, lifting the robot (both sensors
  * read black) no longer stops the motors.
  */
-#define APP_JUNCTION_STOP_ENABLED 0
+#define APP_JUNCTION_STOP_ENABLED 1
 #define APP_USB_WAIT_ATTEMPTS 200
 #define APP_USB_WAIT_PERIOD_MSEC 100
 #define APP_USB_SETTLE_MSEC 500

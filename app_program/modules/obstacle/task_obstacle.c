@@ -169,8 +169,8 @@ static void run_scan (void)
     int32_t           count = 0;
     bool              b_ok  = true;
 
-    for (int32_t angle = -OBS_SCAN_LIMIT_DEG;
-         (angle <= OBS_SCAN_LIMIT_DEG) && (count < OBS_SCAN_POINTS) && b_ok;
+    for (int32_t angle = -OBS_SCAN_RIGHT_DEG;
+         (angle <= OBS_SCAN_LEFT_DEG) && (count < OBS_SCAN_POINTS) && b_ok;
          angle += OBS_SCAN_STEP_DEG)
     {
         if (0U != (obs_state_flags_read() & OBS_EVT_ABORT))
