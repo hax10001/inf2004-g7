@@ -7,6 +7,7 @@
 #include "modules/line_barcode/line_follow.h"
 #include "modules/motion/motion.h"
 #include "modules/terrain/terrain.h"
+#include "modules/obstacle/obstacle.h" 
 #include <tm/tmonitor.h>
 
 #define JUNCTION_HOLD_CYCLES \
@@ -19,6 +20,7 @@ typedef enum
     ROBOT_IDLE,
     ROBOT_LINE_FOLLOWING,
     ROBOT_AT_JUNCTION,
+    ROBOT_OBSTACLE,
     ROBOT_STOPPED,
     ROBOT_ERROR
 } robot_state_t;
@@ -369,6 +371,93 @@ static robot_state_t apply_action (ir_shared_snapshot_t const * p_reading,
     }
 
     return ROBOT_LINE_FOLLOWING;
+}
+
+// /** Run one period of scan, bypass and line reacquisition. */
+// static robot_state_t handle_obstacle (controller_history_t * p_history);
+
+//             case ROBOT_OBSTACLE:
+//                 state = handle_obstacle(&history);
+//             break;
+
+// /* handle_following: insert directly after the stale-IR check */
+//     if (obstacle_has_fault())
+//     {
+//         motion_apply(LINE_UNCERTAIN);
+//         obstacle_abort();
+//         tm_printf((UB *)"[CTRL] Obstacle sensor fault -> ERROR\n");
+//         return ROBOT_ERROR;
+//     }
+
+//     if (obstacle_is_blocked())
+//     {
+//         motion_apply(LINE_UNCERTAIN);
+//         tm_printf((UB *)"[CTRL] Obstacle confirmed -> OBSTACLE\n");
+//         return ROBOT_OBSTACLE;
+//     }
+
+static robot_state_t handle_obstacle (controller_history_t * p_history)
+{
+    ir_shared_snapshot_t reading = {0};
+    SYSTIM               now     = {0};
+    ER                   error   = ir_shared_get_latest(&reading);
+
+    if (error >= E_OK)
+    {
+        error = tk_get_otm(&now);
+    }
+
+    if ((error < E_OK) || (!reading.b_valid) ||
+        ((UW)(now.lo - reading.timestamp_msec) > APP_IR_MAX_AGE_MSEC))
+    {
+        obstacle_abort();
+        motion_apply(LINE_UNCERTAIN);
+        tm_printf((UB *)"[CTRL] IR unavailable during bypass -> STOPPED\n");
+        return ROBOT_STOPPED;
+    }
+
+    obstacle_drive_t const drive =
+        obstacle_bypass_step(reading.left, reading.right, (uint32_t)now.lo);
+
+    if (drive.b_fault)
+    {
+        motion_apply(LINE_UNCERTAIN);
+        tm_printf((UB *)"[CTRL] Bypass fault 0x%x -> ERROR\n",
+                  (UINT)obstacle_status_faults(obstacle_get_status()));
+        return ROBOT_ERROR;
+    }
+
+    if (drive.b_done)
+    {
+        bool b_junction = false;
+        bool b_left     = false;
+        bool b_right    = false;
+
+        /* Discard latches from the bypass; they are not steering. */
+        (void)ir_shared_take_junction(&b_junction);
+        (void)ir_shared_take_sides(&b_left, &b_right);
+        p_history->b_have_previous_action = false;
+        tm_printf((UB *)"[CTRL] Bypass done -> LINE_FOLLOWING\n");
+        return ROBOT_LINE_FOLLOWING;
+    }
+
+    if (drive.b_line_follow)
+    {
+        line_follow_action_t action =
+            line_follow_decide(reading.left, reading.right);
+
+        motion_apply((LINE_UNCERTAIN == action) ? LINE_FORWARD : action);
+    }
+    else if (drive.b_stop)
+    {
+        motion_apply(LINE_UNCERTAIN);
+    }
+    else
+    {
+        motion_drive(drive.left_rpm, drive.right_rpm);
+    }
+
+    return ROBOT_OBSTACLE;
 }
 
 /*** end of file ***/

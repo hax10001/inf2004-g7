@@ -29,6 +29,11 @@
 /* WARNING: Unverified; measure the driven wheel's outer diameter. */
 #define BOARD_WHEEL_DIAMETER_MM 65.0f
 
+#define BOARD_US_TRIG_PIN 4U
+/* WARNING: HC-SR04 ECHO is 5 V. Fit a divider (e.g. 1k/2k) before GP5. */
+#define BOARD_US_ECHO_PIN 5U
+#define BOARD_SERVO_PIN 15U
+
 /* I2C0 pin configuration remains owned by the supplied device driver. */
 
 #endif /* BOARD_CONFIG_H */

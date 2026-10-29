@@ -38,6 +38,7 @@ void motion_apply (line_follow_action_t action);
  */
 ER motion_get_status (motion_status_t * p_output);
 
+void motion_drive (float left_rpm, float right_rpm);
 #endif /* MOTION_H */
 
 /*** end of file ***/

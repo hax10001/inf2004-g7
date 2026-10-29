@@ -74,6 +74,9 @@ typedef struct
     bool          b_running;
 } motion_wheel_t;
 
+static void drive_wheels (INT action_code);
+static float ramp_target (float current, float desired);
+
 static motion_wheel_t g_wheels[ENCODER_WHEEL_COUNT];
 static steering_t     g_steering;
 static float          g_base_rpm = 0.0f; /**< Ramped speed of both wheels. */
@@ -193,6 +196,14 @@ void motion_apply (line_follow_action_t action)
     p_left->target_rpm  = speed_rpm * (1.0f - g_steer);
     p_right->target_rpm = speed_rpm * (1.0f + g_steer);
 
+    drive_wheels((INT)action);
+}
+
+static void drive_wheels (INT action_code)
+{
+    motion_wheel_t * const p_left  = &g_wheels[ENCODER_LEFT];
+    motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
+
     /* Measure the period that just ended, under the previous command. */
     uint32_t const   now     = encoder_now_usec();
     encoder_sample_t left    = {0};
@@ -262,6 +273,27 @@ void motion_apply (line_follow_action_t action)
     }
 
     g_log_countdown--;
+}
+
+void motion_drive (float left_rpm, float right_rpm)
+{
+    motion_wheel_t * const p_left  = &g_wheels[ENCODER_LEFT];
+    motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
+
+    p_left->target_rpm  = ramp_target(p_left->target_rpm, left_rpm);
+    p_right->target_rpm = ramp_target(p_right->target_rpm, right_rpm);
+
+    g_base_rpm = 0.5f * (p_left->target_rpm + p_right->target_rpm);
+    g_steer    = 0.0f;
+    steering_reset(&g_steering);
+
+    drive_wheels(-1);
+}
+
+static float ramp_target (float current, float desired)
+{
+    return (desired > current) ? step_towards(current, desired, MOTION_RAMP_RPM)
+                               : desired;
 }
 
 ER motion_get_status (motion_status_t * p_output)

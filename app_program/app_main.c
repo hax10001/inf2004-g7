@@ -10,10 +10,12 @@
 #include "modules/motion/motion.h"
 #include "modules/terrain/terrain.h"
 #include <tm/tmonitor.h>
+#include "modules/obstacle/obstacle.h"
 
 #if APP_TEST
 #include "modules/line_barcode/test_lbar.h"
 #include "modules/terrain/test_ter.h"
+#include "modules/obstacle/test_obs.h"
 #endif
 
 INT usermain (void)
@@ -47,6 +49,14 @@ INT usermain (void)
         return 1;
     }
 
+    error = obstacle_init();
+
+    if (error < E_OK)
+    {
+                tm_printf((UB *)"[MAIN] Obstacle init failed: %d\n", error);
+        return 1;
+    }
+
     error = controller_init();
 
     if (error < E_OK)
@@ -77,6 +87,13 @@ INT usermain (void)
         return 1;
     }
 
+    error = obstacle_start();
+
+    if (error < E_OK)
+    {
+        return 1;
+    }
+
     error = controller_start();
 
     if (error < E_OK)
@@ -84,9 +101,12 @@ INT usermain (void)
         return 1;
     }
 
+
+
 #if APP_TEST
     test_lbar_run();
     test_ter_run();
+    test_obs_run();
 #endif
 
     tk_slp_tsk(TMO_FEVR);
