@@ -10,7 +10,7 @@
 #define TERRAIN_ROOT_START_BIT (1U << 30U)
 #define TERRAIN_MSEC_PER_SECOND 1000
 #define TERRAIN_SIGNED_TIME_MAX 0x7FFFFFFFU
-#define TERRAIN_LEVEL_TOLERANCE_DEG 5.0F
+#define TERRAIN_LEVEL_TOLERANCE_DEG 2.0F
 
 /* Initialise before tasks start; protect all subsequent shared access. */
 static ID volatile gh_calibration_mutex = 0;
@@ -172,6 +172,15 @@ bool terrain_is_level (terrain_snapshot const * p_snapshot)
         (p_snapshot->roll_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG) &&
         (p_snapshot->pitch_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
         (p_snapshot->pitch_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG);
+}
+
+ER terrain_heading_level (int16_t mag_x, int16_t mag_y, float * p_heading_deg)
+{
+    if (!tilt_math_heading_level(mag_x, mag_y, p_heading_deg))
+    {
+        return E_PAR;
+    }
+    return E_OK;
 }
 
 ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
