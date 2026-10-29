@@ -250,10 +250,10 @@ static void drive_wheels (INT action_code)
      * pwmL,pwmR. INT truncation is for display; UB preserves the bytes.
      */
     tm_printf((UB *)"CSV,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)(now / 1000U),
-              (INT)action, (INT)(g_steer * 100.0f), (INT)status.left_target_rpm,
-              (INT)status.right_target_rpm, (INT)(status.left_rpm * 10.0f),
-              (INT)(status.right_rpm * 10.0f), (INT)status.left_pwm,
-              (INT)status.right_pwm);
+              (INT)action_code, (INT)(g_steer * 100.0f),
+              (INT)status.left_target_rpm, (INT)status.right_target_rpm,
+              (INT)(status.left_rpm * 10.0f), (INT)(status.right_rpm * 10.0f),
+              (INT)status.left_pwm, (INT)status.right_pwm);
 #endif
 
     if (0U == g_log_countdown)

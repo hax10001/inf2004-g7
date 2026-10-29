@@ -1,4 +1,4 @@
-** @file obs_config.h
+/** @file obs_config.h
  *
  * @brief Tunable values for the obstacle subsystem.
  *

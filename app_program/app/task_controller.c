@@ -422,8 +422,9 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
     if (drive.b_fault)
     {
         motion_apply(LINE_UNCERTAIN);
+
         tm_printf((UB *)"[CTRL] Bypass fault 0x%x -> ERROR\n",
-                  (UINT)obstacle_status_faults(obstacle_get_status()));
+                  (UINT)obs_state_status_faults(obs_state_status_get()));
         return ROBOT_ERROR;
     }
 

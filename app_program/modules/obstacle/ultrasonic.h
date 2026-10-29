@@ -9,19 +9,20 @@
 
 typedef enum
 {
-    US_OK = 0,
-    US_NO_ECHO,     /**< Echo never rose: wiring, power or sensor fault. */
-    US_OUT_OF_RANGE /**< Echo too long or beyond OBS_FAR_MM. */
-} us_result_t;
+    ULTRASONIC_OK = 0,
+    ULTRASONIC_NO_ECHO,     /**< Echo never rose: wiring, power or sensor. */
+    ULTRASONIC_OUT_OF_RANGE /**< Echo too long or beyond OBS_FAR_MM. */
+} ultrasonic_result_t;
 
 /** @brief Claim TRIG and ECHO and start the gated pulse counter. */
 ER ultrasonic_init (void);
 /** @brief One ping, sleeping in 1 ms steps; call from a task only.
- * @param p_mm Receives millimetres when US_OK is returned.
+ * @param p_mm Receives millimetres when ULTRASONIC_OK is returned.
  */
-us_result_t ultrasonic_ping (uint16_t * p_mm);
+ultrasonic_result_t ultrasonic_ping (int32_t * p_mm);
 /** @brief Median of three values. */
-uint16_t ultrasonic_median3 (uint16_t a, uint16_t b, uint16_t c);
+int32_t ultrasonic_median_of_three (int32_t first, int32_t second,
+                                    int32_t third);
 
 #endif /* ULTRASONIC_H */
 
