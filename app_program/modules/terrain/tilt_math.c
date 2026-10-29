@@ -39,5 +39,34 @@ float tilt_math_hump_height (float roll_deg, float wheel_spacing_mm)
 
     return wheel_spacing_mm * sinf(roll_rad);
 }
+
+bool tilt_math_heading_level (int16_t mag_x, int16_t mag_y,
+                              float * p_heading_deg)
+{
+    if(p_heading_deg == NULL)
+    {
+        return false;
+    }
+    // Remap magnetometer axes into physical robot coordinates
+    float mag_forward = -(float)mag_y;
+    float mag_left = (float)mag_x;
+
+    if ((mag_forward == 0.0F) && (mag_left == 0.0F))
+    {
+        return false;
+    }
+
+    // Calculate heading in degrees
+    float heading = atan2f(mag_left, mag_forward) * TILT_MATH_RAD_TO_DEG;
+    // Normalize heading into 0 to 360 degrees
+    if (heading < 0.0F)
+    {
+        heading += 360.0F;
+    }
+
+    *p_heading_deg = heading;
+
+    return true;
+}
 /*** end of file ***/
 

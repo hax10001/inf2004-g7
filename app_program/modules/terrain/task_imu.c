@@ -320,6 +320,21 @@ static void process_sample (ID h_device, imu_history_t * p_history)
     snapshot.timestamp_msec   = now_msec;
     snapshot.b_valid          = false;
 
+    /* Compute the magnetic heading here */
+    if (sample.b_mag_ok)
+    {
+        ER heading_error = terrain_heading_level(
+            sample.mag_x,
+            sample.mag_y,
+            &snapshot.heading_deg
+        );
+
+        if(heading_error == E_OK)
+        {
+            snapshot.heading_valid = true;
+        }
+    }
+
     /* Compute motion measurements only after a successful read. */
     if (b_accel_ok)
     {
@@ -374,13 +389,14 @@ static void process_sample (ID h_device, imu_history_t * p_history)
             /* Tenths keep sub-millimetre detail without float printing. */
             tm_printf((UB *)"HUMP: on=%u phase=%u tilt_mdeg=%d "
                             "height_x10mm=%d peak_x10mm=%d count=%u "
-                            "rejected=%u\n",
+                            "rejected=%u MAGNETOMETER: DEGREE: %d\n",
                       (UINT)g_hump.b_on_hump, (UINT)g_hump.phase,
                       (INT)(g_hump.tilt_deg * 1000.0F),
                       (INT)(g_hump.height_mm * 10.0F),
-                      (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count,
-                      (UINT)g_hump.rejected);
-            g_hump.rejected          = 0U;
+                      (INT)(g_hump.peak_mm * 10.0F),
+                      (UINT)g_hump.hump_count, (UINT)g_hump.rejected,
+                      (INT)(snapshot.heading_deg * 1000.0F));
+            g_hump.rejected = 0U;
             p_history->last_log_msec = now_msec;
         }
 
