@@ -365,7 +365,8 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                 set_arc(p_out, p_seq->side);
                 p_seq->b_black_seen = p_seq->b_black_seen || b_black;
 
-                if (rel >= -OBS_ALIGN_TOL_DDEG)
+                if ((rel >= -OBS_ALIGN_TOL_DDEG) ||
+                    (elapsed >= OBS_ALIGN_MAX_MSEC))
                 {
                     p_seq->verify_cycles = 0U;
                     enter_phase(p_seq, OBS_PHASE_VERIFY, now_msec,

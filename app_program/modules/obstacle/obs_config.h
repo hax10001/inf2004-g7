@@ -15,11 +15,11 @@
 /* Ultrasonic ranging. */
 #define OBS_TRIG_PULSE_USEC 12U
 #define OBS_ECHO_TIMEOUT_MSEC 30U
-#define OBS_PING_PERIOD_MSEC 60U
+#define OBS_PING_PERIOD_MSEC 30U
 #define OBS_MEDIAN_SAMPLES 3U
 #define OBS_FAR_MM 4000
 /* Measure: how close an obstacle may get before the robot stops. */
-#define OBS_STOP_MM 200
+#define OBS_STOP_MM 250
 #define OBS_CONFIRM_HITS 3U
 #define OBS_NO_ECHO_LIMIT 5U
 /* A value of 1 stops the robot when the sensor stays silent. */
@@ -29,7 +29,7 @@
 #define OBS_SERVO_FRONT_USEC 800
 #define OBS_SERVO_USEC_PER_DEG 10
 /* A value of 1 means that a longer pulse turns the sensor left. */
-#define OBS_SERVO_LEFT_SIGN -1
+#define OBS_SERVO_LEFT_SIGN 1
 #define OBS_SERVO_MIN_USEC 600
 #define OBS_SERVO_MAX_USEC 2400
 /* Measure: how far the servo can turn each side before it is blocked. */
@@ -50,22 +50,22 @@
 /* Equals the left plus right sweep divided by the step, plus one. */
 #define OBS_SCAN_POINTS 9
 #define OBS_SCAN_PINGS 3U
-#define OBS_SCAN_RANGE_MM 600
+#define OBS_SCAN_RANGE_MM 400
 #define OBS_EDGE_JUMP_MM 80
 #define OBS_FRONT_WINDOW_DEG 20
-#define OBS_LOOKAHEAD_MM 500
+#define OBS_LOOKAHEAD_MM 300
 
 /* Robot geometry. Measure all of these; the track width can change. */
 #define OBS_ROBOT_WIDTH_MM 150
 #define OBS_ROBOT_LENGTH_MM 200
 #define OBS_SAFETY_MARGIN_MM 40
-#define OBS_FRONT_CLEAR_MM 400
+#define OBS_FRONT_CLEAR_MM 20
 #define OBS_TRACK_WIDTH_MM 110
 
 /* Bypass motion. Heading values are in tenths of a degree. */
 #define OBS_DRIVE_RPM 20
-#define OBS_TURN_LEAD_DDEG 40
-#define OBS_ALIGN_TOL_DDEG 100
+#define OBS_TURN_LEAD_DDEG 80
+#define OBS_ALIGN_TOL_DDEG 300
 #define OBS_HEADING_TRIM_DIV 70
 #define OBS_HEADING_TRIM_MAX 4
 #define OBS_STOP_SETTLE_MSEC 300U
@@ -80,7 +80,8 @@
 #define OBS_PASS_MARGIN_MM 40
 #define OBS_SEARCH_MARGIN_MM 150
 #define OBS_LINE_CONFIRM_CYCLES 2U
-#define OBS_VERIFY_CYCLES 20U
+#define OBS_ALIGN_MAX_MSEC 2500U
+#define OBS_VERIFY_CYCLES 6U
 
 #endif /* OBS_CONFIG_H */
 
