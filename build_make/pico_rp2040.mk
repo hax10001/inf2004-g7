@@ -234,6 +234,12 @@ LFLAGS := -mcpu=cortex-m0plus -mthumb -ffreestanding \
 
 LNKFILE := "../etc/linker/pico_rp2040/tkernel_map.ld"
 
+# Terrain roll/pitch use the toolchain's software floating-point math.
+# Nano's errno state avoids pulling unused host stdio/syscall dependencies.
+# The kernel continues to own allocation and console I/O.
+LFLAGS += --specs=nano.specs
+LDLIBS += -lm
+
 # Applied here, after CFLAGS/ASFLAGS are assigned with ':=', which would
 # otherwise discard anything appended above.
 ifeq ($(SMP),1)

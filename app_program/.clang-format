@@ -1,0 +1,22 @@
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++03
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 80
+UseTab: Never
+BreakBeforeBraces: Allman
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+IndentCaseLabels: true
+IndentCaseBlocks: false
+PointerAlignment: Middle
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterFunctionDefinitionName: true
+  AfterFunctionDeclarationName: true
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveDeclarations: Consecutive
+SortIncludes: Never
+ReflowComments: false
