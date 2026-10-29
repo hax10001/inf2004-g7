@@ -14,7 +14,14 @@ without editing any existing team source, build rule or Git history.
   configuration, per-sample displacement/jitter validation, protected pending
   letter result (8 bytes) and independent four-slot deferred diagnostic queue.
 - `bc_uart.[ch]`: `tm_printf` once per event from the deferred low-priority
-  consumer. Does not print in the 10 ms sampler or interrupt context.
+  consumer. Does not print in the sampling task or interrupt context.
+- `bc_fast.[ch]`, `bc_fastq.[ch]`: dedicated RP2040 TIMER ALARM2 4 ms
+  sample capture of GP27 and both encoder counts; interrupt only fills a
+  fixed 32-entry single-producer/consumer buffer. The lower-priority task
+  converts buffered records to scan widths and prints results. A missed
+  interrupt, timing excursion or queue overflow invalidates a scan.
+- `test_fast.[ch]`: 4 ms deadline, wraparound, overflow and concurrent
+  queue tests. Captured encoder readout is read-only.
 - `bc_cal.h`, `bc_setup.[ch]`: opt-in calibrated lifecycle. **Disabled by
   default** (`BC_CAL_READY 0`). No motor, GPIO, RTOS, or shared configuration
   is modified. Activation requires teammate approval and real calibration.
@@ -70,11 +77,15 @@ The approved integration must:
 
 1. Initialise via `bc_setup_init()` *after* `motion_init()` has initialised
    the encoder, and *before* starting the IR task.
-2. Call `bc_setup_sample(raw_gp27, tk_get_otm().lo)` once after each existing
-   `ir_read`, preserving its GPIO initialization and sensor latches.
+2. Call `bc_setup_sample(raw_gp27, tk_get_otm().lo)` once after each
+   existing `ir_read`, preserving GPIO initialization and sensor latches.
+   The first call **arms** TIMER ALARM2; later 10 ms calls are ignored.
+   Actual barcode sampling then happens every 4000 microseconds through the
+   dedicated timer interrupt, independently of the 10 ms IR task.
 3. Start `bc_setup_start()` to create the low-priority decoding/diagnostic
    task; do not call `bc_uart_poll()` inside the IR sampling task.
-4. Consume `bc_port_peek` only in a team-owned Mission Coordinator reader;
+4. The low-priority task drains captured samples before decoding/printing.
+   Consume `bc_port_peek` only in a team-owned Mission Coordinator reader;
    check `VALID`, decode letter value 0..25, record its own pending mapping,
    and `bc_port_ack(sequence)` after successful handoff. Call
    `bc_port_clear()` on STOP/FAULT. No motor commands originate here.
@@ -100,7 +111,7 @@ The approved integration must:
 - Keep the motor speed bounded by the Mission Coordinator. The scanner
   **does not** call `motion_apply` or change motor PWM.
 
-### 10 ms polling analysis — provisional only
+### Original 10 ms polling analysis — provisional only
 
 From the uploaded A/F/Z drawings, a Code 39 `*letter*` barcode has 20 narrow
 and 9 wide elements with an approximately 3:1 wide-to-narrow ratio. If the
@@ -165,3 +176,61 @@ START gating still requires team safety work.
    mismatch, duplicate suppression, STOP/FAULT clearing and low speed.
 8. Capture actual RAM, performance and message-size evidence with the final
    integrated build. Do not report host assertions as hardware pass results.
+
+## Dedicated 4 ms barcode sampling — new hardware path
+
+The unchanged shared IR task still runs at **10 ms** for line following.
+Once real calibration has been established (`BC_CAL_READY=1`), the existing
+`bc_setup_sample` call is a one-time *arming* notification only. The code
+reserves **RP2040 TIMER ALARM2 / TIMER_IRQ_2 (external IRQ 2)** via the
+µT-Kernel `tk_def_int` API, schedules an alarm every 4000 microseconds from
+the existing encoder microsecond timer, and captures GP27 plus coherent
+left/right encoder counts and edge timestamps. It does **not** configure
+GPIO pins, change motor duty cycles, change global RTOS ticks, or print from
+the interrupt. It does not read a second GP27 sample on the shared 10 ms
+path.
+
+**Team approval required:** Confirm TIMER ALARM2 and IRQ 2 are reserved for
+Buddy 3 and are unused by any other present or future module. The adapter
+refuses to arm an already enabled/armed timer alarm, but cannot detect a
+handler reserved in software without enabling the alarm. Do not enable
+`BC_CAL_READY` until ownership and physical calibration are agreed.
+
+`bc_fastq_sample_t` stores the GPIO level, a 32-bit microsecond timestamp,
+both signed encoder counts and both encoder-edge timestamps, plus a validity
+flag. `sizeof` depends on the target ABI (expected 24 bytes per record);
+32 records bound the buffer. The producer is the timer ISR, the single
+consumer is the 10 ms diagnostics task. An aligned 32-bit index and ARM
+`DMB` order the record between RP2040 cores, without blocking or RTOS mutex
+calls inside an interrupt. The queue is **SPSC**, not suitable for multiple
+simultaneous producers or consumers. A dropped sample marks a subsequent
+sample invalid; the scan must be rejected rather than interpolated.
+
+The timer maintains a 4 ms deadline phase; if it is over 1000 us late or
+misses an interval, it marks the captured record invalid and reschedules
+without catch-up bursts. The existing `BC_CAL_MAX_SAMPLE_MSEC` must allow
+measured jitter while detecting lost samples; conservative validation and
+physical measurements are mandatory. The low-priority task is set to a 10 ms
+service interval (subject to kernel scheduling), and any prolonged UART
+blocking can cause safe queue-overflow rejection.
+
+The ideal four-samples-per-3-mm-element speed ceiling is
+`3 / (4 * 0.004) = 187.5 mm/s`; it is **not** a validated safe speed.
+With an observed 5 ms worst-case gap, the bound becomes `150 mm/s`.
+Changes in tilt, sensor standoff, yaw, wheel slip, ISR latency and narrowest
+physical width may lower these limits. Hardware measurements must set the
+actual permitted speed, capture tolerance, and safe rejection criteria.
+
+### Test coverage and limitations
+
+`bash app_program/modules/barcode_scanning/run_tests.sh` runs the existing
+A–Z and adapter suites as well as the new queue/scheduler host suite. Host
+timing tests check scheduling arithmetic and cross-thread record order; they
+do **not** measure real 4 ms IRQ response time, motor jitter or the actual
+signal quality while the robot tilts. Tests on the RP2040 should measure
+successive `time_usec` differences and record minimum, maximum, jitter,
+overflows and invalid scans with motors physically isolated initially.
+
+The 10 ms task and its unchanged code are intentionally not evidence of
+barcode 4 ms timing. Actual motion/START safety and Mission Coordinator
+consumption of decoded letters remain the team's responsibility.

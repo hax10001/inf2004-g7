@@ -46,8 +46,8 @@ typedef struct
  */
 ER bc_port_init (bc_port_config_t const * p_config);
 
-/** @brief Pass one GP27 reading at the existing sampling cadence.
- * Read-only encoder access; no UART, decoding, blocking or motor calls.
+/** @brief Legacy direct-feed API retained for host tests/integration.
+ * Production 4 ms ISR captures into bc_fastq, never calls this API.
  * @return E_OK; E_OBJ when not configured; lock error otherwise.
  */
 ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec);
@@ -55,6 +55,14 @@ ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec);
 /** @brief Decode completed captures in an existing lower-priority task.
  * The successful letter is held until ack/clear; no motor commands.
  */
+/** @brief Process an ISR-captured coherent timestamp/encoder sample.
+ * Called by the low-priority barcode task, never interrupt context.
+ */
+ER bc_port_sample_counts (uint8_t raw_gpio, uint32_t now_usec,
+                          int32_t left, int32_t right,
+                          uint32_t left_edge_usec,
+                          uint32_t right_edge_usec, uint8_t b_valid);
+
 ER bc_port_process (void);
 
 /** @brief Copy result safely without consuming it.

@@ -15,7 +15,8 @@ ER bc_setup_init (void);
 /** @brief Optionally create a low-priority diagnostics/decoder task. */
 ER bc_setup_start (void);
 
-/** @brief Called once for each GP27 reading by the existing IR sampler.
+/** @brief Existing 10 ms sampler calls this once GP27 is ready.
+ * Arms dedicated 4 ms timer; subsequent 10 ms calls do not feed it.
  * No printing, sleeps, motor writes, or dynamic allocation.
  */
 ER bc_setup_sample (uint8_t raw_gpio, uint32_t now_msec);

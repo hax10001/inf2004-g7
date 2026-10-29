@@ -64,7 +64,7 @@ static uint8_t bc_port_ticks (int32_t left, int32_t right)
     }
 
     g_travel_units += (uint32_t)sum;
-    /* If a 10 ms sample spans too much travel, a narrow element might
+    /* If any sample spans too much travel, a narrow element might
      * have been missed: reject rather than invent missing transitions.
      */
     return (sum <= g_port_config.max_sample_travel_units) ? 1U : 0U;
@@ -118,55 +118,44 @@ ER bc_port_init (bc_port_config_t const * p_config)
     return E_OK;
 }
 
-ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec)
+ER bc_port_sample_counts (uint8_t raw_gpio_level,
+                          uint32_t now_usec, int32_t left,
+                          int32_t right, uint32_t left_edge_usec,
+                          uint32_t right_edge_usec, uint8_t b_valid)
 {
-    encoder_sample_t left = {0};
-    encoder_sample_t right = {0};
-    uint8_t b_valid;
-    uint32_t now_usec;
-    uint32_t edge_age_limit;
+    uint32_t const now_msec = now_usec / 1000U;
+    uint32_t const edge_age_limit = (uint32_t)
+        g_port_config.max_sample_interval_msec * 1000U;
     ER error;
 
     if (gh_port_mutex <= E_OK)
     {
         return E_OBJ;
     }
-
     if (raw_gpio_level > 1U)
     {
         gb_sample_lost = 1U;
         return E_PAR;
     }
-
-    encoder_read(ENCODER_LEFT, &left);
-    encoder_read(ENCODER_RIGHT, &right);
-    now_usec = encoder_now_usec();
-
-    /* Zero timeout: no waiting in the 10 ms IR sampling task. */
     error = tk_loc_mtx(gh_port_mutex, 0);
-
     if (error < E_OK)
     {
         gb_sample_lost = 1U;
         return error;
     }
 
-    edge_age_limit = (uint32_t)
-        g_port_config.max_sample_interval_msec * 1000U;
-    b_valid = 1U;
     if ((0U != gb_have_counts) &&
-        (((left.count != g_last_left) &&
-          ((uint32_t)(now_usec - left.edge_usec) > edge_age_limit)) ||
-         ((right.count != g_last_right) &&
-          ((uint32_t)(now_usec - right.edge_usec) > edge_age_limit))))
+        (((left != g_last_left) &&
+          ((uint32_t)(now_usec - left_edge_usec) > edge_age_limit)) ||
+         ((right != g_last_right) &&
+          ((uint32_t)(now_usec - right_edge_usec) > edge_age_limit))))
     {
         b_valid = 0U;
     }
-    if (0U == bc_port_ticks(left.count, right.count))
+    if (0U == bc_port_ticks(left, right))
     {
         b_valid = 0U;
     }
-
     if ((0U != gb_have_time) &&
         ((uint32_t)(now_msec - g_last_time_msec) >
          g_port_config.max_sample_interval_msec))
@@ -181,12 +170,24 @@ ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec)
         b_valid = 0U;
         gb_sample_lost = 0U;
     }
-
     (void)bc_scan_feed(&g_port_scan,
                        (raw_gpio_level ==
                         g_port_config.black_gpio_level) ? 1U : 0U,
                        g_travel_units, now_msec, b_valid);
     return tk_unl_mtx(gh_port_mutex);
+}
+
+ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec)
+{
+    encoder_sample_t left = {0};
+    encoder_sample_t right = {0};
+
+    (void)now_msec;
+    encoder_read(ENCODER_LEFT, &left);
+    encoder_read(ENCODER_RIGHT, &right);
+    return bc_port_sample_counts(raw_gpio_level, encoder_now_usec(),
+                                 left.count, right.count,
+                                 left.edge_usec, right.edge_usec, 1U);
 }
 
 ER bc_port_process (void)

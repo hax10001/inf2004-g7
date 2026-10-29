@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#define BC_FAST_TEST_INTERVAL_USEC 4000U
+
 static int32_t g_left_count = 0;
 static int32_t g_right_count = 0;
 static int g_print_count = 0;
@@ -256,10 +258,38 @@ static void test_input_rejections (void)
     gb_stale_edge = 0U;
 }
 
+static void test_four_millisecond_capture (void)
+{
+    bc_port_result_t result = {0U, 0U, 0U};
+    uint32_t usec = g_time * 1000U;
+
+    check(E_OK == bc_port_clear(), "clear for 4 ms capture");
+    for (uint8_t i = 0U; i < 8U; ++i)
+    {
+        usec += BC_FAST_TEST_INTERVAL_USEC;
+        check(E_OK == bc_port_sample_counts(
+            0U, usec, g_left_count, g_right_count,
+            usec, usec, 1U), "4 ms encoder snapshot accepted");
+        check(E_OK == bc_port_process(), "4 ms processing accepted");
+    }
+    check(E_OBJ == bc_port_peek(&result),
+          "quiet 4 ms samples cannot fabricate a letter");
+    usec += BC_FAST_TEST_INTERVAL_USEC;
+    check(E_OK == bc_port_sample_counts(
+        0U, usec, g_left_count, g_right_count,
+        usec, usec, 0U), "missed IRQ invalid sample fed");
+    check(E_OK == bc_port_process(), "missed IRQ rejected safely");
+    check(E_OK == bc_port_peek(&result), "invalid record available");
+    check(0U == (result.info & BC_PORT_VALID_FLAG),
+          "invalid 4 ms record cannot become valid letter");
+    check(E_OK == bc_port_ack(result.sequence), "invalid ACK");
+}
+
 int test_port_run (void)
 {
     test_full_scan();
     test_input_rejections();
+    test_four_millisecond_capture();
     printf("Barcode adapter: %d assertions, %d failed\n",
            g_checks, g_fail);
     return g_fail;

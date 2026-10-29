@@ -29,7 +29,9 @@
 
 /* Larger task priority numbers have lower precedence in this project. */
 #define BC_CAL_DIAG_PRIORITY 9
-#define BC_CAL_DIAG_PERIOD_MSEC 50U
+#define BC_CAL_DIAG_PERIOD_MSEC 10U
+
+/* 4 ms alarm period comes from bc_fastq.h. */
 
 #endif /* BC_CAL_H */
 

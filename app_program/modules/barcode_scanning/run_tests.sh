@@ -18,4 +18,8 @@ python3 tools/check_app_standard.py
   "$SRC/bc_code.c" "$SRC/bc_scan.c" "$SRC/bc_port.c" \
   "$SRC/bc_uart.c" "$SRC/test_port.c" -o "$BUILD/barcode_adapter"
 "$BUILD/barcode_adapter"
-echo 'Host barcode tests passed; physical sensor and RTOS timing unverified.'
+"$CC" -std=c99 -Wall -Wextra -Werror -pthread \
+  -DBC_FAST_HOST_TEST_MAIN -I app_program \
+  "$SRC/bc_fastq.c" "$SRC/test_fast.c" -o "$BUILD/barcode_fast"
+"$BUILD/barcode_fast"
+echo 'Host barcode tests passed; 4 ms hardware timing unverified.' 

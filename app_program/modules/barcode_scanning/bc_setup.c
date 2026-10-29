@@ -5,6 +5,7 @@
 #include "bc_cal.h"
 #include "bc_port.h"
 #include "bc_uart.h"
+#include "bc_fast.h"
 #include "app/tasks.h"
 
 #if BC_CAL_READY
@@ -15,6 +16,7 @@ static void bc_setup_diag_task (INT start_code, void * p_context)
 
     for (;;)
     {
+        (void)bc_fast_drain();
         (void)bc_port_process();
         (void)bc_uart_poll();
         tk_dly_tsk(BC_CAL_DIAG_PERIOD_MSEC);
@@ -43,7 +45,12 @@ ER bc_setup_init (void)
         BC_CAL_BLACK_LEVEL
     };
 
-    return bc_port_init(&config);
+    ER error = bc_port_init(&config);
+    if (error < E_OK)
+    {
+        return error;
+    }
+    return bc_fast_init();
 #else
     return E_OK;
 #endif
@@ -67,7 +74,12 @@ ER bc_setup_start (void)
 ER bc_setup_sample (uint8_t raw_gpio, uint32_t now_msec)
 {
 #if BC_CAL_READY
-    return bc_port_sample(raw_gpio, now_msec);
+    /* Existing 10 ms IR task only arms the hardware timer once.
+     * Subsequent barcode readings come exclusively from TIMER ALARM2.
+     */
+    (void)raw_gpio;
+    (void)now_msec;
+    return bc_fast_arm();
 #else
     (void)raw_gpio;
     (void)now_msec;
