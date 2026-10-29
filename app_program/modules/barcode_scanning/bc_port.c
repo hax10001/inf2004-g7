@@ -21,7 +21,9 @@ static uint32_t g_travel_units = 0U;
 static uint16_t g_event_sequence = 0U;
 static uint8_t gb_have_counts = 0U;
 static uint8_t gb_have_time = 0U;
-static uint32_t g_last_time_msec = 0U;
+static uint32_t g_last_time_usec = 0U;
+static uint64_t g_clock_usec = 0U;
+static uint8_t gb_have_clock = 0U;
 static uint8_t gb_have_result = 0U;
 static uint8_t volatile gb_sample_lost = 0U;
 
@@ -109,6 +111,8 @@ ER bc_port_init (bc_port_config_t const * p_config)
     g_port_result = (bc_port_result_t){0U, 0U, 0U};
     gb_have_counts = 0U;
     gb_have_time = 0U;
+    gb_have_clock = 0U;
+    g_clock_usec = 0U;
     gb_have_result = 0U;
     g_diag_head = 0U;
     g_diag_count = 0U;
@@ -123,7 +127,7 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
                           int32_t right, uint32_t left_edge_usec,
                           uint32_t right_edge_usec, uint8_t b_valid)
 {
-    uint32_t const now_msec = now_usec / 1000U;
+    uint32_t now_msec;
     uint32_t const edge_age_limit = (uint32_t)
         g_port_config.max_sample_interval_msec * 1000U;
     ER error;
@@ -156,13 +160,25 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
     {
         b_valid = 0U;
     }
-    if ((0U != gb_have_time) &&
-        ((uint32_t)(now_msec - g_last_time_msec) >
-         g_port_config.max_sample_interval_msec))
+    /* Subtract microseconds before converting: the hardware low word
+     * wraps every 72 minutes. Keep event/timeout milliseconds continuous.
+     */
+    uint32_t const elapsed_usec = now_usec - g_last_time_usec;
+    if ((0U != gb_have_time) && (elapsed_usec > edge_age_limit))
     {
         b_valid = 0U;
     }
-    g_last_time_msec = now_msec;
+    if (0U == gb_have_clock)
+    {
+        g_clock_usec = now_usec;
+        gb_have_clock = 1U;
+    }
+    else
+    {
+        g_clock_usec += elapsed_usec;
+    }
+    now_msec = (uint32_t)(g_clock_usec / 1000U);
+    g_last_time_usec = now_usec;
     gb_have_time = 1U;
 
     if (0U != gb_sample_lost)

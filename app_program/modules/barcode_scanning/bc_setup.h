@@ -8,12 +8,16 @@
 #include <tk/tkernel.h>
 
 /** @brief Initialise only after motor/encoder initialization.
- * When BC_CAL_READY is zero, this is an inactive, safe no-op.
+ * Invalid calibration selects measurement logging. Barcode failures are
+ * reported by the worker and never abort the rest of application startup.
  */
 ER bc_setup_init (void);
 
 /** @brief Optionally create a low-priority diagnostics/decoder task. */
 ER bc_setup_start (void);
+
+/** @brief Service capture/results once, from the barcode worker only. */
+ER bc_setup_poll (void);
 
 /** @brief Existing 10 ms sampler calls this once GP27 is ready.
  * Arms dedicated 4 ms timer; subsequent 10 ms calls do not feed it.

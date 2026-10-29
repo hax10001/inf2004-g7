@@ -4,14 +4,22 @@
 #ifndef BC_CAL_H
 #define BC_CAL_H
 
-/* Set to 1 ONLY after filling the macros below with real measured values.
- * The delivered firmware keeps barcode capture disabled until calibrated.
+/* 0 disables barcode work. With 1, valid settings enable decoding; invalid
+ * settings select measurement logging instead of aborting robot startup.
  */
 #define BC_CAL_READY 0
 
+/* Force measurement logging even after valid scan settings are entered. */
+#define BC_CAL_MEASURE 0
+
+/* Standalone console consumer releases results after reporting them.
+ * Set to 0 when a mission task owns bc_port_peek()/bc_port_ack().
+ */
+#define BC_CAL_AUTO_ACK 0
+
 #if BC_CAL_READY
 /* Units = sum of normalized wheel encoder increments, NOT millimetres.
- * Record a measured conversion and the approximately 141 mm sample width.
+ * Measure the actual printed bars and margins; see README.md.
  */
 #define BC_CAL_MIN_RUN_UNITS 0U
 #define BC_CAL_LEADING_UNITS 0U

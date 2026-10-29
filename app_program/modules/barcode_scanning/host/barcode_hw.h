@@ -1,0 +1,40 @@
+/* Host fixtures only. These values are not physical robot calibration. */
+#ifndef BARCODE_HW_H
+#define BARCODE_HW_H
+#include <tk/tkernel.h>
+#define TIMER_ALARM2 0x40054018U
+#define TIMER_ARMED 0x40054020U
+#define TIMER_INTR 0x40054034U
+#define TIMER_INTE 0x40054038U
+#define BC_CAL_H
+#ifndef BC_CAL_READY
+#define BC_CAL_READY 1
+#endif
+#ifdef BC_TEST_MEASURE
+#define BC_CAL_MEASURE 1
+#else
+#define BC_CAL_MEASURE 0
+#endif
+#ifndef BC_CAL_AUTO_ACK
+#define BC_CAL_AUTO_ACK 1
+#endif
+#ifdef BC_TEST_INVALID_CAL
+#define BC_CAL_MIN_RUN_UNITS 0U
+#define BC_CAL_MAX_SAMPLE_UNITS 0U
+#else
+#define BC_CAL_MIN_RUN_UNITS 8U
+#define BC_CAL_MAX_SAMPLE_UNITS 4U
+#endif
+#define BC_CAL_LEADING_UNITS 100U
+#define BC_CAL_TRAILING_UNITS 100U
+#define BC_CAL_MIN_BARCODE_UNITS 600U
+#define BC_CAL_MAX_BARCODE_UNITS 1500U
+#define BC_CAL_TIMEOUT_MSEC 12000U
+#define BC_CAL_LEFT_FORWARD_SIGN 1
+#define BC_CAL_RIGHT_FORWARD_SIGN 1
+#define BC_CAL_MAX_STEP_DIFFERENCE 8U
+#define BC_CAL_MAX_SAMPLE_MSEC 15U
+#define BC_CAL_BLACK_LEVEL 1U
+#define BC_CAL_DIAG_PRIORITY 9
+#define BC_CAL_DIAG_PERIOD_MSEC 10U
+#endif

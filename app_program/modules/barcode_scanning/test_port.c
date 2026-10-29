@@ -285,11 +285,28 @@ static void test_four_millisecond_capture (void)
     check(E_OK == bc_port_ack(result.sequence), "invalid ACK");
 }
 
+static void test_microsecond_wrap (void)
+{
+    bc_port_result_t result = {0};
+    uint32_t before = 0xFFFFFF00U;
+    uint32_t after = before + 4000U;
+    check(E_OK == bc_port_clear(), "clear before timer wrap");
+    check(E_OK == bc_port_sample_counts(0U, before, 0, 0,
+                                        before, before, 1U), "before wrap");
+    check(E_OK == bc_port_process(), "process before wrap");
+    check(E_OK == bc_port_sample_counts(0U, after, 0, 0,
+                                        after, after, 1U), "after wrap");
+    check(E_OK == bc_port_process(), "process after wrap");
+    check(E_OBJ == bc_port_peek(&result),
+          "ordinary 4 ms gap across wrap remains valid");
+}
+
 int test_port_run (void)
 {
     test_full_scan();
     test_input_rejections();
     test_four_millisecond_capture();
+    test_microsecond_wrap();
     printf("Barcode adapter: %d assertions, %d failed\n",
            g_checks, g_fail);
     return g_fail;

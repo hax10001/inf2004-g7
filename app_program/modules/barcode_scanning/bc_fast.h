@@ -15,6 +15,12 @@ ER bc_fast_init (void);
  */
 ER bc_fast_arm (void);
 
+/** @brief Stop this module's alarm without changing GPIO or encoders. */
+void bc_fast_stop (void);
+
+/** @brief Report a fatal alarm-programming failure to the worker task. */
+ER bc_fast_error (void);
+
 /** @brief Drain sampled data in low-priority task, never in ISR. */
 ER bc_fast_drain (void);
 
