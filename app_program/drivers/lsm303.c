@@ -109,7 +109,7 @@ static bool read_registers (ID h_device, uint8_t address, uint8_t reg,
                               .snd_data = &reg,
                               .rcv_size = length,
                               .rcv_data = p_data};
-    SZ actual = 0;
+    SZ         actual      = 0;
 
     /* T_I2C_EXEC is a small fixed BSP structure, representable by SZ. */
     ER error = tk_swri_dev(h_device, TDN_I2C_EXEC, &transaction,

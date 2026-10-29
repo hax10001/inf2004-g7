@@ -7,12 +7,12 @@
 #include "modules/line_barcode/line_follow.h"
 #include "modules/motion/motion.h"
 #include "modules/terrain/terrain.h"
-#include "modules/obstacle/obstacle.h" 
+#include "modules/obstacle/obstacle.h"
 #include <tm/tmonitor.h>
 
-#define JUNCTION_HOLD_CYCLES \
+#define JUNCTION_HOLD_CYCLES                                                   \
     (APP_JUNCTION_HOLD_MSEC / APP_CONTROLLER_PERIOD_MSEC)
-#define JUNCTION_SETTLE_CYCLES \
+#define JUNCTION_SETTLE_CYCLES                                                 \
     (APP_JUNCTION_SETTLE_MSEC / APP_CONTROLLER_PERIOD_MSEC)
 
 typedef enum

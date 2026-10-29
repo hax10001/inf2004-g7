@@ -116,7 +116,7 @@ static void run_monitor (monitor_t * p_monitor)
         return;
     }
 
-    p_monitor->filled = 3U;
+    p_monitor->filled     = 3U;
     p_monitor->history[0] = p_monitor->history[0];
 
     uint16_t const median = ultrasonic_median3(
@@ -265,3 +265,4 @@ static uint16_t scan_range (void)
 }
 
 /*** end of file ***/
+

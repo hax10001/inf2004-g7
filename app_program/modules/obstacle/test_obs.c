@@ -33,9 +33,8 @@ static void fill (scan_point_t * p_pts, uint16_t range)
 
 void test_obs_run (void)
 {
-    uint32_t const word = obstacle_status_pack(OBSTACLE_S_SEARCH_LINE,
-                                               OBSTACLE_ROUTE_RIGHT, 0x15U, 9U,
-                                               123U, 77U);
+    uint32_t const word = obstacle_status_pack(
+        OBSTACLE_S_SEARCH_LINE, OBSTACLE_ROUTE_RIGHT, 0x15U, 9U, 123U, 77U);
 
     report("pack round trip",
            (OBSTACLE_S_SEARCH_LINE == obstacle_status_state(word)) &&
@@ -93,3 +92,4 @@ void test_obs_run (void)
 }
 
 /*** end of file ***/
+

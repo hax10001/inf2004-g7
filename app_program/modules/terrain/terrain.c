@@ -13,23 +13,22 @@
 #define TERRAIN_LEVEL_TOLERANCE_DEG 5.0F
 
 /* Initialise before tasks start; protect all subsequent shared access. */
-static ID volatile gh_calibration_mutex = 0;
-static ID volatile gh_snapshot_mutex = 0;
+static ID volatile gh_calibration_mutex           = 0;
+static ID volatile gh_snapshot_mutex              = 0;
 static terrain_calibration volatile g_calibration = {0};
-static terrain_snapshot volatile g_snapshot = {0};
+static terrain_snapshot volatile g_snapshot       = {0};
 
 /** @brief Compute an integer square root without the floating-point library. */
 static uint32_t integer_sqrt (uint32_t number);
 /** @brief Wrap an angle difference into -180..180 degrees. */
 static float angle_difference (float current_deg, float reference_deg);
 
-ER terrain_init(void)
+ER terrain_init (void)
 {
     T_CMTX mutex_config = {0};
     mutex_config.mtxatr = TA_INHERIT;
 
-    if ((gh_calibration_mutex > E_OK) ||
-        (gh_snapshot_mutex > E_OK))
+    if ((gh_calibration_mutex > E_OK) || (gh_snapshot_mutex > E_OK))
     {
         return E_OBJ;
     }
@@ -39,9 +38,7 @@ ER terrain_init(void)
 
     if (h_calibration <= E_OK)
     {
-        return (h_calibration == E_OK)
-                   ? E_OBJ
-                   : h_calibration;
+        return (h_calibration == E_OK) ? E_OBJ : h_calibration;
     }
 
     // Create snapshot mutex
@@ -51,13 +48,11 @@ ER terrain_init(void)
     {
         (void)tk_del_mtx(h_calibration);
 
-        return (h_snapshot == E_OK)
-                   ? E_OBJ
-                   : h_snapshot;
+        return (h_snapshot == E_OK) ? E_OBJ : h_snapshot;
     }
 
     gh_calibration_mutex = h_calibration;
-    gh_snapshot_mutex = h_snapshot;
+    gh_snapshot_mutex    = h_snapshot;
 
     g_calibration = (terrain_calibration){0.0F, 0.0F, false};
 
@@ -84,7 +79,7 @@ ER terrain_start (void)
 }
 
 ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
-                 float *p_roll_deg, float *p_pitch_deg)
+                 float * p_roll_deg, float * p_pitch_deg)
 {
     // Remember that the x,y,z needs to be remap
     // robotX = -Y
@@ -102,8 +97,7 @@ ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z)
 {
     terrain_calibration reference = {0.0F, 0.0F, false};
     // Uses pointers to avoid unnecessary copies of the struct.
-    ER error = terrain_tilt(axis_x, axis_y, axis_z,
-                            &reference.roll_zero_deg,
+    ER error = terrain_tilt(axis_x, axis_y, axis_z, &reference.roll_zero_deg,
                             &reference.pitch_zero_deg);
 
     if (error < E_OK)
@@ -130,7 +124,7 @@ ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z)
     }
 
     reference.b_valid = true;
-    g_calibration = reference;
+    g_calibration     = reference;
     return tk_unl_mtx(gh_calibration_mutex);
 }
 
@@ -147,7 +141,7 @@ bool terrain_is_calibrated (void)
     }
 
     bool b_valid = g_calibration.b_valid;
-    ER error = tk_unl_mtx(gh_calibration_mutex);
+    ER   error   = tk_unl_mtx(gh_calibration_mutex);
     return (error >= E_OK) && b_valid;
 }
 
@@ -167,17 +161,16 @@ bool terrain_is_level (terrain_snapshot const * p_snapshot)
         return false;
     }
 
-    return
-        (p_snapshot->roll_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
-        (p_snapshot->roll_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG) &&
-        (p_snapshot->pitch_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
-        (p_snapshot->pitch_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG);
+    return (p_snapshot->roll_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
+           (p_snapshot->roll_deg <= TERRAIN_LEVEL_TOLERANCE_DEG) &&
+           (p_snapshot->pitch_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
+           (p_snapshot->pitch_deg <= TERRAIN_LEVEL_TOLERANCE_DEG);
 }
 
 ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
-                          float *p_roll_deg, float *p_pitch_deg)
+                          float * p_roll_deg, float * p_pitch_deg)
 {
-    float roll_deg = 0.0F;
+    float roll_deg  = 0.0F;
     float pitch_deg = 0.0F;
 
     if ((NULL == p_roll_deg) || (NULL == p_pitch_deg))
@@ -205,7 +198,7 @@ ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
     }
 
     terrain_calibration reference = g_calibration;
-    error = tk_unl_mtx(gh_calibration_mutex);
+    error                         = tk_unl_mtx(gh_calibration_mutex);
 
     if (error < E_OK)
     {
@@ -217,7 +210,7 @@ ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
         return E_OBJ;
     }
 
-    *p_roll_deg = angle_difference(roll_deg, reference.roll_zero_deg);
+    *p_roll_deg  = angle_difference(roll_deg, reference.roll_zero_deg);
     *p_pitch_deg = angle_difference(pitch_deg, reference.pitch_zero_deg);
     return E_OK;
 }
@@ -311,7 +304,7 @@ static uint32_t integer_sqrt (uint32_t number)
     return result;
 }
 
-ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot)
+ER terrain_publish_snapshot (terrain_snapshot const * p_snapshot)
 {
     if (NULL == p_snapshot)
     {
@@ -323,10 +316,7 @@ ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot)
         return E_OBJ;
     }
 
-    ER error = tk_loc_mtx(
-        gh_snapshot_mutex,
-        TMO_FEVR
-    );
+    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
 
     if (error < E_OK)
     {
@@ -339,7 +329,7 @@ ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot)
     return tk_unl_mtx(gh_snapshot_mutex);
 }
 
-ER terrain_get_snapshot(terrain_snapshot *p_snapshot)
+ER terrain_get_snapshot (terrain_snapshot * p_snapshot)
 {
     if (NULL == p_snapshot)
     {
@@ -351,10 +341,7 @@ ER terrain_get_snapshot(terrain_snapshot *p_snapshot)
         return E_OBJ;
     }
 
-    ER error = tk_loc_mtx(
-        gh_snapshot_mutex,
-        TMO_FEVR
-    );
+    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
 
     if (error < E_OK)
     {

@@ -92,7 +92,7 @@ float steering_update (steering_t * p_steering, line_follow_action_t action,
             bool const  b_repeat =
                 (side == p_steering->last_side) &&
                 (p_steering->centred_count <= STEERING_REPEAT_PERIODS);
-            bool const  b_bend =
+            bool const b_bend =
                 (side == p_steering->bend_side) &&
                 (p_steering->bend_age <= STEERING_BEND_MEMORY_PERIODS);
 

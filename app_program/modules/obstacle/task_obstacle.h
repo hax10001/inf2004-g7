@@ -20,15 +20,16 @@
 void task_obstacle_task (INT start_code, void * p_context);
 
 /* Implemented in obstacle.c. */
-UINT obstacle_link_flags_read (void);
-void obstacle_link_flags_set (UINT bits);
-void obstacle_link_flags_clear (UINT bits);
-void obstacle_link_publish_distance (uint16_t mm);
-void obstacle_link_faults (uint8_t set_mask, uint8_t clear_mask);
-void obstacle_link_confirm (void);
-void obstacle_link_store_plan (bypass_plan_t const * p_plan);
+UINT   obstacle_link_flags_read (void);
+void   obstacle_link_flags_set (UINT bits);
+void   obstacle_link_flags_clear (UINT bits);
+void   obstacle_link_publish_distance (uint16_t mm);
+void   obstacle_link_faults (uint8_t set_mask, uint8_t clear_mask);
+void   obstacle_link_confirm (void);
+void   obstacle_link_store_plan (bypass_plan_t const * p_plan);
 int8_t obstacle_link_watch_side (void);
 
 #endif /* TASK_OBSTACLE_H */
 
 /*** end of file ***/
+

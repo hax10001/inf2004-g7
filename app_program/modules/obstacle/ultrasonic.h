@@ -26,3 +26,4 @@ uint16_t ultrasonic_median3 (uint16_t a, uint16_t b, uint16_t c);
 #endif /* ULTRASONIC_H */
 
 /*** end of file ***/
+

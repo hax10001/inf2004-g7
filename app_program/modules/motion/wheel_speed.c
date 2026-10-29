@@ -21,8 +21,8 @@ float wheel_speed_update (wheel_speed_t * p_speed, int32_t count,
                           uint32_t edge_usec, uint32_t now_usec)
 {
     /* Unsigned subtraction keeps differences correct across wraparound. */
-    int32_t const  delta   = (int32_t)((uint32_t)count -
-                                       (uint32_t)p_speed->last_count);
+    int32_t const delta =
+        (int32_t)((uint32_t)count - (uint32_t)p_speed->last_count);
     uint32_t const elapsed = edge_usec - p_speed->last_edge_usec;
 
     if (0 != delta)

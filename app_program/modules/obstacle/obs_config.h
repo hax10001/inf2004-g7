@@ -14,7 +14,7 @@
 #define OBS_ECHO_TIMEOUT_MS 30U
 #define OBS_PING_PERIOD_MS 60U
 #define OBS_FAR_MM 4000U
-#define OBS_STOP_MM 200U       /* MEASURE: stop distance. */
+#define OBS_STOP_MM 200U /* MEASURE: stop distance. */
 #define OBS_CONFIRM_HITS 3U
 #define OBS_NO_ECHO_LIMIT 5U
 #define OBS_FAILSAFE_NO_ECHO 1 /* 1: persistent no-echo stops the robot. */
@@ -25,7 +25,7 @@
 #define OBS_SERVO_LEFT_SIGN 1   /* MEASURE: +1 if a longer pulse looks left. */
 #define OBS_SERVO_MIN_US 600
 #define OBS_SERVO_MAX_US 2400
-#define OBS_SERVO_LIMIT_DEG 80  /* MEASURE: safe sweep each side. */
+#define OBS_SERVO_LIMIT_DEG 80 /* MEASURE: safe sweep each side. */
 #define OBS_SERVO_SETTLE_BASE_MS 40U
 #define OBS_SERVO_SETTLE_PER_DEG_MS 3U
 
@@ -43,7 +43,7 @@
 #define OBS_ROBOT_LENGTH_MM 200.0F /* MEASURE. */
 #define OBS_SAFETY_MARGIN_MM 40.0F
 #define OBS_FRONT_CLEAR_MM 30.0F
-#define OBS_TRACK_WIDTH_MM 110.0F  /* MEASURE: varies; recalibrate. */
+#define OBS_TRACK_WIDTH_MM 110.0F /* MEASURE: varies; recalibrate. */
 
 /* Bypass motion. */
 #define OBS_DRIVE_RPM 20.0F
@@ -66,3 +66,4 @@
 #endif /* OBS_CONFIG_H */
 
 /*** end of file ***/
+

@@ -53,7 +53,7 @@ INT usermain (void)
 
     if (error < E_OK)
     {
-                tm_printf((UB *)"[MAIN] Obstacle init failed: %d\n", error);
+        tm_printf((UB *)"[MAIN] Obstacle init failed: %d\n", error);
         return 1;
     }
 
@@ -100,8 +100,6 @@ INT usermain (void)
     {
         return 1;
     }
-
-
 
 #if APP_TEST
     test_lbar_run();

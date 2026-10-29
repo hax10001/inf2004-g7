@@ -73,8 +73,7 @@ void obstacle_abort (void);
  * @param line_right Right IR, 1 = black.
  * @param now_msec Kernel time in milliseconds.
  */
-obstacle_drive_t obstacle_bypass_step (uint32_t line_left,
-                                       uint32_t line_right,
+obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,
                                        uint32_t now_msec);
 
 /** @brief Packed status word, copied under its mutex.
@@ -83,8 +82,8 @@ obstacle_drive_t obstacle_bypass_step (uint32_t line_left,
  */
 uint32_t obstacle_get_status (void);
 uint32_t obstacle_status_pack (obstacle_state_t state, obstacle_route_t route,
-                               uint8_t faults, uint8_t count,
-                               uint16_t dist_cm, uint8_t width_cm);
+                               uint8_t faults, uint8_t count, uint16_t dist_cm,
+                               uint8_t width_cm);
 obstacle_state_t obstacle_status_state (uint32_t word);
 obstacle_route_t obstacle_status_route (uint32_t word);
 uint8_t          obstacle_status_faults (uint32_t word);
@@ -95,3 +94,4 @@ uint8_t          obstacle_status_width_cm (uint32_t word);
 #endif /* OBSTACLE_H */
 
 /*** end of file ***/
+

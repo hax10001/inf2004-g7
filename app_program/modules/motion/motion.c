@@ -74,7 +74,7 @@ typedef struct
     bool          b_running;
 } motion_wheel_t;
 
-static void drive_wheels (INT action_code);
+static void  drive_wheels (INT action_code);
 static float ramp_target (float current, float desired);
 
 static motion_wheel_t g_wheels[ENCODER_WHEEL_COUNT];
@@ -84,8 +84,8 @@ static float          g_steer    = 0.0f; /**< Rate-limited steer applied. */
 static uint32_t       g_log_countdown = 0U;
 
 /* Only this module can directly access these variables. */
-static ID volatile              gh_status_mutex = 0;
-static motion_status_t volatile g_status        = {0};
+static ID volatile gh_status_mutex       = 0;
+static motion_status_t volatile g_status = {0};
 
 /** @brief Feedforward plus bounded PI trim for one wheel.
  * @param base_percent Open-loop duty; zero stops the wheel.
@@ -96,8 +96,7 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
 /** @brief Open-loop duty for a target: deadband plus a line through the
  * calibrated duty at MOTION_CAL_RPM; zero below MOTION_STOP_RPM.
  */
-static float feedforward (float target_rpm, float min_duty,
-                          float target_duty);
+static float feedforward (float target_rpm, float min_duty, float target_duty);
 /** @brief Zero both targets and steering at once; restarts ramp from rest. */
 static void stop_wheels (void);
 /** @brief Move a value towards the desired value by at most one step. */
@@ -163,9 +162,8 @@ void motion_apply (line_follow_action_t action)
         case LINE_FORWARD:
         case LINE_CORRECT_LEFT:
         case LINE_CORRECT_RIGHT:
-            g_steer = limit_steer(
-                g_steer,
-                steering_update(&g_steering, action, MOTION_PERIOD_SEC));
+            g_steer = limit_steer(g_steer, steering_update(&g_steering, action,
+                                                           MOTION_PERIOD_SEC));
             g_base_rpm =
                 step_towards(g_base_rpm, MOTION_TARGET_RPM, MOTION_RAMP_RPM);
         break;
@@ -205,23 +203,23 @@ static void drive_wheels (INT action_code)
     motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
 
     /* Measure the period that just ended, under the previous command. */
-    uint32_t const   now     = encoder_now_usec();
-    encoder_sample_t left    = {0};
-    encoder_sample_t right   = {0};
-    motion_status_t  status  = {0};
+    uint32_t const   now    = encoder_now_usec();
+    encoder_sample_t left   = {0};
+    encoder_sample_t right  = {0};
+    motion_status_t  status = {0};
 
     encoder_read(ENCODER_LEFT, &left);
     encoder_read(ENCODER_RIGHT, &right);
 
-    status.left_rpm  = wheel_speed_update(&p_left->speed, left.count,
-                                          left.edge_usec, now);
-    status.right_rpm = wheel_speed_update(&p_right->speed, right.count,
-                                          right.edge_usec, now);
+    status.left_rpm =
+        wheel_speed_update(&p_left->speed, left.count, left.edge_usec, now);
+    status.right_rpm =
+        wheel_speed_update(&p_right->speed, right.count, right.edge_usec, now);
     status.left_target_rpm  = p_left->target_rpm;
     status.right_target_rpm = p_right->target_rpm;
     status.steer            = g_steer;
 
-    float const left_feedforward  = feedforward(
+    float const left_feedforward = feedforward(
         p_left->target_rpm, MOTION_LEFT_MIN_DUTY, MOTION_LEFT_SPEED);
     float const right_feedforward = feedforward(
         p_right->target_rpm, MOTION_RIGHT_MIN_DUTY, MOTION_RIGHT_SPEED);
@@ -252,10 +250,10 @@ static void drive_wheels (INT action_code)
      * pwmL,pwmR. INT truncation is for display; UB preserves the bytes.
      */
     tm_printf((UB *)"CSV,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)(now / 1000U),
-              (INT)action, (INT)(g_steer * 100.0f),
-              (INT)status.left_target_rpm, (INT)status.right_target_rpm,
-              (INT)(status.left_rpm * 10.0f), (INT)(status.right_rpm * 10.0f),
-              (INT)status.left_pwm, (INT)status.right_pwm);
+              (INT)action, (INT)(g_steer * 100.0f), (INT)status.left_target_rpm,
+              (INT)status.right_target_rpm, (INT)(status.left_rpm * 10.0f),
+              (INT)(status.right_rpm * 10.0f), (INT)status.left_pwm,
+              (INT)status.right_pwm);
 #endif
 
     if (0U == g_log_countdown)
@@ -357,8 +355,7 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
                            MOTION_TRIM_MAX_PERCENT);
 }
 
-static float feedforward (float target_rpm, float min_duty,
-                          float target_duty)
+static float feedforward (float target_rpm, float min_duty, float target_duty)
 {
     if (target_rpm < MOTION_STOP_RPM)
     {

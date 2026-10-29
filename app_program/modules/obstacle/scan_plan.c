@@ -34,8 +34,7 @@ static uint16_t diff_u16 (uint16_t a, uint16_t b);
 static uint32_t to_cm (float mm, uint32_t limit);
 static void     evaluate_side (scan_point_t const * p_pts, uint8_t count,
                                uint8_t lo, uint8_t hi, float outward_edge,
-                               float y_near, float sign,
-                               side_option_t * p_opt);
+                               float y_near, float sign, side_option_t * p_opt);
 
 float scan_plan_angle_deg (uint32_t angle_idx)
 {
@@ -53,8 +52,8 @@ void scan_plan_build (scan_point_t const * p_pts, uint8_t count,
 
     for (uint8_t i = 0U; i < count; i++)
     {
-        int32_t const a = (p_pts[i].angle_deg < 0) ? -p_pts[i].angle_deg
-                                                   : p_pts[i].angle_deg;
+        int32_t const a =
+            (p_pts[i].angle_deg < 0) ? -p_pts[i].angle_deg : p_pts[i].angle_deg;
 
         if (is_near(&p_pts[i]) && (a < best))
         {
@@ -129,13 +128,14 @@ void scan_plan_build (scan_point_t const * p_pts, uint8_t count,
     side_option_t const * const p_pick = b_left ? &left : &right;
     float const sin_a = sinf(g_angles[p_pick->angle_idx] * DEG_TO_RAD);
 
-    p_plan->result      = (uint32_t)PLAN_ROUTE;
-    p_plan->side_left   = b_left ? 1U : 0U;
-    p_plan->angle_idx   = p_pick->angle_idx;
-    p_plan->lateral_cm  = to_cm(p_pick->need_mm, DIST_MAX_CM);
-    p_plan->diag_cm     = to_cm(p_pick->need_mm / sin_a, DIST_MAX_CM);
-    p_plan->fallback_cm = to_cm(
-        width + OBS_ROBOT_LENGTH_MM + (2.0F * OBS_SAFETY_MARGIN_MM), DIST_MAX_CM);
+    p_plan->result     = (uint32_t)PLAN_ROUTE;
+    p_plan->side_left  = b_left ? 1U : 0U;
+    p_plan->angle_idx  = p_pick->angle_idx;
+    p_plan->lateral_cm = to_cm(p_pick->need_mm, DIST_MAX_CM);
+    p_plan->diag_cm    = to_cm(p_pick->need_mm / sin_a, DIST_MAX_CM);
+    p_plan->fallback_cm =
+        to_cm(width + OBS_ROBOT_LENGTH_MM + (2.0F * OBS_SAFETY_MARGIN_MM),
+              DIST_MAX_CM);
 }
 
 static void evaluate_side (scan_point_t const * p_pts, uint8_t count,
@@ -145,9 +145,9 @@ static void evaluate_side (scan_point_t const * p_pts, uint8_t count,
     float const half = (0.5F * OBS_ROBOT_WIDTH_MM) + OBS_SAFETY_MARGIN_MM;
     float       need = outward_edge + half;
 
-    need            = (need < half) ? half : need;
-    p_opt->need_mm  = need;
-    p_opt->b_ok     = false;
+    need             = (need < half) ? half : need;
+    p_opt->need_mm   = need;
+    p_opt->b_ok      = false;
     p_opt->angle_idx = 0U;
 
     for (uint8_t i = 0U; i < count; i++)
@@ -221,3 +221,4 @@ static uint32_t to_cm (float mm, uint32_t limit)
 }
 
 /*** end of file ***/
+

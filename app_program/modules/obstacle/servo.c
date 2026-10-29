@@ -28,7 +28,8 @@ ER servo_init (void)
     }
 
     out_w(SERVO_REG(SERVO_REG_CSR), 0U);
-    out_w(SERVO_REG(SERVO_REG_DIV), (UW)(OBS_PWM_CLK_MHZ << SERVO_DIV_INT_SHIFT));
+    out_w(SERVO_REG(SERVO_REG_DIV),
+          (UW)(OBS_PWM_CLK_MHZ << SERVO_DIV_INT_SHIFT));
     error = pwm_set_wrap(BOARD_SERVO_PIN, SERVO_WRAP);
 
     if (error < E_OK)
@@ -52,9 +53,9 @@ uint32_t servo_set_angle (int16_t angle_deg)
         angle_deg = -OBS_SERVO_LIMIT_DEG;
     }
 
-    int32_t pulse = OBS_SERVO_FRONT_US + ((int32_t)OBS_SERVO_LEFT_SIGN *
-                                          (int32_t)angle_deg *
-                                          (int32_t)OBS_SERVO_US_PER_DEG);
+    int32_t pulse = OBS_SERVO_FRONT_US +
+                    ((int32_t)OBS_SERVO_LEFT_SIGN * (int32_t)angle_deg *
+                     (int32_t)OBS_SERVO_US_PER_DEG);
 
     if (pulse < OBS_SERVO_MIN_US)
     {
@@ -81,3 +82,4 @@ uint32_t servo_set_angle (int16_t angle_deg)
 }
 
 /*** end of file ***/
+

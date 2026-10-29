@@ -16,7 +16,7 @@
 #include "modules/motion/motion.h"
 #include <tm/tmonitor.h>
 
-#define OBS_MM_PER_COUNT \
+#define OBS_MM_PER_COUNT                                                       \
     ((3.14159265F * BOARD_WHEEL_DIAMETER_MM) / (float)BOARD_ENC_COUNTS_PER_REV)
 #define OBS_RAD_TO_DEG 57.2957795F
 
@@ -50,27 +50,27 @@ typedef struct
     uint8_t          black_total;
 } seq_t;
 
-static ID                  gh_mutex = 0;
-static ID                  gh_flag  = 0;
-static uint32_t            g_status = 0U;
-static bypass_plan_t       g_plan;
-static volatile int8_t     g_watch_side = 1;
-static seq_t               g_seq;
+static ID              gh_mutex = 0;
+static ID              gh_flag  = 0;
+static uint32_t        g_status = 0U;
+static bypass_plan_t   g_plan;
+static volatile int8_t g_watch_side = 1;
+static seq_t           g_seq;
 
-static void  status_update (uint32_t shift, uint32_t mask, uint32_t value);
+static void     status_update (uint32_t shift, uint32_t mask, uint32_t value);
 static uint32_t field_get (uint32_t shift, uint32_t mask);
-static bool  odometry_read (float * p_dist_mm, float * p_heading_deg);
-static void  enter_state (seq_t * p_seq, obstacle_state_t state,
-                          uint32_t now_msec, float dist_mm);
-static void  set_arc (obstacle_drive_t * p_out, int8_t turn);
-static void  set_straight (obstacle_drive_t * p_out, float heading,
-                           float target);
-static void  raise_fault (seq_t * p_seq, obstacle_drive_t * p_out,
-                          uint8_t fault_bit);
-static void  finish_bypass (seq_t * p_seq, obstacle_drive_t * p_out,
-                            bool b_count);
-static void  handle_plan (seq_t * p_seq, obstacle_drive_t * p_out, float hdg,
-                          uint32_t now_msec, float dist_mm);
+static bool     odometry_read (float * p_dist_mm, float * p_heading_deg);
+static void     enter_state (seq_t * p_seq, obstacle_state_t state,
+                             uint32_t now_msec, float dist_mm);
+static void     set_arc (obstacle_drive_t * p_out, int8_t turn);
+static void     set_straight (obstacle_drive_t * p_out, float heading,
+                              float target);
+static void     raise_fault (seq_t * p_seq, obstacle_drive_t * p_out,
+                             uint8_t fault_bit);
+static void     finish_bypass (seq_t * p_seq, obstacle_drive_t * p_out,
+                               bool b_count);
+static void     handle_plan (seq_t * p_seq, obstacle_drive_t * p_out, float hdg,
+                             uint32_t now_msec, float dist_mm);
 
 ER obstacle_init (void)
 {
@@ -98,9 +98,9 @@ ER obstacle_init (void)
         return (E_OK == gh_flag) ? E_OBJ : gh_flag;
     }
 
-    g_status = obstacle_status_pack(OBSTACLE_S_IDLE, OBSTACLE_ROUTE_NONE, 0U,
-                                    0U, OBS_DIST_INVALID_CM,
-                                    OBS_WIDTH_INVALID_CM);
+    g_status =
+        obstacle_status_pack(OBSTACLE_S_IDLE, OBSTACLE_ROUTE_NONE, 0U, 0U,
+                             OBS_DIST_INVALID_CM, OBS_WIDTH_INVALID_CM);
 
     ER error = ultrasonic_init();
 
@@ -178,8 +178,8 @@ void obstacle_abort (void)
 obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,
                                        uint32_t now_msec)
 {
-    obstacle_drive_t out = {0.0F, 0.0F, false, false, false, false};
-    seq_t * const    p   = &g_seq;
+    obstacle_drive_t out  = {0.0F, 0.0F, false, false, false, false};
+    seq_t * const    p    = &g_seq;
     float            dist = 0.0F;
     float            hdg  = 0.0F;
 
@@ -289,8 +289,7 @@ obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,
             set_straight(&out, hdg, p->heading0_deg);
 
             if ((0U != (ptn & OBS_EVT_SIDE_CLEAR)) ||
-                ((0U == (ptn & OBS_EVT_SIDE_SEEN)) &&
-                 (seg >= p->fallback_mm)))
+                ((0U == (ptn & OBS_EVT_SIDE_SEEN)) && (seg >= p->fallback_mm)))
             {
                 obstacle_link_flags_clear(OBS_EVT_SIDE_WATCH |
                                           OBS_EVT_SIDE_SEEN |
@@ -405,8 +404,8 @@ uint32_t obstacle_get_status (void)
 }
 
 uint32_t obstacle_status_pack (obstacle_state_t state, obstacle_route_t route,
-                               uint8_t faults, uint8_t count,
-                               uint16_t dist_cm, uint8_t width_cm)
+                               uint8_t faults, uint8_t count, uint16_t dist_cm,
+                               uint8_t width_cm)
 {
     return (((uint32_t)state & ST_STATE_MASK) << ST_STATE_SHIFT) |
            (((uint32_t)route & ST_ROUTE_MASK) << ST_ROUTE_SHIFT) |
@@ -629,3 +628,4 @@ static void handle_plan (seq_t * p_seq, obstacle_drive_t * p_out, float hdg,
 }
 
 /*** end of file ***/
+

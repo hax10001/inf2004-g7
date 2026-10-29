@@ -24,13 +24,13 @@ typedef enum
 /** @brief Packed plan (49 bits, centimetre units); one writer, then flagged. */
 typedef struct
 {
-    uint32_t result      : 2;
-    uint32_t side_left   : 1;
-    uint32_t angle_idx   : 2; /**< 0..2 selects 30, 45 or 60 degrees. */
-    uint32_t width_cm    : 8;
-    uint32_t near_cm     : 9;
-    uint32_t lateral_cm  : 9;
-    uint32_t diag_cm     : 9;
+    uint32_t result : 2;
+    uint32_t side_left : 1;
+    uint32_t angle_idx : 2; /**< 0..2 selects 30, 45 or 60 degrees. */
+    uint32_t width_cm : 8;
+    uint32_t near_cm : 9;
+    uint32_t lateral_cm : 9;
+    uint32_t diag_cm : 9;
     uint32_t fallback_cm : 9;
 } bypass_plan_t;
 
@@ -43,3 +43,4 @@ void scan_plan_build (scan_point_t const * p_pts, uint8_t count,
 #endif /* SCAN_PLAN_H */
 
 /*** end of file ***/
+

@@ -27,9 +27,9 @@ bool tilt_math_angles (int16_t axis_x, int16_t axis_y, int16_t axis_z,
     float accel_z = (float)axis_z;
 
     *p_roll_deg = atan2f(accel_y, accel_z) * TILT_MATH_RAD_TO_DEG;
-    *p_pitch_deg = atan2f(-accel_x,
-        sqrtf(accel_y * accel_y + accel_z * accel_z))
-        * TILT_MATH_RAD_TO_DEG;
+    *p_pitch_deg =
+        atan2f(-accel_x, sqrtf(accel_y * accel_y + accel_z * accel_z)) *
+        TILT_MATH_RAD_TO_DEG;
     return true;
 }
 

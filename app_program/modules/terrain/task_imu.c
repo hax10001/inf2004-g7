@@ -46,17 +46,17 @@
 
 typedef struct
 {
-    float              filtered[3];  /**< Smoothed axes, mg. */
+    float              filtered[3]; /**< Smoothed axes, mg. */
     bool               b_filter_ready;
-    int32_t            gravity_mg;   /**< Total acceleration at rest. */
-    uint16_t           rejected;     /**< Shoved samples since last log. */
+    int32_t            gravity_mg; /**< Total acceleration at rest. */
+    uint16_t           rejected;   /**< Shoved samples since last log. */
     bool               b_on_hump;
     terrain_hump_phase phase;
     uint8_t            level_count;
     uint8_t            tilted_count; /**< Samples in a row above start. */
     float              tilt_deg;     /**< Size of the roll, degrees. */
     float              height_mm;
-    float              peak_mm;      /**< Highest point of this hump. */
+    float              peak_mm; /**< Highest point of this hump. */
     uint16_t           last_peak_mm;
     uint16_t           max_peak_mm;
     uint8_t            hump_count;
@@ -97,7 +97,7 @@ static bool calibrate_sensor (ID h_device);
 static bool calibration_sample_valid (int16_t const * p_axes,
                                       int16_t const * p_first_axes);
 /** @brief Report angles relative to the startup level reference. */
-static void log_tilt(terrain_snapshot const *p_snapshot);
+static void log_tilt (terrain_snapshot const * p_snapshot);
 /** @brief Low-pass filter the accelerometer axes against vibration. */
 static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes);
 /** @brief Update hump start, climb, descent and end from a valid tilt. */
@@ -181,7 +181,7 @@ void task_imu_task (INT start_code, void * p_context)
 static bool calibrate_sensor (ID h_device)
 {
     // This is 3 for x,y,z axes sumof
-    int32_t sums[3] = {0};
+    int32_t sums[3]       = {0};
     int16_t first_axes[3] = {0};
 
     for (INT sample = 0; sample < IMU_CALIBRATION_SAMPLES; ++sample)
@@ -235,36 +235,25 @@ static bool calibrate_sensor (ID h_device)
         return false;
     }
 
-    float roll_zero = 0.0F;
+    float roll_zero  = 0.0F;
     float pitch_zero = 0.0F;
 
     // Terrain_tilt is called again to compute once for the printf readings.
     // Note that terrain_calibrate already calls terrain_tilt
     // internally to save the reference angles.
-    error = terrain_tilt(
-        avg_x,
-        avg_y,
-        avg_z,
-        &roll_zero,
-        &pitch_zero
-    );
+    error = terrain_tilt(avg_x, avg_y, avg_z, &roll_zero, &pitch_zero);
 
     if (error < E_OK)
     {
         return false;
     }
 
-    tm_printf(
-        (UB *)"IMU CALIBRATION:\n"
-            "AVG XYZ = (%d, %d, %d)\n"
-            "ROLL_ZERO_mdeg = %d\n"
-            "PITCH_ZERO_mdeg = %d\n",
-        (INT)avg_x,
-        (INT)avg_y,
-        (INT)avg_z,
-        (INT)(roll_zero * 1000.0F),
-        (INT)(pitch_zero * 1000.0F)
-    );
+    tm_printf((UB *)"IMU CALIBRATION:\n"
+                    "AVG XYZ = (%d, %d, %d)\n"
+                    "ROLL_ZERO_mdeg = %d\n"
+                    "PITCH_ZERO_mdeg = %d\n",
+              (INT)avg_x, (INT)avg_y, (INT)avg_z, (INT)(roll_zero * 1000.0F),
+              (INT)(pitch_zero * 1000.0F));
 
     return true;
 }
@@ -319,52 +308,38 @@ static void process_sample (ID h_device, imu_history_t * p_history)
     }
 
     // This is reading the raw readings of accelerometer and magnetometer
-    imu_sample_t sample = {0};
-    bool b_accel_ok = lsm303_read_accel(
-        h_device,
-        &sample.axis_x,
-        &sample.axis_y,
-        &sample.axis_z
-    );
+    imu_sample_t sample     = {0};
+    bool         b_accel_ok = lsm303_read_accel(h_device, &sample.axis_x,
+                                                &sample.axis_y, &sample.axis_z);
 
-    sample.b_mag_ok = lsm303_read_mag(
-        h_device,
-        &sample.mag_x,
-        &sample.mag_y,
-        &sample.mag_z
-    );
+    sample.b_mag_ok =
+        lsm303_read_mag(h_device, &sample.mag_x, &sample.mag_y, &sample.mag_z);
 
     // This is for writing the processed readings into the terrain snapshot
     terrain_snapshot snapshot = {0};
-    snapshot.timestamp_msec = now_msec;
-    snapshot.b_valid = false;
+    snapshot.timestamp_msec   = now_msec;
+    snapshot.b_valid          = false;
 
     /* Compute motion measurements only after a successful read. */
     if (b_accel_ok)
     {
-        sample.magnitude = terrain_magnitude(
-            sample.axis_x,
-            sample.axis_y,
-            sample.axis_z
-        );
+        sample.magnitude =
+            terrain_magnitude(sample.axis_x, sample.axis_y, sample.axis_z);
 
         if (p_history->b_have_previous)
         {
-            sample.jerk = terrain_jerk(sample.magnitude,
-                p_history->previous_magnitude,
-                now_msec - p_history->previous_time_msec);
+            sample.jerk =
+                terrain_jerk(sample.magnitude, p_history->previous_magnitude,
+                             now_msec - p_history->previous_time_msec);
         }
         // Compute the tilt from smoothed readings: raw ones swing by
         // several degrees with motor vibration.
         int16_t smoothed[3] = {0};
         smooth_axes(&sample, smoothed);
 
-        ER tilt_error = terrain_relative_tilt(
-            smoothed[0], smoothed[1],
-            smoothed[2],
-            &snapshot.roll_deg,
-            &snapshot.pitch_deg
-        );
+        ER tilt_error =
+            terrain_relative_tilt(smoothed[0], smoothed[1], smoothed[2],
+                                  &snapshot.roll_deg, &snapshot.pitch_deg);
         if (tilt_error == E_OK)
         {
             snapshot.b_valid = true;
@@ -381,14 +356,14 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         }
 
         // Assign the values to the snapshot for publishing
-        snapshot.onHump = g_hump.b_on_hump;
-        snapshot.hump_phase = g_hump.phase;
+        snapshot.onHump       = g_hump.b_on_hump;
+        snapshot.hump_phase   = g_hump.phase;
         snapshot.height_valid = snapshot.b_valid;
         snapshot.hump_height_mm =
             snapshot.b_valid ? round_mm(g_hump.height_mm) : 0U;
         snapshot.last_hump_height_mm = g_hump.last_peak_mm;
-        snapshot.max_hump_height_mm = g_hump.max_peak_mm;
-        snapshot.hump_count = g_hump.hump_count;
+        snapshot.max_hump_height_mm  = g_hump.max_peak_mm;
+        snapshot.hump_count          = g_hump.hump_count;
 
         // This is for logging (printfs) the readings to the console every 100ms
         if ((0 != APP_IMU_DEBUG_LOG) &&
@@ -403,9 +378,9 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                       (UINT)g_hump.b_on_hump, (UINT)g_hump.phase,
                       (INT)(g_hump.tilt_deg * 1000.0F),
                       (INT)(g_hump.height_mm * 10.0F),
-                      (INT)(g_hump.peak_mm * 10.0F),
-                      (UINT)g_hump.hump_count, (UINT)g_hump.rejected);
-            g_hump.rejected = 0U;
+                      (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count,
+                      (UINT)g_hump.rejected);
+            g_hump.rejected          = 0U;
             p_history->last_log_msec = now_msec;
         }
 
@@ -424,10 +399,8 @@ static void process_sample (ID h_device, imu_history_t * p_history)
     ER publish_error = terrain_publish_snapshot(&snapshot);
     if (publish_error < E_OK)
     {
-        tm_printf(
-            (UB *)"IMU: snapshot publish failed: %d\n",
-            (INT)publish_error
-        );
+        tm_printf((UB *)"IMU: snapshot publish failed: %d\n",
+                  (INT)publish_error);
     }
 }
 
@@ -437,9 +410,9 @@ static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes)
                           (float)p_sample->axis_z};
 
     int32_t const excess_mg = p_sample->magnitude - g_hump.gravity_mg;
-    bool const    b_shoved  = g_hump.b_filter_ready &&
-                           ((excess_mg > IMU_GRAVITY_TOLERANCE_MG) ||
-                            (excess_mg < -IMU_GRAVITY_TOLERANCE_MG));
+    bool const    b_shoved =
+        g_hump.b_filter_ready && ((excess_mg > IMU_GRAVITY_TOLERANCE_MG) ||
+                                  (excess_mg < -IMU_GRAVITY_TOLERANCE_MG));
 
     if (b_shoved && (g_hump.rejected < UINT16_MAX))
     {
@@ -471,7 +444,7 @@ static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes)
 
 static void update_hump (terrain_snapshot const * p_snapshot)
 {
-    g_hump.tilt_deg = (p_snapshot->roll_deg < 0.0F) ? -p_snapshot->roll_deg
+    g_hump.tilt_deg  = (p_snapshot->roll_deg < 0.0F) ? -p_snapshot->roll_deg
                                                      : p_snapshot->roll_deg;
     g_hump.height_mm = terrain_hump_height(p_snapshot->roll_deg);
 
@@ -577,7 +550,7 @@ static uint16_t round_mm (float height_mm)
     return (uint16_t)(height_mm + 0.5F);
 }
 
-static void log_tilt(terrain_snapshot const *p_snapshot)
+static void log_tilt (terrain_snapshot const * p_snapshot)
 {
     if ((NULL == p_snapshot) || (!p_snapshot->b_valid))
     {
@@ -585,11 +558,9 @@ static void log_tilt(terrain_snapshot const *p_snapshot)
         return;
     }
 
-    tm_printf(
-        (UB *)"TILT_REL_mdeg ROLL=%d PITCH=%d\n",
-        (INT)(p_snapshot->roll_deg * 1000.0F),
-        (INT)(p_snapshot->pitch_deg * 1000.0F)
-    );
+    tm_printf((UB *)"TILT_REL_mdeg ROLL=%d PITCH=%d\n",
+              (INT)(p_snapshot->roll_deg * 1000.0F),
+              (INT)(p_snapshot->pitch_deg * 1000.0F));
 }
 
 static void log_sample (uint32_t now_msec, imu_sample_t const * p_sample)

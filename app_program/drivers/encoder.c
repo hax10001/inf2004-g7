@@ -79,7 +79,7 @@ ER encoder_init (void)
               ENC_EDGES(g_pins[wheel].a_pin));
     }
 
-    T_DINT const dint = {.intatr = TA_HLNG, .inthdr = (FP)encoder_isr};
+    T_DINT const dint  = {.intatr = TA_HLNG, .inthdr = (FP)encoder_isr};
     ER           error = tk_def_int(ENC_IO_IRQ_BANK0, &dint);
 
     if (error < E_OK)
