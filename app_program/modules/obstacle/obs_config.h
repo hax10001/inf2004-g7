@@ -23,7 +23,7 @@
 #define OBS_CONFIRM_HITS 3U
 #define OBS_NO_ECHO_LIMIT 5U
 /* A value of 1 stops the robot when the sensor stays silent. */
-#define OBS_FAILSAFE_NO_ECHO 0
+#define OBS_FAILSAFE_NO_ECHO 1
 
 /* Servo (SG90). Measure every value in this group. */
 #define OBS_SERVO_FRONT_USEC 800
@@ -59,7 +59,7 @@
 #define OBS_ROBOT_WIDTH_MM 150
 #define OBS_ROBOT_LENGTH_MM 200
 #define OBS_SAFETY_MARGIN_MM 40
-#define OBS_FRONT_CLEAR_MM 30
+#define OBS_FRONT_CLEAR_MM 400
 #define OBS_TRACK_WIDTH_MM 110
 
 /* Bypass motion. Heading values are in tenths of a degree. */
@@ -76,7 +76,7 @@
 #define OBS_SIDE_LOOK_DEG 40
 #define OBS_SIDE_NEAR_MM 400
 #define OBS_SIDE_CLEAR_HITS 3U
-#define OBS_PASS_MAX_MM 800
+#define OBS_PASS_MAX_MM 600
 #define OBS_PASS_MARGIN_MM 40
 #define OBS_SEARCH_MARGIN_MM 150
 #define OBS_LINE_CONFIRM_CYCLES 2U
