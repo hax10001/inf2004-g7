@@ -61,34 +61,31 @@ COMPLETE and INVALID require three meaningful bits. Sensor input is a single
 bit. Individual distance measurements remain 32-bit: reducing them would
 risk barcode resolution/overflow.
 
-## Important: live integration is NOT applied
+## Current integration state (from `inf2004-g7(9).zip`)
 
-The only reviewed integration proposal is provided separately as
-`Buddy3_Barcode_Integration_Review.patch`. It changes `app_main.c` and
-`task_ir.c` **if and only if a teammate approves it**. The delivered ZIP does
-not include those changes.
+The uploaded team code **already includes** barcode startup hooks in
+`app_main.c` and a GP27 timer-arm hook in
+`modules/line_barcode/task_ir.c`. They are preserved unchanged by this
+module-only patch. You **do not** need to apply an older integration patch
+for these two hooks again.
 
-After approval, enable `BC_CAL_READY` in this folder's `bc_cal.h` **only once**
-all calibration fields below are measured. Otherwise the initialization and
-sampling hooks are intentionally inert. Do not enable with the zero
-placeholders; initialization will reject them.
+With `BC_CAL_READY 0`, the hook is compiled out and no barcode alarm is
+armed. See `CALIBRATION_GUIDE.md` for the measurement-only mode and the
+requirements before enabling actual barcode decoding.
 
-The approved integration must:
+The existing hooks:
 
-1. Initialise via `bc_setup_init()` *after* `motion_init()` has initialised
-   the encoder, and *before* starting the IR task.
-2. Call `bc_setup_sample(raw_gp27, tk_get_otm().lo)` once after each
-   existing `ir_read`, preserving GPIO initialization and sensor latches.
-   The first call **arms** TIMER ALARM2; later 10 ms calls are ignored.
-   Actual barcode sampling then happens every 4000 microseconds through the
-   dedicated timer interrupt, independently of the 10 ms IR task.
-3. Start `bc_setup_start()` to create the low-priority decoding/diagnostic
-   task; do not call `bc_uart_poll()` inside the IR sampling task.
-4. The low-priority task drains captured samples before decoding/printing.
-   Consume `bc_port_peek` only in a team-owned Mission Coordinator reader;
-   check `VALID`, decode letter value 0..25, record its own pending mapping,
-   and `bc_port_ack(sequence)` after successful handoff. Call
-   `bc_port_clear()` on STOP/FAULT. No motor commands originate here.
+1. Run `bc_setup_init()` after encoder-owning `motion_init()`.
+2. Call `bc_setup_sample()` after `ir_read()`. Its first valid call arms
+   TIMER ALARM2; later 10 ms calls do not feed or print samples. The
+   dedicated barcode timer samples GP27 every 4000 microseconds nominally.
+3. Start `bc_setup_start()` as a lower-priority decoder/diagnostic worker.
+
+**Still missing:** no application Mission Coordinator consumer calls
+`bc_port_peek()` and `bc_port_ack()`, and STOP/FAULT clearing is not
+connected. These changes must be reviewed by the shared controller owner.
+See `INTEGRATION_HANDOFF.md` for the safe API contract. No motor command
+or letter-to-navigation mapping is implemented by this module.
 
 ### Calibration required
 
@@ -168,8 +165,8 @@ START gating still requires team safety work.
    real sensor readings at level and tilted positions.
 3. Hand-roll the wheels, confirm signs and travel-to-distance conversion.
 4. Record actual maximum polling interval/jitter, tilt and edge stability.
-5. Only after approval, apply the separate integration patch, enter measured
-   values in `bc_cal.h`, and build/flash the approved system.
+5. Only after approval, enter measured values in `bc_cal.h` and
+   build/flash the approved system; the startup/IR hooks already exist.
 6. Hand-move the robot past A, F, Z in both directions; confirm *one* print
    and pending letter, not any motor command.
 7. Test all available A–Z prints, incomplete/dirty barcodes, stalls, wheel
@@ -234,3 +231,11 @@ overflows and invalid scans with motors physically isolated initially.
 The 10 ms task and its unchanged code are intentionally not evidence of
 barcode 4 ms timing. Actual motion/START safety and Mission Coordinator
 consumption of decoded letters remain the team's responsibility.
+
+## Latest module-local integration audit and calibration
+
+See `INTEGRATION_HANDOFF.md` for the precise existing hook status and
+mission-controller dependency; see `CALIBRATION_GUIDE.md` for safe on-target
+GP27/encoder/4 ms measurements. `integration_audit.py` verifies the hooks
+without changing other modules. Rejected events cannot block a later valid
+letter, while an unacknowledged valid letter remains protected.

@@ -280,14 +280,19 @@ ER bc_port_process (void)
     uint8_t b_busy = gb_have_result;
     ++g_event_sequence;
     result.sequence = g_event_sequence;
-    if (0U == b_busy)
+    if ((0U == b_busy) ||
+        (0U == (g_port_result.info & BC_PORT_VALID_FLAG)))
     {
+        /* A rejection must not indefinitely block a later valid letter.
+         * Never replace a still-pending valid letter until acknowledged.
+         */
         g_port_result = result;
         gb_have_result = 1U;
+        b_busy = 0U;
     }
     else
     {
-        /* Preserve pending letter, but print an explicit busy rejection. */
+        /* Preserve pending valid letter; report the busy event only. */
         result.info = BC_CODE_LETTER_INVALID |
             (uint16_t)(BC_PORT_ERROR_BUSY << BC_PORT_ERROR_SHIFT);
     }

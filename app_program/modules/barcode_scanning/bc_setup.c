@@ -310,5 +310,3 @@ ER bc_setup_sample (uint8_t raw_gpio, uint32_t now_msec)
 
 /*** end of file ***/
 
-
-

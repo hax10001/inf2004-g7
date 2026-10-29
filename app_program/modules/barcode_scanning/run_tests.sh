@@ -7,6 +7,7 @@ BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT
 cd "$ROOT"
 python3 tools/check_app_standard.py
+python3 "$SRC/integration_audit.py"
 : "${CC:=gcc}"
 "$CC" -std=c99 -Wall -Wextra -Werror -pedantic \
   -DBC_BARCODE_TEST_MAIN -I app_program \

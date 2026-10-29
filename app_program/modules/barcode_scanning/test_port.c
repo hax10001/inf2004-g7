@@ -258,6 +258,49 @@ static void test_input_rejections (void)
     gb_stale_edge = 0U;
 }
 
+/** A rejected scan may be superseded without a controller rejection ACK. */
+static void test_rejection_does_not_block_letter (void)
+{
+    bc_port_result_t previous = {0};
+    bc_port_result_t current = {0};
+    bc_code_pattern_t pattern = {0U};
+
+    check(E_OK == bc_port_clear(), "clear before rejection replacement");
+    tick(0U, 0U);
+    tick(120U, 0U);
+    tick(0U, 1U);
+    tick(4U, 1U);
+    tick(0U, 0U);
+    check(E_OK == bc_port_peek(&previous), "invalid event stored");
+    check(0U == (previous.info & BC_PORT_VALID_FLAG),
+          "rejected barcode is not valid");
+
+    /* Do not acknowledge rejection. A complete F must replace it. */
+    tick(0U, 0U);
+    tick(120U, 0U);
+    tick(0U, 1U);
+    send_symbol(0x94U);
+    tick(20U, 0U);
+    tick(0U, 1U);
+    check(bc_code_get(5U, &pattern), "lookup F for replacement");
+    send_symbol(pattern.element_pattern);
+    tick(20U, 0U);
+    tick(0U, 1U);
+    send_symbol(0x94U);
+    tick(120U, 0U);
+
+    check(E_OK == bc_port_peek(&current), "later F available");
+    check(0U != (current.info & BC_PORT_VALID_FLAG),
+          "valid letter replaces rejected event");
+    check(5U == (current.info & BC_PORT_LETTER_MASK),
+          "replacement is F, not a guessed turn");
+    check(previous.sequence != current.sequence,
+          "stale rejection ACK cannot clear valid letter");
+    check(E_OBJ == bc_port_ack(previous.sequence),
+          "outdated ACK rejected");
+    check(E_OK == bc_port_ack(current.sequence), "valid F ACK works");
+}
+
 static void test_four_millisecond_capture (void)
 {
     bc_port_result_t result = {0U, 0U, 0U};
@@ -305,6 +348,7 @@ int test_port_run (void)
 {
     test_full_scan();
     test_input_rejections();
+    test_rejection_does_not_block_letter();
     test_four_millisecond_capture();
     test_microsecond_wrap();
     printf("Barcode adapter: %d assertions, %d failed\n",
