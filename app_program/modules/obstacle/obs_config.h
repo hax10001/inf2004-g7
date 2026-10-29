@@ -1,65 +1,76 @@
-/** @file obs_config.h
- * @brief Obstacle subsystem tunables. MEASURE marks values to calibrate.
+** @file obs_config.h
+ *
+ * @brief Tunable values for the obstacle subsystem.
+ *
+ * NOTE: Each value marked "Measure" must be calibrated on the robot.
  */
 #ifndef OBS_CONFIG_H
 #define OBS_CONFIG_H
 
 #include "board/board_config.h"
 
-/* ASSUMPTION: 125 MHz system clock, so a divider of 125 gives a 1 us tick. */
+/* NOTE: Assumes a 125 MHz system clock, so a divider of 125 gives 1 usec. */
 #define OBS_PWM_CLK_MHZ 125U
 
-/* Ultrasonic. */
+/* Ultrasonic ranging. */
 #define OBS_TRIG_PULSE_USEC 12U
-#define OBS_ECHO_TIMEOUT_MS 30U
-#define OBS_PING_PERIOD_MS 60U
-#define OBS_FAR_MM 4000U
-#define OBS_STOP_MM 200U /* MEASURE: stop distance. */
+#define OBS_ECHO_TIMEOUT_MSEC 30U
+#define OBS_PING_PERIOD_MSEC 60U
+#define OBS_MEDIAN_SAMPLES 3U
+#define OBS_FAR_MM 4000
+/* Measure: how close an obstacle may get before the robot stops. */
+#define OBS_STOP_MM 200
 #define OBS_CONFIRM_HITS 3U
 #define OBS_NO_ECHO_LIMIT 5U
-#define OBS_FAILSAFE_NO_ECHO 1 /* 1: persistent no-echo stops the robot. */
+/* A value of 1 stops the robot when the sensor stays silent. */
+#define OBS_FAILSAFE_NO_ECHO 1
 
-/* Servo (SG90). */
-#define OBS_SERVO_FRONT_US 1500 /* MEASURE: pulse for physical FRONT. */
-#define OBS_SERVO_US_PER_DEG 10 /* MEASURE. */
-#define OBS_SERVO_LEFT_SIGN 1   /* MEASURE: +1 if a longer pulse looks left. */
-#define OBS_SERVO_MIN_US 600
-#define OBS_SERVO_MAX_US 2400
-#define OBS_SERVO_LIMIT_DEG 80 /* MEASURE: safe sweep each side. */
-#define OBS_SERVO_SETTLE_BASE_MS 40U
-#define OBS_SERVO_SETTLE_PER_DEG_MS 3U
+/* Servo (SG90). Measure every value in this group. */
+#define OBS_SERVO_FRONT_USEC 1500
+#define OBS_SERVO_USEC_PER_DEG 10
+/* A value of 1 means that a longer pulse turns the sensor left. */
+#define OBS_SERVO_LEFT_SIGN 1
+#define OBS_SERVO_MIN_USEC 600
+#define OBS_SERVO_MAX_USEC 2400
+#define OBS_SERVO_LIMIT_DEG 80
+#define OBS_SERVO_SETTLE_BASE_MSEC 40
+#define OBS_SERVO_SETTLE_PER_DEG_MSEC 3
 
-/* Scan. */
+/* Panning scan. The step must be a multiple of 10 degrees. */
 #define OBS_SCAN_STEP_DEG 10
 #define OBS_SCAN_LIMIT_DEG 70
-#define OBS_SCAN_MAX_POINTS 15U /* 2 * LIMIT / STEP + 1 */
+/* Equals two times the limit divided by the step, plus one. */
+#define OBS_SCAN_POINTS 15
 #define OBS_SCAN_PINGS 3U
-#define OBS_SCAN_RANGE_MM 600U
-#define OBS_EDGE_JUMP_MM 80U
-#define OBS_BYPASS_LOOKAHEAD_MM 500.0F
+#define OBS_SCAN_RANGE_MM 600
+#define OBS_EDGE_JUMP_MM 80
+#define OBS_FRONT_WINDOW_DEG 20
+#define OBS_LOOKAHEAD_MM 500
 
-/* Robot geometry. */
-#define OBS_ROBOT_WIDTH_MM 150.0F  /* MEASURE. */
-#define OBS_ROBOT_LENGTH_MM 200.0F /* MEASURE. */
-#define OBS_SAFETY_MARGIN_MM 40.0F
-#define OBS_FRONT_CLEAR_MM 30.0F
-#define OBS_TRACK_WIDTH_MM 110.0F /* MEASURE: varies; recalibrate. */
+/* Robot geometry. Measure all of these; the track width can change. */
+#define OBS_ROBOT_WIDTH_MM 150
+#define OBS_ROBOT_LENGTH_MM 200
+#define OBS_SAFETY_MARGIN_MM 40
+#define OBS_FRONT_CLEAR_MM 30
+#define OBS_TRACK_WIDTH_MM 110
 
-/* Bypass motion. */
-#define OBS_DRIVE_RPM 20.0F
-#define OBS_TURN_LEAD_DEG 4.0F
-#define OBS_ALIGN_TOL_DEG 10.0F
-#define OBS_HEADING_KP 0.15F
-#define OBS_HEADING_TRIM_MAX 4.0F
-#define OBS_STOP_SETTLE_MS 300U
-#define OBS_SCAN_TIMEOUT_MS 12000U
-#define OBS_STATE_TIMEOUT_MS 15000U
+/* Bypass motion. Heading values are in tenths of a degree. */
+#define OBS_DRIVE_RPM 20
+#define OBS_TURN_LEAD_DDEG 40
+#define OBS_ALIGN_TOL_DDEG 100
+#define OBS_HEADING_TRIM_DIV 70
+#define OBS_HEADING_TRIM_MAX 4
+#define OBS_STOP_SETTLE_MSEC 300U
+#define OBS_SCAN_TIMEOUT_MSEC 12000U
+#define OBS_STATE_TIMEOUT_MSEC 15000U
+
+/* Passing the object and finding the line again. */
 #define OBS_SIDE_LOOK_DEG 70
-#define OBS_SIDE_NEAR_MM 400U
+#define OBS_SIDE_NEAR_MM 400
 #define OBS_SIDE_CLEAR_HITS 3U
-#define OBS_PASS_MAX_MM 800.0F
-#define OBS_PASS_MARGIN_MM 40.0F
-#define OBS_SEARCH_MARGIN_MM 150.0F
+#define OBS_PASS_MAX_MM 800
+#define OBS_PASS_MARGIN_MM 40
+#define OBS_SEARCH_MARGIN_MM 150
 #define OBS_LINE_CONFIRM_CYCLES 2U
 #define OBS_VERIFY_CYCLES 20U
 
