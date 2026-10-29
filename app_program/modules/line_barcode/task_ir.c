@@ -5,6 +5,8 @@
 #include "ir_shared.h"
 #include "drivers/ir.h"
 #include "app/app_config.h"
+#include "modules/barcode_scanning/bc_setup.h"
+#include "modules/barcode_scanning/bc_cal.h"
 #include "platform/console.h"
 #include <tm/tmonitor.h>
 
@@ -49,6 +51,20 @@ void task_ir_task (INT start_code, void * p_context)
 
         ir_read(&left_raw, &right_raw, &barcode_raw);
         error = ir_shared_publish(left_raw, right_raw, barcode_raw);
+
+#if BC_CAL_READY
+        /* Capture one GP27 reading; never decode or print here. */
+        if (error >= E_OK)
+        {
+            SYSTIM sample_time = {0};
+
+            if (tk_get_otm(&sample_time) >= E_OK)
+            {
+                (void)bc_setup_sample((uint8_t)barcode_raw,
+                                      sample_time.lo);
+            }
+        }
+#endif
 
         if (error < E_OK)
         {

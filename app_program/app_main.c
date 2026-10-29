@@ -5,6 +5,7 @@
  */
 #include "app_main.h"
 #include "app/app_config.h"
+#include "modules/barcode_scanning/bc_setup.h"
 #include "app/controller.h"
 #include "modules/line_barcode/line_barcode.h"
 #include "modules/motion/motion.h"
@@ -37,6 +38,16 @@ INT usermain (void)
     {
         /* UB views the same string bytes; tm_printf does not modify them. */
         tm_printf((UB *)"[MAIN] IR shared init failed: %d\n", error);
+        return 1;
+    }
+
+    /* Initialise the barcode adapter after the encoder-owned motion init.
+     * It is inert until real scanning calibration is available.
+     */
+    error = bc_setup_init();
+
+    if (error < E_OK)
+    {
         return 1;
     }
 
@@ -78,6 +89,14 @@ INT usermain (void)
     }
 
     error = controller_start();
+
+    if (error < E_OK)
+    {
+        return 1;
+    }
+
+    /* Barcode processing and UART output run outside the IR task. */
+    error = bc_setup_start();
 
     if (error < E_OK)
     {
