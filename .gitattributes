@@ -1,0 +1,7 @@
+# BARR-C requires a final blank line in application C sources.
+app_program/** text eol=lf whitespace=-blank-at-eof
+tools/*.py text eol=lf
+tools/tests/** text eol=lf
+build_make/*.mk text eol=lf
+build_make/makefile text eol=lf
+build_make/mtkernel_3/app_program/subdir.mk text eol=lf

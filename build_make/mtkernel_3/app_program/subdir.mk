@@ -2,15 +2,57 @@
 # micro T-Kernel 3.0 BSP  makefile
 ################################################################################
 
-TEMP_SRCS = $(wildcard ../app_program/*.c)
-TEMP_OBJS = $(TEMP_SRCS:.c=.o)
-TEMP_DEPS = $(TEMP_SRCS:.c=.d)
+TEST ?= 0
+OBSTACLE ?= 0
+ifneq ($(filter $(OBSTACLE),0 1),$(OBSTACLE))
+$(error Unknown OBSTACLE '$(OBSTACLE)'; use 0 or 1)
+endif
+ifneq ($(filter $(TEST),0 1),$(TEST))
+$(error Unknown TEST '$(TEST)'; use 0 or 1)
+endif
 
-OBJS += $(subst ../, ./mtkernel_3/, $(TEMP_OBJS))
-C_DEPS += $(subst ../, ./mtkernel_3/, $(TEMP_DEPS))
+# Reference and host tests must never enter the robot image.
+APP_DIRS := ../app_program ../app_program/app ../app_program/board \
+    ../app_program/drivers ../app_program/platform \
+    $(wildcard ../app_program/modules/*)
+APP_SRCS := $(foreach directory,$(APP_DIRS),$(wildcard $(directory)/*.c))
+APP_TEST_SRCS := $(foreach directory,$(APP_DIRS),$(wildcard $(directory)/test_*.c))
+APP_SRCS := $(filter-out $(APP_TEST_SRCS),$(APP_SRCS))
+# Keep the inherited kernel demo files in the tree, outside the car image.
+APP_SRCS := $(filter-out ../app_program/demo_tasks.c,$(APP_SRCS))
 
-mtkernel_3/app_program/%.o: ../app_program/%.c
+ifeq ($(OBSTACLE),1)
+EXE_FILE := $(EXE_FILE)_obs
+endif
+
+ifeq ($(TEST),1)
+APP_SRCS += $(APP_TEST_SRCS) ../app_program/tests/test_report.c
+EXE_FILE := $(EXE_FILE)_test
+endif
+
+# Separate object trees prevent stale APP_TEST values when TEST is switched.
+APP_OBJ_DIR := mtkernel_3/app_program/obj_obs$(OBSTACLE)_test$(TEST)
+APP_OBJS := $(patsubst ../app_program/%.c,$(APP_OBJ_DIR)/%.o,$(APP_SRCS))
+APP_DEPS := $(APP_OBJS:.o=.d)
+
+OBJS += $(APP_OBJS)
+C_DEPS += $(APP_DEPS)
+LDLIBS += -lm
+
+PYTHON ?= python3
+.PHONY: app_standard
+app_standard:
+	$(PYTHON) ../tools/check_app_standard.py
+
+$(APP_OBJS): | app_standard
+
+$(APP_OBJ_DIR)/%.o: ../app_program/%.c
 	@echo 'Building file: $<'
-	$(GCC) $(CFLAGS) -D$(TARGET) $(INCPATH) -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
+	@mkdir -p "$(dir $@)"
+	$(GCC) $(filter-out -std=%,$(CFLAGS)) -std=c99 -Wall -Wextra \
+	    -D$(TARGET) -DAPP_TEST=$(TEST) \
+	    -DAPP_OBSTACLE_ENABLED=$(OBSTACLE) $(INCPATH) \
+	    -I"../app_program" -I"../device/include" \
+	    -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
