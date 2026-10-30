@@ -11,6 +11,7 @@
 #define SCAN_PLAN_CLEAR 0U
 #define SCAN_PLAN_ROUTE 1U
 #define SCAN_PLAN_NO_ROUTE 2U
+#define SCAN_PLAN_BEST_EFFORT 3U
 
 /** @brief Compact sample: 4-bit angle index and 9-bit distance in cm.
  * Zero index is -70 degrees; index 14 is +70. Range 511 is invalid.
@@ -49,7 +50,7 @@ int32_t scan_plan_angle_deg (uint32_t angle_index);
 void scan_plan_build (scan_plan_point_t const * p_points, int32_t count,
                       scan_plan_bypass_t * p_plan);
 
-/** @brief SCAN_PLAN_CLEAR, SCAN_PLAN_ROUTE or SCAN_PLAN_NO_ROUTE. */
+/** @brief CLEAR, ROUTE, NO_ROUTE or BEST_EFFORT. */
 uint32_t scan_plan_result (scan_plan_bypass_t const * p_plan);
 /** @brief True when the bypass goes round the left side. */
 bool scan_plan_side_is_left (scan_plan_bypass_t const * p_plan);

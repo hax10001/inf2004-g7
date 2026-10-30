@@ -31,8 +31,10 @@ ER obstacle_init (void);
 ER obstacle_start (void);
 /** @brief True once an obstacle has been confirmed ahead. */
 bool obstacle_is_blocked (void);
-/** @brief True only when the normal forward sonar monitor is ready. */
+/** @brief Sonar no longer withholds permission to follow the line. */
 bool obstacle_front_ready (uint32_t now_msec);
+/** @brief Whether front detections may start a new avoidance attempt. */
+bool obstacle_monitor_ready (void);
 /** @brief True if a critical sensor fault should stop the robot. */
 bool obstacle_has_fault (void);
 /** @brief Cancel any scan or bypass and park the servo. */

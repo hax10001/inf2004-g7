@@ -10,7 +10,7 @@
 #define APP_IMU_PRIORITY 7
 /* Enable only after Echo level shifting, servo and stopping calibration. */
 #ifndef APP_OBSTACLE_ENABLED
-#define APP_OBSTACLE_ENABLED 0
+#define APP_OBSTACLE_ENABLED 1
 #endif
 #define APP_OBSTACLE_PRIORITY 7
 #define APP_STARTUP_DELAY_MSEC 2000

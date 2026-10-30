@@ -131,6 +131,10 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
 /** @brief Pack the plan fields into two words. */
 static void pack_fields (plan_fields_t const * p_fields,
                          scan_plan_bypass_t *  p_plan);
+/** @brief Attempt the better measured side when checked geometry fails. */
+static void choose_fallback (scan_plan_point_t const * p_points, int32_t count,
+                             int32_t low, int32_t high,
+                             plan_fields_t * p_fields);
 
 void scan_plan_point_set (scan_plan_point_t * p_point, int32_t angle_deg,
                           int32_t range_mm)
@@ -233,6 +237,10 @@ void scan_plan_build (scan_plan_point_t const * p_points, int32_t count,
         else if (find_cluster(p_points, count, &low, &high))
         {
             plan_object(p_points, count, low, high, &fields);
+            if (SCAN_PLAN_NO_ROUTE == fields.result)
+            {
+                choose_fallback(p_points, count, low, high, &fields);
+            }
         }
     }
 
@@ -615,6 +623,52 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
     p_fields->width_cm = required_cm(width, WIDTH_LIMIT_CM);
     p_fields->near_cm  = to_cm(near_depth, DIST_LIMIT_CM);
     choose_side(&left, &right, p_fields);
+}
+
+static void choose_fallback (scan_plan_point_t const * p_points, int32_t count,
+                             int32_t low, int32_t high,
+                             plan_fields_t * p_fields)
+{
+    int32_t left_clear = OBS_FAR_MM;
+    int32_t right_clear = OBS_FAR_MM;
+
+    for (int32_t index = 0; index < count; index++)
+    {
+        int32_t const angle = scan_plan_point_angle_deg(&p_points[index]);
+        int32_t const range = scan_plan_point_range_mm(&p_points[index]);
+
+        if ((angle >= 40) && (range < left_clear))
+        {
+            left_clear = range;
+        }
+        else if ((angle <= -40) && (range < right_clear))
+        {
+            right_clear = range;
+        }
+    }
+
+    bool const b_left = (left_clear >= right_clear);
+    int32_t const half = obs_geom_radius_mm() + obs_geom_padding_mm();
+    int32_t const edge = b_left
+        ? point_x(&p_points[high]) + edge_pad(&p_points[high])
+        : -point_x(&p_points[low]) + edge_pad(&p_points[low]);
+    int32_t const offset = b_left ? OBS_SENSOR_LEFT_MM : -OBS_SENSOR_LEFT_MM;
+    int32_t need = edge + half + offset;
+
+    if (need < (half + offset))
+    {
+        need = half + offset;
+    }
+
+    uint32_t const choice = ANGLE_CHOICES - 1U;
+    int32_t const sine = sine_milli(g_angle_choice_deg[choice]);
+    int32_t const diagonal = ((need * MILLI) + sine - 1) / sine;
+
+    p_fields->result = SCAN_PLAN_BEST_EFFORT;
+    p_fields->b_left = b_left;
+    p_fields->angle_index = choice;
+    p_fields->lateral_cm = required_cm(need, DIST_LIMIT_CM);
+    p_fields->diag_cm = required_cm(diagonal, DIST_LIMIT_CM);
 }
 
 static void pack_fields (plan_fields_t const * p_fields,

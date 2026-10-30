@@ -19,10 +19,12 @@
 #define OBS_MEDIAN_SAMPLES 3U
 #define OBS_FAR_MM 4000
 /* Measure: how close an obstacle may get before the robot stops. */
-#define OBS_STOP_MM 800
+#define OBS_STOP_MM 250
 #define OBS_EMERGENCY_MM 250
 #define OBS_CONFIRM_HITS 3U
 #define OBS_NO_ECHO_LIMIT 5U
+/* Continue line following briefly after a failed avoidance attempt. */
+#define OBS_RETRY_DELAY_MSEC 1000U
 
 /* Servo (SG90). Measure every value in this group. */
 #define OBS_SERVO_FRONT_USEC 1500

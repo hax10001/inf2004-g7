@@ -76,6 +76,9 @@ typedef struct
 } obstacle_seq_t;
 
 static obstacle_seq_t g_seq;
+static bool g_b_available = false;
+static bool volatile g_b_retry_delay = false;
+static uint32_t volatile g_resume_usec = 0U;
 
 /** @brief Read the signed wheel counts; false until motion has data. */
 static bool counts_read (int32_t * p_left, int32_t * p_right);
@@ -122,6 +125,9 @@ ER obstacle_init (void)
 {
     ER error = E_OK;
 
+    g_b_available = false;
+    g_b_retry_delay = false;
+
     if (0 != APP_OBSTACLE_ENABLED)
     {
         error = obs_state_init();
@@ -143,14 +149,19 @@ ER obstacle_init (void)
         }
     }
 
-    return error;
+    g_b_available = (error >= E_OK);
+    if (error < E_OK)
+    {
+        tm_printf((UB *)"[OBS] Unavailable -> LINE_FOLLOWING\n");
+    }
+    return E_OK;
 }
 
 ER obstacle_start (void)
 {
     ER error = E_OK;
 
-    if (0 != APP_OBSTACLE_ENABLED)
+    if ((0 != APP_OBSTACLE_ENABLED) && g_b_available)
     {
         ID const h_task =
             tasks_create(task_obstacle_task, APP_OBSTACLE_PRIORITY);
@@ -167,14 +178,19 @@ ER obstacle_start (void)
         }
     }
 
-    return error;
+    if (error < E_OK)
+    {
+        g_b_available = false;
+        tm_printf((UB *)"[OBS] Task unavailable -> LINE_FOLLOWING\n");
+    }
+    return E_OK;
 }
 
 bool obstacle_is_blocked (void)
 {
     bool b_blocked = false;
 
-    if (0 != APP_OBSTACLE_ENABLED)
+    if ((0 != APP_OBSTACLE_ENABLED) && g_b_available)
     {
         b_blocked = (0U != (obs_state_flags_read() & OBS_EVT_BLOCKED));
     }
@@ -186,7 +202,7 @@ bool obstacle_has_fault (void)
 {
     bool b_fault = false;
 
-    if (0 != APP_OBSTACLE_ENABLED)
+    if ((0 != APP_OBSTACLE_ENABLED) && g_b_available)
     {
         uint32_t const faults = obs_state_status_faults(obs_state_status_get());
 
@@ -201,14 +217,35 @@ bool obstacle_has_fault (void)
 
 bool obstacle_front_ready (uint32_t now_msec)
 {
-    return (0 == APP_OBSTACLE_ENABLED) ||
-           obs_state_front_ready(now_msec, OBS_FRONT_MAX_AGE_MSEC);
+    (void)now_msec;
+    return true;
+}
+
+bool obstacle_monitor_ready (void)
+{
+    return g_b_available &&
+           ((!g_b_retry_delay) ||
+            ((encoder_now_usec() - g_resume_usec) >=
+             (OBS_RETRY_DELAY_MSEC * 1000U)));
 }
 
 void obstacle_abort (void)
 {
     if (0 != APP_OBSTACLE_ENABLED)
     {
+        if (0U != obs_state_status_faults(obs_state_status_get()))
+        {
+            g_resume_usec = encoder_now_usec();
+            g_b_retry_delay = true;
+            tm_printf((UB *)"[OBS] Avoidance failed -> LINE_FOLLOWING\n");
+        }
+        obs_state_faults_update(0U, OBS_FAULT_NO_ECHO | OBS_FAULT_NO_ROUTE |
+                                    OBS_FAULT_LINE_LOST | OBS_FAULT_SERVO |
+                                    OBS_FAULT_TIMEOUT);
+        obs_state_flags_clear(OBS_EVT_BLOCKED | OBS_EVT_SCAN_REQ |
+                              OBS_EVT_SCAN_DONE | OBS_EVT_SIDE_WATCH |
+                              OBS_EVT_SIDE_SEEN | OBS_EVT_SIDE_CLEAR);
+        obs_state_set_phase(OBS_PHASE_IDLE);
         obs_state_flags_set(OBS_EVT_ABORT);
         g_seq.b_active = false;
         if (OBS_PHASE_FAULT != obs_state_status_phase(obs_state_status_get()))
@@ -361,21 +398,11 @@ static void reassess (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                        obstacle_pose_t const * p_pose, uint32_t now_msec,
                        uint32_t reason)
 {
-    p_out->b_stop = true;
-
-    if (p_seq->rescan_count >= OBS_MAX_RESCANS)
-    {
-        raise_fault(p_seq, p_out, (OBS_GUARD_REASON_SENSOR == reason)
-                                    ? OBS_FAULT_NO_ECHO : OBS_FAULT_NO_ROUTE);
-    }
-    else
-    {
-        p_seq->saved_phase = p_seq->phase;
-        p_seq->saved_start_mm = p_seq->seg_start_mm;
-        p_seq->guard_reason = reason;
-        p_seq->b_reassess_scan = false;
-        enter_phase(p_seq, OBS_PHASE_REASSESS, now_msec, p_pose->dist_mm);
-    }
+    (void)p_pose;
+    (void)now_msec;
+    /* The controller immediately resumes line following on this report. */
+    raise_fault(p_seq, p_out, (OBS_GUARD_REASON_SENSOR == reason)
+                                ? OBS_FAULT_NO_ECHO : OBS_FAULT_NO_ROUTE);
 }
 
 static bool path_deviated (obstacle_seq_t const * p_seq,
@@ -907,22 +934,9 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
     {
         finish_bypass(p_seq, p_out, false);
     }
-    else if (SCAN_PLAN_ROUTE != result)
+    else if ((SCAN_PLAN_ROUTE != result) && (SCAN_PLAN_BEST_EFFORT != result))
     {
-        if (p_seq->rescan_count < OBS_MAX_RESCANS)
-        {
-            p_seq->rescan_count++;
-            obs_state_flags_set(OBS_EVT_SCAN_REQ);
-            enter_phase(p_seq, OBS_PHASE_SCANNING, now_msec,
-                        p_pose->dist_mm);
-        }
-        else
-        {
-            /* Reverse is not possible through the forward-only driver.
-             * Stop rather than command an unverified reverse movement.
-             */
-            raise_fault(p_seq, p_out, OBS_FAULT_NO_ROUTE);
-        }
+        raise_fault(p_seq, p_out, OBS_FAULT_NO_ROUTE);
     }
     else
     {
@@ -936,6 +950,12 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         p_seq->heading0_ddeg = p_pose->heading_ddeg;
         obs_state_set_route(b_left ? OBS_ROUTE_LEFT : OBS_ROUTE_RIGHT);
         obs_state_set_width_cm(scan_plan_width_cm(&plan));
+        if (SCAN_PLAN_BEST_EFFORT == result)
+        {
+            tm_printf((UB *)"[OBS] BEST_EFFORT side=%s angle=%u\n",
+                      b_left ? "LEFT" : "RIGHT",
+                      (UINT)(p_seq->angle_ddeg / DDEG_PER_DEG));
+        }
         enter_phase(p_seq, OBS_PHASE_TURN_OUT, now_msec, p_pose->dist_mm);
     }
 }

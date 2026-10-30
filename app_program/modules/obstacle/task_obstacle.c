@@ -6,6 +6,7 @@
 #include "task_obstacle.h"
 #include "obs_config.h"
 #include "obs_state.h"
+#include "obstacle.h"
 #include "obs_geom.h"
 #include "scan_plan.h"
 #include "servo.h"
@@ -105,7 +106,14 @@ static void run_monitor (monitor_t * p_monitor)
     int32_t                   range_mm = 0;
     ultrasonic_result_t const result   = ultrasonic_ping(&range_mm);
 
-    if (ULTRASONIC_OK != result)
+    if (!obstacle_monitor_ready())
+    {
+        p_monitor->hits = 0U;
+        p_monitor->filled = 0U;
+        return;
+    }
+
+    if ((ULTRASONIC_OK != result) || (range_mm < 20))
     {
         obs_state_front_mark(false, 0U);
         p_monitor->hits = 0U;
@@ -117,26 +125,10 @@ static void run_monitor (monitor_t * p_monitor)
             p_monitor->no_echo++;
         }
 
-        if (p_monitor->no_echo >= OBS_NO_ECHO_LIMIT)
-        {
-            obs_state_faults_update(OBS_FAULT_NO_ECHO, 0U);
-        }
     }
     else
     {
         p_monitor->no_echo = 0U;
-
-        if (range_mm <= OBS_EMERGENCY_MM)
-        {
-            obs_state_front_mark(false, 0U);
-            /* A dangerously close raw return bypasses median latency. */
-            obs_state_set_distance_mm(range_mm);
-            obs_state_set_phase(OBS_PHASE_CONFIRM);
-            obs_state_flags_set(OBS_EVT_BLOCKED);
-            p_monitor->filled = 0U;
-            p_monitor->hits = 0U;
-            return;
-        }
 
         SYSTIM now = {0};
 
@@ -150,7 +142,8 @@ static void run_monitor (monitor_t * p_monitor)
         obs_state_front_mark(true, now.lo);
 
         uint32_t const shift = p_monitor->next * MONITOR_RANGE_BITS;
-        uint32_t const range_cm = (uint32_t)range_mm / 10U;
+        /* Round up so 251 mm cannot be filtered into the 250 mm trigger. */
+        uint32_t const range_cm = ((uint32_t)range_mm + 9U) / 10U;
         p_monitor->history =
             (p_monitor->history & ~(MONITOR_RANGE_MASK << shift)) |
             ((range_cm & MONITOR_RANGE_MASK) << shift);
@@ -179,7 +172,7 @@ static void judge_front (monitor_t * p_monitor)
 
     obs_state_set_distance_mm(median);
 
-    if (median < OBS_STOP_MM)
+    if (median <= OBS_STOP_MM)
     {
         p_monitor->hits++;
     }
