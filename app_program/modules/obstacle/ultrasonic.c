@@ -1,9 +1,5 @@
 /** @file ultrasonic.c
- *
- * @brief ECHO is gated into a PWM counter, so no GPIO interrupt is used.
- *
- * NOTE: Distance in mm is the pulse width in usec times 343, divided by
- * 2000, because sound travels out and back.
+ * @brief PWM echo capture with an elapsed-time timeout.
  */
 #include "ultrasonic.h"
 #include "obs_config.h"
@@ -15,25 +11,17 @@
 #define PWM_BASE 0x40050000U
 #endif
 
-#define US_SLICE_MASK 7U
-#define US_SLICE_STRIDE 0x14U
-#define US_SLICE_BASE                                                          \
-    (PWM_BASE + (((BOARD_US_ECHO_PIN >> 1U) & US_SLICE_MASK) * US_SLICE_STRIDE))
-#define US_REG_CSR (US_SLICE_BASE + 0x00U)
-#define US_REG_DIV (US_SLICE_BASE + 0x04U)
-#define US_REG_CTR (US_SLICE_BASE + 0x08U)
-#define US_REG_TOP (US_SLICE_BASE + 0x10U)
-#define US_CSR_EN 0x01U
-#define US_CSR_DIVMODE_LEVEL (1U << 4)
-#define US_DIV_INT_SHIFT 4U
-#define US_COUNT_MASK 0xFFFFU
-#define US_SOUND_NUM 343
-#define US_SOUND_DEN 2000
+#define US_SLICE_BASE \
+    (PWM_BASE + (((BOARD_US_ECHO_PIN >> 1U) & 7U) * 0x14U))
+#define US_CSR (US_SLICE_BASE + 0x00U)
+#define US_DIV (US_SLICE_BASE + 0x04U)
+#define US_CTR (US_SLICE_BASE + 0x08U)
+#define US_TOP (US_SLICE_BASE + 0x10U)
+#define US_LEVEL_MODE (1U << 4)
+#define US_ENABLE 1U
 
-/** @brief Raise TRIG for OBS_TRIG_PULSE_USEC; the only busy wait. */
-static void send_trigger (void);
-/** @brief Convert counted microseconds to millimetres. */
-static int32_t ticks_to_mm (UW ticks);
+/** @brief Generate the existing bounded trigger pulse. */
+static void trigger (void);
 
 ER ultrasonic_init (void)
 {
@@ -44,114 +32,83 @@ ER ultrasonic_init (void)
         gpio_set_val(BOARD_US_TRIG_PIN, 0U);
         error = pwm_set_pin(BOARD_US_ECHO_PIN);
     }
-
     if (error >= E_OK)
     {
-        out_w(US_REG_CSR, 0U);
-        out_w(US_REG_DIV, OBS_PWM_CLK_MHZ << US_DIV_INT_SHIFT);
-        out_w(US_REG_TOP, US_COUNT_MASK);
-        out_w(US_REG_CTR, 0U);
-        /* Level mode: the counter only advances while ECHO is high. */
-        out_w(US_REG_CSR, US_CSR_EN | US_CSR_DIVMODE_LEVEL);
+        out_w(US_CSR, 0U);
+        out_w(US_DIV, OBS_PWM_CLK_MHZ << 4U);
+        out_w(US_TOP, 0xFFFFU);
+        out_w(US_CTR, 0U);
+        out_w(US_CSR, US_ENABLE | US_LEVEL_MODE);
     }
-
     return error;
 }
 
 ultrasonic_result_t ultrasonic_ping (int32_t * p_mm)
 {
-    ultrasonic_result_t result  = ULTRASONIC_NO_ECHO;
-    UW                  ticks   = 0U;
-    bool                b_ended = false;
+    if (p_mm == 0)
+    {
+        return ULTRASONIC_NO_ECHO;
+    }
+    *p_mm = 0;
+    /* Do not attribute a preceding stuck-high echo to a new trigger. */
+    if (gpio_get_val(BOARD_US_ECHO_PIN) != 0U)
+    {
+        return ULTRASONIC_OUT_OF_RANGE;
+    }
+    out_w(US_CTR, 0U);
+    trigger();
+    uint32_t const started = encoder_now_usec();
+    uint32_t ticks = 0U;
+    bool ended = false;
 
-    out_w(US_REG_CTR, 0U);
-    send_trigger();
-
-    for (uint32_t waited = 0U; (waited < OBS_ECHO_TIMEOUT_MSEC) && (!b_ended);
-         waited++)
+    while (((uint32_t)(encoder_now_usec() - started) <
+            (OBS_ECHO_TIMEOUT_MSEC * 1000U)) && !ended)
     {
         tk_dly_tsk(1);
-        ticks = in_w(US_REG_CTR) & US_COUNT_MASK;
-
-        if ((ticks > 0U) && (0U == gpio_get_val(BOARD_US_ECHO_PIN)))
-        {
-            b_ended = true;
-        }
+        ticks = in_w(US_CTR) & 0xFFFFU;
+        ended = (ticks != 0U) &&
+                (gpio_get_val(BOARD_US_ECHO_PIN) == 0U);
     }
-
-    if (ticks > 0U)
+    if (ticks == 0U)
     {
-        int32_t const range_mm = ticks_to_mm(ticks);
-
-        if (b_ended && (range_mm < OBS_FAR_MM))
-        {
-            *p_mm  = range_mm;
-            result = ULTRASONIC_OK;
-        }
-        else
-        {
-            result = ULTRASONIC_OUT_OF_RANGE;
-        }
+        return ULTRASONIC_NO_ECHO;
     }
-    else
+    int32_t const mm = (int32_t)((ticks * 343U) / 2000U);
+
+    if (!ended || (mm >= OBS_FAR_MM))
     {
-        /* No echo pulse was seen: wiring, power or sensor fault. */
-        result = ULTRASONIC_NO_ECHO;
+        return ULTRASONIC_OUT_OF_RANGE;
     }
-
-    return result;
+    *p_mm = mm;
+    return ULTRASONIC_OK;
 }
 
 int32_t ultrasonic_median_of_three (int32_t first, int32_t second,
                                     int32_t third)
 {
-    int32_t low  = first;
-    int32_t mid  = second;
-    int32_t high = third;
-    int32_t swap = 0;
-
-    /* A three-element sorting network leaves the median in mid. */
-    if (low > mid)
+    if (first > second)
     {
-        swap = low;
-        low  = mid;
-        mid  = swap;
+        int32_t const value = first;
+        first = second;
+        second = value;
     }
-
-    if (mid > high)
+    if (second > third)
     {
-        swap = mid;
-        mid  = high;
-        high = swap;
+        second = third;
     }
-
-    if (low > mid)
-    {
-        mid = low;
-    }
-
-    return mid;
+    return (first > second) ? first : second;
 }
 
-static void send_trigger (void)
+static void trigger (void)
 {
     gpio_set_val(BOARD_US_TRIG_PIN, 1U);
-    uint32_t const start_usec = encoder_now_usec();
+    uint32_t const started = encoder_now_usec();
 
-    while ((encoder_now_usec() - start_usec) < OBS_TRIG_PULSE_USEC)
+    while ((uint32_t)(encoder_now_usec() - started) < OBS_TRIG_PULSE_USEC)
     {
-        /* Busy wait: the trigger pulse is only a few usec long. */
+        /* Existing bounded microsecond trigger; never wait for echo here. */
     }
-
     gpio_set_val(BOARD_US_TRIG_PIN, 0U);
-}
-
-static int32_t ticks_to_mm (UW ticks)
-{
-    /* The counter is 16 bits wide, so the product fits in 32 bits. */
-    int32_t const count = (int32_t)ticks;
-
-    return (count * US_SOUND_NUM) / US_SOUND_DEN;
 }
 
 /*** end of file ***/

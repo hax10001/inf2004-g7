@@ -1,5 +1,5 @@
 /** @file task_obstacle.h
- * @brief Obstacle task entry point.
+ * @brief Obstacle sensing task entry point.
  */
 #ifndef TASK_OBSTACLE_H
 #define TASK_OBSTACLE_H

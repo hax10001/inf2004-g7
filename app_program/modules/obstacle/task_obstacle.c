@@ -1,299 +1,318 @@
 /** @file task_obstacle.c
- *
- * @brief Front monitor, panning scan and side watch; sole owner of the
- * ultrasonic sensor and servo.
+ * @brief Forward guarding, cancellable scans and stopped side observations.
  */
 #include "task_obstacle.h"
 #include "obs_config.h"
+#include "obs_guard.h"
 #include "obs_state.h"
 #include "scan_plan.h"
 #include "servo.h"
 #include "ultrasonic.h"
+#include "app/app_config.h"
 #include <stdbool.h>
 #include <tm/tmonitor.h>
 
-#define MONITOR_WINDOW 3U
+static int32_t g_front[3];
+static uint32_t g_front_next;
+static uint32_t g_front_filled;
+static uint32_t g_hits;
+static uint32_t g_silent;
+static uint32_t g_side_far;
+static bool g_side_seen;
 
-typedef struct
-{
-    int32_t  history[MONITOR_WINDOW];
-    uint32_t next;
-    uint32_t filled;
-    uint32_t hits;
-    uint32_t no_echo;
-} monitor_t;
-
-typedef struct
-{
-    uint32_t far_hits;
-    bool     b_seen;
-    bool     b_aimed;
-} side_watch_t;
-
-/** @brief Ping the front and raise OBS_EVT_BLOCKED on a confirmed hit. */
-static void run_monitor (monitor_t * p_monitor);
-/** @brief Judge the filtered front range once the window is full. */
-static void judge_front (monitor_t * p_monitor);
-/** @brief Sweep the servo, build the plan and flag OBS_EVT_SCAN_DONE. */
-static void run_scan (void);
-/** @brief Watch the side for the object to pass. */
-static void run_side_watch (side_watch_t * p_watch);
-/** @brief Return the servo to FRONT and reset the side watch. */
-static void leave_side_watch (side_watch_t * p_watch);
-/** @brief Cancel everything and park the servo. */
-static void abort_all (monitor_t * p_monitor, side_watch_t * p_watch);
-/** @brief Median of OBS_SCAN_PINGS pings; failures count as far. */
-static int32_t scan_range (void);
+/** @brief Whether the pending scan is still owned by the controller. */
+static bool scanning (void);
+/** @brief Wait in bounded slices, abandoning a cancelled scan. */
+static bool scan_wait (uint32_t delay);
+/** @brief Build a scan only while the controller requests it. */
+static void scan_run (void);
+/** @brief Centre and measure the forward path. */
+static void front_run (bool bypass);
+/** @brief Observe the side while movement is paused. */
+static void side_run (void);
 
 void task_obstacle_task (INT start_code, void * p_context)
 {
-    monitor_t    monitor = {{0, 0, 0}, 0U, 0U, 0U, 0U};
-    side_watch_t watch   = {0U, false, false};
-
-    /* Casting unused arguments to void cannot alter their values. */
     (void)start_code;
     (void)p_context;
-
     tk_dly_tsk((RELTIM)servo_set_angle(0));
-    /* UB views the same string bytes; tm_printf does not modify them. */
-    tm_printf((UB *)"[OBS] Task started\n");
 
     for (;;)
     {
-        UINT const pattern = obs_state_flags_read();
+        UINT const flags = obs_state_flags_read();
+        obs_state_phase_t const phase =
+            obs_state_status_phase(obs_state_status_get());
+        bool const moving = (phase >= OBS_PHASE_TURN_OUT) &&
+                            (phase <= OBS_PHASE_VERIFY);
 
-        if (0U == (pattern & OBS_EVT_SIDE_WATCH))
+        if ((flags & OBS_EVT_ABORT) != 0U)
         {
-            leave_side_watch(&watch);
+            obs_state_flags_clear(OBS_EVT_SCAN_REQ | OBS_EVT_SCAN_DONE |
+                                  OBS_EVT_SIDE_WATCH | OBS_EVT_FRONT_READY |
+                                  OBS_EVT_FRONT_BLOCKED | OBS_EVT_ABORT);
+            tk_dly_tsk((RELTIM)servo_set_angle(0));
+            g_hits = 0U;
+            g_front_filled = 0U;
+            g_silent = 0U;
+            g_side_far = 0U;
+            g_side_seen = false;
         }
-
-        if (0U != (pattern & OBS_EVT_ABORT))
+        else if ((flags & OBS_EVT_SCAN_REQ) != 0U)
         {
-            abort_all(&monitor, &watch);
+            scan_run();
         }
-        else if (0U != (pattern & OBS_EVT_SCAN_REQ))
+        else if (moving)
         {
-            run_scan();
+            if ((flags & OBS_EVT_SIDE_WATCH) != 0U)
+            {
+                side_run();
+                tk_dly_tsk(OBS_PING_PERIOD_MSEC);
+            }
+            else
+            {
+                g_side_seen = false;
+                g_side_far = 0U;
+            }
+            front_run(true);
         }
-        else if (0U != (pattern & OBS_EVT_SIDE_WATCH))
+        else if (phase == OBS_PHASE_IDLE)
         {
-            run_side_watch(&watch);
-        }
-        else if (0U == (pattern & OBS_EVT_BLOCKED))
-        {
-            run_monitor(&monitor);
+            front_run(false);
         }
         else
         {
-            /* Blocked: the controller stops and will request a scan. */
+            obs_state_flags_clear(OBS_EVT_FRONT_READY);
         }
-
         tk_dly_tsk(OBS_PING_PERIOD_MSEC);
     }
 }
 
-static void run_monitor (monitor_t * p_monitor)
+static bool scanning (void)
 {
-    int32_t                   range_mm = 0;
-    ultrasonic_result_t const result   = ultrasonic_ping(&range_mm);
+    UINT const flags = obs_state_flags_read();
 
-    if (ULTRASONIC_NO_ECHO == result)
+    return ((flags & OBS_EVT_SCAN_REQ) != 0U) &&
+           ((flags & OBS_EVT_ABORT) == 0U) &&
+           (obs_state_status_phase(obs_state_status_get()) ==
+            OBS_PHASE_SCANNING);
+}
+
+static bool scan_wait (uint32_t delay)
+{
+    SYSTIM start = {0};
+    SYSTIM now = {0};
+
+    if (tk_get_otm(&start) < E_OK)
     {
-        p_monitor->hits = 0U;
-
-        if (p_monitor->no_echo < OBS_NO_ECHO_LIMIT)
+        return false;
+    }
+    now = start;
+    while (scanning() && ((uint32_t)(now.lo - start.lo) < delay))
+    {
+        tk_dly_tsk(10);
+        if (tk_get_otm(&now) < E_OK)
         {
-            p_monitor->no_echo++;
+            return false;
         }
+    }
+    return scanning();
+}
 
-        if (p_monitor->no_echo >= OBS_NO_ECHO_LIMIT)
+static void scan_run (void)
+{
+    scan_plan_point_t points[OBS_SCAN_POINTS];
+    int32_t count = 0;
+
+    obs_state_flags_clear(OBS_EVT_FRONT_READY);
+    for (int32_t angle = -OBS_SCAN_RIGHT_DEG;
+         angle <= OBS_SCAN_LEFT_DEG; angle += OBS_SCAN_STEP_DEG)
+    {
+        if ((count >= OBS_SCAN_POINTS) || !scanning())
+        {
+            return;
+        }
+        if (!scan_wait(servo_set_angle(angle)))
+        {
+            return;
+        }
+        int32_t samples[OBS_SCAN_PINGS];
+        uint32_t valid = 0U;
+
+        for (uint32_t i = 0U; i < OBS_SCAN_PINGS; i++)
+        {
+            int32_t mm = 0;
+            ultrasonic_result_t const result = ultrasonic_ping(&mm);
+
+            samples[i] = OBS_FAR_MM;
+            if (result == ULTRASONIC_OK)
+            {
+                samples[i] = mm;
+                valid++;
+            }
+            if (!scan_wait(OBS_PING_PERIOD_MSEC))
+            {
+                return;
+            }
+        }
+        /* Unknown directions cannot establish a safe corridor. */
+        if (valid <= (OBS_SCAN_PINGS / 2U))
+        {
+            obs_state_faults_update(OBS_FAULT_NO_ECHO, 0U);
+            obs_state_flags_set(OBS_EVT_FRONT_BLOCKED);
+            scan_plan_bypass_t const failed_plan = {SCAN_PLAN_NO_ROUTE, 0U};
+
+            obs_state_plan_store(&failed_plan);
+            obs_state_flags_clear(OBS_EVT_SCAN_REQ);
+            obs_state_flags_set(OBS_EVT_SCAN_DONE);
+            return;
+        }
+        for (uint32_t i = 1U; i < OBS_SCAN_PINGS; i++)
+        {
+            int32_t const value = samples[i];
+            uint32_t j = i;
+
+            while ((j > 0U) && (samples[j - 1U] > value))
+            {
+                samples[j] = samples[j - 1U];
+                j--;
+            }
+            samples[j] = value;
+        }
+        points[count].angle_deg = angle;
+        points[count].range_mm = samples[OBS_SCAN_PINGS / 2U];
+        count++;
+    }
+    if (!scan_wait(servo_set_angle(0)))
+    {
+        return;
+    }
+    scan_plan_bypass_t plan = {0U, 0U};
+
+    scan_plan_build(points, count, &plan);
+    if (scanning())
+    {
+        obs_state_plan_store(&plan);
+        obs_state_flags_clear(OBS_EVT_SCAN_REQ);
+        obs_state_flags_set(OBS_EVT_SCAN_DONE);
+        tm_printf((UB *)"[OBS] Scan result=%u\n",
+                  (UINT)scan_plan_result(&plan));
+    }
+}
+
+static void front_run (bool bypass)
+{
+    tk_dly_tsk((RELTIM)servo_set_angle(0));
+    int32_t mm = 0;
+    ultrasonic_result_t const result = ultrasonic_ping(&mm);
+    obs_state_phase_t const phase =
+        obs_state_status_phase(obs_state_status_get());
+
+    if (bypass && ((phase < OBS_PHASE_TURN_OUT) ||
+                   (phase > OBS_PHASE_VERIFY)))
+    {
+        return;
+    }
+    if (!bypass && (phase != OBS_PHASE_IDLE))
+    {
+        return;
+    }
+    if (result != ULTRASONIC_OK)
+    {
+        g_hits = 0U;
+        g_front_filled = 0U;
+        if (g_silent < OBS_NO_ECHO_LIMIT)
+        {
+            g_silent++;
+        }
+        if (bypass || (g_silent >= OBS_NO_ECHO_LIMIT))
         {
             obs_state_faults_update(OBS_FAULT_NO_ECHO, 0U);
         }
-    }
-    else
-    {
-        p_monitor->no_echo = 0U;
-        obs_state_faults_update(0U, OBS_FAULT_NO_ECHO);
-
-        if (ULTRASONIC_OK != result)
+        if (bypass)
         {
-            range_mm = OBS_FAR_MM;
+            obs_state_flags_clear(OBS_EVT_FRONT_READY);
+            obs_state_flags_set(OBS_EVT_FRONT_BLOCKED);
         }
-
-        p_monitor->history[p_monitor->next] = range_mm;
-        p_monitor->next = (p_monitor->next + 1U) % MONITOR_WINDOW;
-
-        if (p_monitor->filled < MONITOR_WINDOW)
+        return;
+    }
+    g_silent = 0U;
+    obs_state_faults_update(0U, OBS_FAULT_NO_ECHO);
+    obs_state_set_distance_mm(mm);
+    if (bypass)
+    {
+        if (mm < OBS_STOP_MM)
         {
-            p_monitor->filled++;
-        }
-
-        if (p_monitor->filled >= MONITOR_WINDOW)
-        {
-            judge_front(p_monitor);
-        }
-    }
-}
-
-static void judge_front (monitor_t * p_monitor)
-{
-    int32_t const median = ultrasonic_median_of_three(
-        p_monitor->history[0], p_monitor->history[1], p_monitor->history[2]);
-
-    obs_state_set_distance_mm(median);
-
-    if (median < OBS_STOP_MM)
-    {
-        p_monitor->hits++;
-    }
-    else
-    {
-        p_monitor->hits = 0U;
-    }
-
-    if (p_monitor->hits >= OBS_CONFIRM_HITS)
-    {
-        p_monitor->hits   = 0U;
-        p_monitor->filled = 0U;
-        obs_state_set_phase(OBS_PHASE_CONFIRM);
-        obs_state_flags_set(OBS_EVT_BLOCKED);
-        /* UINT matches %u on the 32-bit target; UB preserves bytes. */
-        tm_printf((UB *)"[OBS] Obstacle confirmed at %u mm\n", (UINT)median);
-    }
-}
-
-static void run_scan (void)
-{
-    scan_plan_point_t points[OBS_SCAN_POINTS];
-    int32_t           count = 0;
-    bool              b_ok  = true;
-
-    for (int32_t angle = -OBS_SCAN_RIGHT_DEG;
-         (angle <= OBS_SCAN_LEFT_DEG) && (count < OBS_SCAN_POINTS) && b_ok;
-         angle += OBS_SCAN_STEP_DEG)
-    {
-        if (0U != (obs_state_flags_read() & OBS_EVT_ABORT))
-        {
-            b_ok = false; /* The main loop handles the abort. */
+            obs_state_flags_clear(OBS_EVT_FRONT_READY);
+            obs_state_flags_set(OBS_EVT_FRONT_BLOCKED);
         }
         else
         {
-            tk_dly_tsk((RELTIM)servo_set_angle(angle));
-            points[count].angle_deg = angle;
-            points[count].range_mm  = scan_range();
-            count++;
+            obs_state_flags_set(OBS_EVT_FRONT_READY);
         }
     }
-
-    if (b_ok)
+    else
     {
-        scan_plan_bypass_t plan = {0U, 0U};
+        g_front[g_front_next] = mm;
+        g_front_next = (g_front_next + 1U) % 3U;
+        if (g_front_filled < 3U)
+        {
+            g_front_filled++;
+        }
+        if (g_front_filled < 3U)
+        {
+            return;
+        }
+        int32_t const median = ultrasonic_median_of_three(
+            g_front[0], g_front[1], g_front[2]);
 
-        tk_dly_tsk((RELTIM)servo_set_angle(0));
-        scan_plan_build(points, count, &plan);
-        obs_state_plan_store(&plan);
-        obs_state_flags_set(OBS_EVT_SCAN_DONE);
-        obs_state_flags_clear(OBS_EVT_SCAN_REQ);
-        /* Values are non-negative cm; UINT matches %u on the target. */
-        tm_printf(
-            (UB *)"[OBS] Scan: result=%u left=%u width=%u "
-                  "lateral=%u diag=%u\n",
-            (UINT)scan_plan_result(&plan), (UINT)scan_plan_side_is_left(&plan),
-            (UINT)scan_plan_width_cm(&plan), (UINT)scan_plan_lateral_cm(&plan),
-            (UINT)scan_plan_diag_cm(&plan));
+        g_hits = (median < OBS_STOP_MM) ? (g_hits + 1U) : 0U;
+        if (g_hits >= OBS_CONFIRM_HITS)
+        {
+            g_hits = 0U;
+            obs_state_set_phase(OBS_PHASE_CONFIRM);
+            obs_state_flags_set(OBS_EVT_BLOCKED);
+            tm_printf((UB *)"[OBS] Confirmed at %d mm\n", (INT)mm);
+        }
     }
 }
 
-static void run_side_watch (side_watch_t * p_watch)
+static void side_run (void)
 {
-    int32_t             range_mm = 0;
-    ultrasonic_result_t result   = ULTRASONIC_NO_ECHO;
-
-    if (!p_watch->b_aimed)
+    /* Request a pause before moving the sensor away from the front. */
+    obs_state_flags_clear(OBS_EVT_FRONT_READY);
+    tk_dly_tsk(OBS_GUARD_WAIT_MSEC + APP_CONTROLLER_PERIOD_MSEC);
+    if ((obs_state_flags_read() & OBS_EVT_SIDE_WATCH) == 0U)
     {
-        tk_dly_tsk((RELTIM)servo_set_angle(obs_state_watch_side_get() *
-                                           OBS_SIDE_LOOK_DEG));
-        p_watch->b_aimed = true;
+        return;
     }
+    int32_t const angle = obs_state_watch_side_get() * OBS_SIDE_LOOK_DEG;
 
-    result = ultrasonic_ping(&range_mm);
+    tk_dly_tsk((RELTIM)servo_set_angle(angle));
+    int32_t mm = 0;
+    ultrasonic_result_t const result = ultrasonic_ping(&mm);
 
-    if ((ULTRASONIC_OK == result) && (range_mm < OBS_SIDE_NEAR_MM))
+    if ((obs_state_flags_read() & OBS_EVT_SIDE_WATCH) == 0U)
     {
-        p_watch->b_seen   = true;
-        p_watch->far_hits = 0U;
+        return;
+    }
+    if ((result == ULTRASONIC_OK) && (mm < OBS_SIDE_NEAR_MM))
+    {
+        g_side_seen = true;
+        g_side_far = 0U;
         obs_state_flags_set(OBS_EVT_SIDE_SEEN);
     }
-    else if (p_watch->b_seen)
+    else if ((result == ULTRASONIC_OK) && g_side_seen)
     {
-        p_watch->far_hits++;
-
-        if (p_watch->far_hits >= OBS_SIDE_CLEAR_HITS)
+        g_side_far++;
+        if (g_side_far >= OBS_SIDE_CLEAR_HITS)
         {
             obs_state_flags_set(OBS_EVT_SIDE_CLEAR);
         }
     }
     else
     {
-        /* The object has not been seen yet: keep watching. */
+        g_side_far = 0U;
     }
-}
-
-static void leave_side_watch (side_watch_t * p_watch)
-{
-    if (p_watch->b_aimed)
-    {
-        tk_dly_tsk((RELTIM)servo_set_angle(0));
-    }
-
-    p_watch->b_aimed  = false;
-    p_watch->b_seen   = false;
-    p_watch->far_hits = 0U;
-}
-
-static void abort_all (monitor_t * p_monitor, side_watch_t * p_watch)
-{
-    obs_state_flags_clear(OBS_EVT_BLOCKED | OBS_EVT_SCAN_REQ |
-                          OBS_EVT_SCAN_DONE | OBS_EVT_SIDE_WATCH |
-                          OBS_EVT_SIDE_SEEN | OBS_EVT_SIDE_CLEAR |
-                          OBS_EVT_ABORT);
-    leave_side_watch(p_watch);
-    tk_dly_tsk((RELTIM)servo_set_angle(0));
-    p_monitor->hits   = 0U;
-    p_monitor->filled = 0U;
-}
-
-static int32_t scan_range (void)
-{
-    int32_t values[OBS_SCAN_PINGS];
-
-    for (uint32_t index = 0U; index < OBS_SCAN_PINGS; index++)
-    {
-        int32_t range_mm = 0;
-
-        values[index] = (ULTRASONIC_OK == ultrasonic_ping(&range_mm))
-                            ? range_mm
-                            : OBS_FAR_MM;
-        tk_dly_tsk(OBS_PING_PERIOD_MSEC);
-    }
-
-    /* Insertion sort; the middle value is the median. */
-    for (uint32_t index = 1U; index < OBS_SCAN_PINGS; index++)
-    {
-        int32_t const key  = values[index];
-        uint32_t      slot = index;
-
-        while ((slot > 0U) && (values[slot - 1U] > key))
-        {
-            values[slot] = values[slot - 1U];
-            slot--;
-        }
-
-        values[slot] = key;
-    }
-
-    return values[OBS_SCAN_PINGS / 2U];
 }
 
 /*** end of file ***/
