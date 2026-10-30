@@ -300,6 +300,12 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
             case OBS_PHASE_TURN_OUT:
                 set_arc(p_out, p_seq->side);
+                /* TEMPORARY diagnostic: remove once the turn is fixed. */
+                tm_printf((UB *)"[OBS] TURN_OUT rel=%d target=%d dist=%d "
+                                "head=%d side=%d\n",
+                          (INT)rel, (INT)(p_seq->angle_ddeg - OBS_TURN_LEAD_DDEG),
+                          (INT)p_pose->dist_mm, (INT)p_pose->heading_ddeg,
+                          (INT)p_seq->side);
 
                 if (rel >= (p_seq->angle_ddeg - OBS_TURN_LEAD_DDEG))
                 {
