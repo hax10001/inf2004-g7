@@ -323,13 +323,10 @@ static void process_sample (ID h_device, imu_history_t * p_history)
     /* Compute the magnetic heading here */
     if (sample.b_mag_ok)
     {
-        ER heading_error = terrain_heading_level(
-            sample.mag_x,
-            sample.mag_y,
-            &snapshot.heading_deg
-        );
+        ER heading_error = terrain_heading_level(sample.mag_x, sample.mag_y,
+                                                 &snapshot.heading_deg);
 
-        if(heading_error == E_OK)
+        if (heading_error == E_OK)
         {
             snapshot.heading_valid = true;
         }
@@ -393,10 +390,10 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                       (UINT)g_hump.b_on_hump, (UINT)g_hump.phase,
                       (INT)(g_hump.tilt_deg * 1000.0F),
                       (INT)(g_hump.height_mm * 10.0F),
-                      (INT)(g_hump.peak_mm * 10.0F),
-                      (UINT)g_hump.hump_count, (UINT)g_hump.rejected,
+                      (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count,
+                      (UINT)g_hump.rejected,
                       (INT)(snapshot.heading_deg * 1000.0F));
-            g_hump.rejected = 0U;
+            g_hump.rejected          = 0U;
             p_history->last_log_msec = now_msec;
         }
 

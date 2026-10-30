@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include <tk/tkernel.h>
 
+/* The phase field is 4 bits, so 16 values fit; new phases are appended so
+ * the existing numbers do not change.
+ */
 typedef enum
 {
     OBS_PHASE_IDLE = 0,
@@ -23,7 +26,8 @@ typedef enum
     OBS_PHASE_SEARCH_LINE,
     OBS_PHASE_ALIGN,
     OBS_PHASE_VERIFY,
-    OBS_PHASE_FAULT
+    OBS_PHASE_FAULT,
+    OBS_PHASE_FWD_CHECK
 } obs_state_phase_t;
 
 typedef enum
@@ -51,8 +55,15 @@ typedef enum
 #define OBS_EVT_SIDE_WATCH 0x10U
 #define OBS_EVT_SIDE_SEEN 0x20U
 #define OBS_EVT_SIDE_CLEAR 0x40U
+/* Stopped forward check requested, finished, and found clear. */
+#define OBS_EVT_FWD_REQ 0x80U
+#define OBS_EVT_FWD_DONE 0x100U
+#define OBS_EVT_FWD_CLEAR 0x200U
+/* Forward guard wanted while moving, and an object found inside its range. */
+#define OBS_EVT_GUARD 0x400U
+#define OBS_EVT_FRONT_HIT 0x800U
 
-/** @brief Create the mutex and event flags; call before any task starts.
+/** @brief Create the lock and event flags; call before any task starts.
  *  @return E_OK, or a kernel error code.
  */
 ER obs_state_init (void);
@@ -64,7 +75,7 @@ void obs_state_flags_set (UINT bits);
 /** @brief Clear event flag bits. */
 void obs_state_flags_clear (UINT bits);
 
-/** @brief Copy the packed status word under its mutex.
+/** @brief Read the packed status word; one aligned 32-bit read, no lock.
  *  Bits 0-3 phase, 4-5 route, 6-10 faults, 11-14 bypass count,
  *  15-23 distance in cm and 24-31 object width in cm.
  */
@@ -104,10 +115,14 @@ void obs_state_faults_update (uint32_t set_mask, uint32_t clear_mask);
 void obs_state_plan_store (scan_plan_bypass_t const * p_plan);
 /** @brief Load the stored plan. */
 void obs_state_plan_load (scan_plan_bypass_t * p_plan);
-/** @brief Set the side to watch: 1 is left, -1 is right. */
+/** @brief Set the side the OBJECT is on, to look at: 1 left, -1 right. */
 void obs_state_watch_side_set (int32_t side);
-/** @brief Get the side to watch. */
+/** @brief Get the side to look at. */
 int32_t obs_state_watch_side_get (void);
+/** @brief Publish the latest side range that saw the object, in mm. */
+void obs_state_side_range_set (int32_t range_mm);
+/** @brief Latest side range that saw the object, in mm; 0 if none. */
+int32_t obs_state_side_range_get (void);
 
 #endif /* OBS_STATE_H */
 

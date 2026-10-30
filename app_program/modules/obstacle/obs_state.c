@@ -5,9 +5,12 @@
  * Every field of the status word has one writer at a time, and each update
  * is a read-modify-write protected by a binary semaphore, so packed fields
  * cannot race. A semaphore is used instead of a mutex because the kernel
- * configuration allows only a few mutexes.
+ * configuration allows only a few mutexes. Reading the whole word needs no
+ * lock: it is one aligned 32-bit load, and a failed lock must never look
+ * like an idle robot with no faults.
  */
 #include "obs_state.h"
+#include "obs_config.h"
 #include <stdbool.h>
 
 #define STATUS_PHASE_SHIFT 0U
@@ -32,8 +35,9 @@ static uint32_t volatile g_status      = 0U;
 static uint32_t volatile g_plan_word_a = 0U;
 static uint32_t volatile g_plan_word_b = 0U;
 static int32_t volatile g_watch_side   = 1;
+static int32_t volatile g_side_range   = 0;
 
-/** @brief Take the lock; false if the lock does not exist yet. */
+/** @brief Take the lock for at most OBS_LOCK_TIMEOUT_MSEC; false on failure. */
 static bool lock_take (void);
 /** @brief Release the lock taken by lock_take(). */
 static void lock_give (void);
@@ -103,15 +107,7 @@ void obs_state_flags_clear (UINT bits)
 
 uint32_t obs_state_status_get (void)
 {
-    uint32_t word = 0U;
-
-    if (lock_take())
-    {
-        word = g_status;
-        lock_give();
-    }
-
-    return word;
+    return g_status;
 }
 
 uint32_t obs_state_status_pack (obs_state_phase_t phase,
@@ -245,9 +241,20 @@ int32_t obs_state_watch_side_get (void)
     return g_watch_side;
 }
 
+void obs_state_side_range_set (int32_t range_mm)
+{
+    g_side_range = range_mm;
+}
+
+int32_t obs_state_side_range_get (void)
+{
+    return g_side_range;
+}
+
 static bool lock_take (void)
 {
-    return (gh_sem > E_OK) && (tk_wai_sem(gh_sem, 1, TMO_FEVR) >= E_OK);
+    return (gh_sem > E_OK) &&
+           (tk_wai_sem(gh_sem, 1, OBS_LOCK_TIMEOUT_MSEC) >= E_OK);
 }
 
 static void lock_give (void)
@@ -266,7 +273,7 @@ static void status_update (uint32_t shift, uint32_t mask, uint32_t value)
 
 static uint32_t field_get (uint32_t shift, uint32_t mask)
 {
-    return (obs_state_status_get() >> shift) & mask;
+    return (g_status >> shift) & mask;
 }
 
 /*** end of file ***/

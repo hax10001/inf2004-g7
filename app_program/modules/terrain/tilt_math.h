@@ -13,11 +13,8 @@ bool tilt_math_angles (int16_t axis_x, int16_t axis_y, int16_t axis_z,
 /** @brief Height of one wheel above the other, from the roll angle. */
 float tilt_math_hump_height (float roll_deg, float wheel_spacing_mm);
 /** @brief Calculate the heading level based on magnetometer readings. */
-bool tilt_math_heading_level(
-    int16_t mag_x,
-    int16_t mag_y,
-    float *p_heading_deg
-);
+bool tilt_math_heading_level (int16_t mag_x, int16_t mag_y,
+                              float * p_heading_deg);
 #endif /* TILT_MATH_H */
 
 /*** end of file ***/

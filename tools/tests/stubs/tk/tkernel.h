@@ -74,4 +74,20 @@ void out_w(UW address, UW value);
 #define RESETS_RESET 0x4000C000U
 #define RESETS_RESET_DONE 0x4000C008U
 #define RESETS_RESET_TIMER 0x00200000U
+
+typedef uint32_t RELTIM;
+#define TA_TFIFO 0x00000000U
+#define TA_FIRST 0x00000000U
+#define TA_WMUL 0x00000008U
+typedef struct { void *exinf; UW sematr; INT isemcnt; INT maxsem; } T_CSEM;
+typedef struct { void *exinf; UW flgatr; UW iflgptn; } T_CFLG;
+typedef struct { void *exinf; ID wtsk; UINT flgptn; } T_RFLG;
+ID tk_cre_sem(const T_CSEM *config);
+ER tk_wai_sem(ID sem, INT count, TMO timeout);
+ER tk_sig_sem(ID sem, INT count);
+ID tk_cre_flg(const T_CFLG *config);
+ER tk_ref_flg(ID flag, T_RFLG *info);
+ER tk_set_flg(ID flag, UINT bits);
+ER tk_clr_flg(ID flag, UINT mask);
+
 #endif

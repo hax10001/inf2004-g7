@@ -28,12 +28,14 @@ def build(sources, includes, name, legacy, args, env, app_test=0):
                    f"/DLEGACY={int(legacy)}", f"/DAPP_TEST={app_test}",
                    *["/I" + str(p) for p in includes],
                    *map(str, sources), str(TESTS / "robot_harness.c"),
+                   str(TESTS / "obstacle_harness.c"),
                    "/Fe" + str(executable), "/Fo" + str(folder) + os.sep]
     else:
         command = [compiler, "-std=c99", "-Wall", "-Wextra",
                    f"-DLEGACY={int(legacy)}", f"-DAPP_TEST={app_test}",
                    *["-I" + str(p) for p in includes],
                    *map(str, sources), str(TESTS / "robot_harness.c"),
+                   str(TESTS / "obstacle_harness.c"),
                    "-lm", "-o", str(executable)]
     built = subprocess.run(command, env=env, capture_output=True, text=True)
     (folder / "build.log").write_text(built.stdout + built.stderr)
@@ -79,7 +81,7 @@ def main():
                        False, args, env, app_test=1)
     on_target_simulation = run(test_build, "startup")
     assert "FAIL" not in on_target_simulation
-    assert on_target_simulation.count(": PASS") == 11
+    assert on_target_simulation.count(": PASS") == 15 #11
     print("PASS: TEST=1 host link and 11 non-mutating subsystem checks.")
 
     scenarios = ([("startup", i) for i in range(10)] + [("motor", 0)] +

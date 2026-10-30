@@ -35,13 +35,13 @@ typedef struct
     uint16_t max_hump_height_mm;  /**< Highest completed hump this run. */
     uint8_t  hump_count;          /**< Completed humps this run. */
     terrain_hump_phase hump_phase;
-    bool onHump;
-    bool height_valid;
-    uint32_t timestamp_msec;
-    bool b_valid;
+    bool               onHump;
+    bool               height_valid;
+    uint32_t           timestamp_msec;
+    bool               b_valid;
     // magnetic heading
     float heading_deg;
-    bool heading_valid;
+    bool  heading_valid;
 } terrain_snapshot;
 
 /** @brief Initialise subsystem resources; device open remains task-owned. */
@@ -71,9 +71,9 @@ bool terrain_is_calibrated (void);
 /** @brief Height of one wheel above the other, from the roll angle. */
 float terrain_hump_height (float roll_deg);
 /** @brief Check if the robot is level. */
-bool terrain_is_level(terrain_snapshot const *p_snapshot);
+bool terrain_is_level (terrain_snapshot const * p_snapshot);
 /** @brief Compute the magnetic heading based on the magnetometer readings. */
-ER terrain_heading_level(int16_t mag_x, int16_t mag_y, float *p_heading_deg);
+ER terrain_heading_level (int16_t mag_x, int16_t mag_y, float * p_heading_deg);
 /** @brief Publish a new terrain snapshot.
  * @note This function is thread-safe and should be called from the IMU task.
  */
