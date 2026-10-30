@@ -1,5 +1,11 @@
 # Robot application architecture
 
+Buddy 5 is now implemented behind the default-off `OBSTACLE` build option.
+See [implementation and verification](../docs/BUDDY5_IMPLEMENTATION_REPORT.md)
+for the current branch configuration, hardware checks and build commands.
+The historical configuration notes below predate current tuning; use
+`app/app_config.h` and `board/board_config.h` as the configuration source.
+
 The robot uses micro T-Kernel tasks and the supplied BSP/device interfaces.
 Application code must not include Pico SDK GPIO, PWM, I2C, timing or interrupt
 APIs. Wi-Fi and UART are the only user-authorised SDK exceptions; no new SDK
@@ -19,7 +25,8 @@ dependency is introduced by this restructure.
 | `modules/line_barcode/` | IR sampling, protected readings and line decisions. |
 | `modules/motion/` | Movement policy and motor-driver ownership. |
 | `modules/terrain/` | IMU task lifecycle and measurement calculations. |
-| `modules/obstacle/`, `modules/telemetry/` | Documented future subsystems. |
+| `modules/obstacle/` | Servo sonar scanning, bypass and line recovery. |
+| `modules/telemetry/` | Reserved telemetry integration. |
 | `platform/console.c/.h` | Existing monitor state and UART fallback. |
 | `tests/` | Shared on-target reporting and excluded reference material. |
 

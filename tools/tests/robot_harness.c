@@ -267,15 +267,15 @@ static void run_units(void)
     assert(1324U == status.left_pwm && 1349U == status.right_pwm);
     for (int period = 0; period < 4; ++period) { motion_apply(LINE_FORWARD); }
     assert(E_OK == motion_get_status(&status));
-    assert(40.0f == status.left_target_rpm && 0.0f == status.steer);
+    assert(15.0f == status.left_target_rpm && 0.0f == status.steer);
     /* Off-centre asks for 0.3 + 2.0 x 0.05; steer moves 0.3 per period,
-     * and the speed drops by 0.6 x 0.3 to 32.8.
+     * and the speed drops by 0.6 x 0.3 to 12.3 at the current 15 RPM base.
      */
     motion_apply(LINE_CORRECT_LEFT);
     assert(E_OK == motion_get_status(&status));
     assert(fabsf(status.steer - 0.3f) < 1e-5f);
-    assert(fabsf(status.left_target_rpm - 22.96f) < 1e-3f);
-    assert(fabsf(status.right_target_rpm - 42.64f) < 1e-3f);
+    assert(fabsf(status.left_target_rpm - 8.61f) < 1e-3f);
+    assert(fabsf(status.right_target_rpm - 15.99f) < 1e-3f);
     assert(status.left_pwm > 0U && status.left_pwm < status.right_pwm);
     /* Back on the line after a short touch: the nudge ends at once. */
     motion_apply(LINE_FORWARD);
@@ -294,8 +294,8 @@ static void run_units(void)
     }
     assert(E_OK == motion_get_status(&status));
     assert(-STEERING_MAX == status.steer);
-    assert(fabsf(status.left_target_rpm - 37.44f) < 1e-3f);
-    assert(fabsf(status.right_target_rpm - 4.16f) < 1e-3f);
+    assert(fabsf(status.left_target_rpm - 14.04f) < 1e-3f);
+    assert(fabsf(status.right_target_rpm - 1.56f) < 1e-3f);
     /* After a full-strength turn the line may have slipped round beside the
      * robot: the turn is held for 12 more periods, then decays.
      */
@@ -316,6 +316,17 @@ static void run_units(void)
     assert(E_OK == motion_get_status(&status));
     assert(0U == status.left_pwm && 0U == status.right_pwm);
     assert(0.0f == status.left_target_rpm && 0.0f == status.steer);
+    /* The bounded bypass extension keeps Buddy 2's stop and ramp behavior. */
+    motion_drive(100.0f, -1.0f);
+    assert(E_OK == motion_get_status(&status));
+    assert(8.0f == status.left_target_rpm && 0.0f == status.right_target_rpm);
+    for (int i = 0; i < 8; ++i) { motion_drive(100.0f, 0.0f); }
+    assert(E_OK == motion_get_status(&status));
+    assert(15.0f == status.left_target_rpm && 0U == status.right_pwm);
+    motion_drive(NAN, NAN);
+    assert(E_OK == motion_get_status(&status));
+    assert(0U == status.left_pwm && 0U == status.right_pwm);
+    motion_apply(LINE_UNCERTAIN);
     /* Starting off-centre turns at once, scaled to the ramping speed. */
     motion_apply(LINE_CORRECT_LEFT);
     assert(E_OK == motion_get_status(&status));
@@ -410,6 +421,9 @@ static void run_units(void)
     assert(E_OK == ir_shared_get_latest(&snapshot));
     assert(snapshot.b_valid && snapshot.left == 1U && snapshot.right == 0U);
     assert(snapshot.barcode == 1U && snapshot.timestamp_msec == now_msec);
+    assert(sizeof(snapshot) == 8U);
+    assert(E_PAR == ir_shared_publish(2U, 0U, 0U));
+    assert(E_OK == ir_shared_get_latest(&snapshot) && snapshot.left == 1U);
     fail_lock = 1;
     assert(-5 == ir_shared_get_latest(&snapshot));
     fail_lock = 0;

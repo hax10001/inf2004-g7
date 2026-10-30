@@ -80,6 +80,11 @@ static float          g_base_rpm = 0.0f; /**< Ramped speed of both wheels. */
 static float          g_steer    = 0.0f; /**< Rate-limited steer applied. */
 static uint32_t       g_log_countdown = 0U;
 
+/** @brief Apply both targets through the existing encoder speed loop. */
+static void drive_wheels (INT action_code);
+/** @brief Clamp forward requests; ramp acceleration and stop immediately. */
+static float ramp_target (float current, float desired);
+
 /* Only this module can directly access these variables. */
 static ID volatile              gh_status_mutex = 0;
 static motion_status_t volatile g_status        = {0};
@@ -193,6 +198,46 @@ void motion_apply (line_follow_action_t action)
     p_left->target_rpm  = speed_rpm * (1.0f - g_steer);
     p_right->target_rpm = speed_rpm * (1.0f + g_steer);
 
+    drive_wheels((INT)action);
+}
+
+void motion_drive (float left_rpm, float right_rpm)
+{
+    motion_wheel_t * const p_left  = &g_wheels[ENCODER_LEFT];
+    motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
+
+    p_left->target_rpm = ramp_target(p_left->target_rpm, left_rpm);
+    p_right->target_rpm = ramp_target(p_right->target_rpm, right_rpm);
+    g_base_rpm = 0.5f * (p_left->target_rpm + p_right->target_rpm);
+    g_steer = 0.0f;
+    steering_reset(&g_steering);
+    drive_wheels(-1);
+}
+
+static float ramp_target (float current, float desired)
+{
+    /* This also rejects NaN: it cannot satisfy an ordered comparison. */
+    if (!(desired >= 0.0f))
+    {
+        desired = 0.0f;
+    }
+    else if (desired > MOTION_TARGET_RPM)
+    {
+        desired = MOTION_TARGET_RPM;
+    }
+
+    return (desired > current) ? step_towards(current, desired,
+                                              MOTION_RAMP_RPM) : desired;
+}
+
+static void drive_wheels (INT action_code)
+{
+#if !APP_MOTION_DEBUG_CSV
+    (void)action_code;
+#endif
+    motion_wheel_t * const p_left  = &g_wheels[ENCODER_LEFT];
+    motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
+
     /* Measure the period that just ended, under the previous command. */
     uint32_t const   now     = encoder_now_usec();
     encoder_sample_t left    = {0};
@@ -242,7 +287,7 @@ void motion_apply (line_follow_action_t action)
      * pwmL,pwmR. INT truncation is for display; UB preserves the bytes.
      */
     tm_printf((UB *)"CSV,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)(now / 1000U),
-              (INT)action, (INT)(g_steer * 100.0f),
+              (INT)action_code, (INT)(g_steer * 100.0f),
               (INT)status.left_target_rpm, (INT)status.right_target_rpm,
               (INT)(status.left_rpm * 10.0f), (INT)(status.right_rpm * 10.0f),
               (INT)status.left_pwm, (INT)status.right_pwm);

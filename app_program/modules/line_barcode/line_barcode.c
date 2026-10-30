@@ -25,6 +25,10 @@ static bool gb_configured = false;
 static bool gb_enabled = true;
 static bool gb_pending = false;
 static bool gb_measured = false;
+static struct
+{
+    uint32_t b_avoidance : 1;
+} g_motion_gate = {0U};
 static uint32_t g_sequence = 0U;
 static uint32_t g_measure_run = 0U;
 #if BC_DIAGNOSTICS
@@ -64,6 +68,7 @@ ER line_barcode_init (void)
     gb_enabled = true;
     gb_pending = false;
     gb_measured = false;
+    g_motion_gate.b_avoidance = false;
     g_sequence = 0U;
     g_measure_run = 0U;
     g_result = (barcode_result_t){0};
@@ -168,6 +173,25 @@ ER line_barcode_set_enabled (bool b_enabled)
     return (unlock_error < E_OK) ? unlock_error : result;
 }
 
+ER line_barcode_set_avoidance (bool b_active)
+{
+    ER const error = ir_shared_lock(TMO_FEVR);
+
+    if (error < E_OK)
+    {
+        return error;
+    }
+
+    if (g_motion_gate.b_avoidance != b_active)
+    {
+        g_motion_gate.b_avoidance = b_active;
+        bc_scan_reset(&g_scan);
+        gb_measured = false;
+    }
+
+    return ir_shared_unlock();
+}
+
 ER line_barcode_get_diagnostic (barcode_diagnostic_t * p_output)
 {
     if (NULL == p_output)
@@ -183,7 +207,8 @@ ER line_barcode_get_diagnostic (barcode_diagnostic_t * p_output)
     }
 
     *p_output = g_diagnostic;
-    p_output->mode = !gb_enabled ? BARCODE_DISABLED :
+    p_output->mode = (!gb_enabled || g_motion_gate.b_avoidance) ?
+                     BARCODE_DISABLED :
                      (gb_configured ? BARCODE_ENABLED : BARCODE_MEASURING);
     p_output->state = g_scan.state;
     p_output->status = g_scan.status;
@@ -263,8 +288,12 @@ void line_barcode_sample (uint32_t barcode_raw, uint32_t sample_usec)
         return;
     }
 
-    measure_sample(barcode_raw, left.count, right.count, now_usec);
-    if (gb_enabled && gb_configured && !gb_pending)
+    if (!g_motion_gate.b_avoidance)
+    {
+        measure_sample(barcode_raw, left.count, right.count, now_usec);
+    }
+    if (!g_motion_gate.b_avoidance && gb_enabled &&
+        gb_configured && !gb_pending)
     {
         bc_state_t const previous_state = g_scan.state;
         bool const b_active = (BC_SCANNING == previous_state) ||

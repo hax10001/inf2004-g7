@@ -92,6 +92,11 @@ ER line_barcode_ack (uint32_t sequence);
  * Enabling uncalibrated settings returns E_PAR, without affecting motors.
  */
 ER line_barcode_set_enabled (bool b_enabled);
+/** @brief Suspend capture during bypass; preserve enable mode and results.
+ * The controller calls this before bypass and after confirmed line recovery.
+ * IR sampling continues. Both transitions discard only partial capture.
+ */
+ER line_barcode_set_avoidance (bool b_active);
 /** @brief Copy commissioning statistics and captured widths atomically. */
 ER line_barcode_get_diagnostic (barcode_diagnostic_t * p_output);
 

@@ -9,6 +9,9 @@
 #include "modules/line_barcode/line_barcode.h"
 #include "modules/motion/motion.h"
 #include "modules/terrain/terrain.h"
+#if APP_OBSTACLE_ENABLED
+#include "modules/obstacle/obstacle.h"
+#endif
 #include <tm/tmonitor.h>
 
 #if APP_TEST
@@ -47,6 +50,15 @@ INT usermain (void)
         return 1;
     }
 
+#if APP_OBSTACLE_ENABLED
+    error = obstacle_init();
+
+    if (error < E_OK)
+    {
+        return 1;
+    }
+#endif
+
     error = controller_init();
 
     if (error < E_OK)
@@ -76,6 +88,15 @@ INT usermain (void)
     {
         return 1;
     }
+
+#if APP_OBSTACLE_ENABLED
+    error = obstacle_start();
+
+    if (error < E_OK)
+    {
+        return 1;
+    }
+#endif
 
     error = controller_start();
 

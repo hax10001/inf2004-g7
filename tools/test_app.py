@@ -55,6 +55,8 @@ def main():
     parser.add_argument("--cc")
     parser.add_argument("--vcvars", type=Path)
     parser.add_argument("--baseline-json", type=Path)
+    parser.add_argument("--units-only", action="store_true",
+                        help="Omit historical trace comparisons")
     args = parser.parse_args()
     env = os.environ.copy()
     if args.vcvars:
@@ -69,18 +71,30 @@ def main():
 
     production = sorted(p for p in APP.rglob("*.c")
                         if not p.name.startswith("test_")
-                        and "tests" not in p.relative_to(APP).parts)
+                        and "tests" not in p.relative_to(APP).parts
+                        and "host" not in p.relative_to(APP).parts
+                        and "obstacle" not in p.relative_to(APP).parts)
     includes = [TESTS / "stubs", APP]
     current = build(production, includes, "current", False, args, env)
     unit_output = run(current, "units")
-    print(unit_output.strip())
+    (OUT / "units.log").write_text(unit_output)
+    print("\n".join(line for line in unit_output.splitlines()
+                    if line.startswith("UNIT_CHECKS_PASS")))
 
-    test_build = build(sorted(APP.rglob("*.c")), includes, "test_enabled",
+    test_build = build(production + [p for p in APP.rglob("test_*.c")
+                        if "host" not in p.relative_to(APP).parts
+                        and "obstacle" not in p.relative_to(APP).parts],
+                       includes, "test_enabled",
                        False, args, env, app_test=1)
     on_target_simulation = run(test_build, "startup")
+    (OUT / "startup.log").write_text(on_target_simulation)
     assert "FAIL" not in on_target_simulation
     assert on_target_simulation.count(": PASS") == 11
     print("PASS: TEST=1 host link and 11 non-mutating subsystem checks.")
+
+    if args.units_only:
+        print("SKIP: historical traces predate current speed and startup")
+        return
 
     scenarios = ([("startup", i) for i in range(10)] + [("motor", 0)] +
                  [("controller", i) for i in range(10)] +

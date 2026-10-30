@@ -10,12 +10,12 @@
 
 typedef struct
 {
-    uint32_t left;
-    uint32_t right;
-    uint32_t barcode;
+    uint32_t left : 1;
+    uint32_t right : 1;
+    uint32_t barcode : 1;
+    uint32_t b_valid : 1;
 
     uint32_t timestamp_msec;
-    bool     b_valid;
 } ir_shared_snapshot_t;
 
 /** @brief Create snapshot storage before starting any tasks. */

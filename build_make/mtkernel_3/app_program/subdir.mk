@@ -3,6 +3,10 @@
 ################################################################################
 
 TEST ?= 0
+OBSTACLE ?= 0
+ifneq ($(filter $(OBSTACLE),0 1),$(OBSTACLE))
+$(error Unknown OBSTACLE '$(OBSTACLE)'; use 0 or 1)
+endif
 ifneq ($(filter $(TEST),0 1),$(TEST))
 $(error Unknown TEST '$(TEST)'; use 0 or 1)
 endif
@@ -15,13 +19,22 @@ APP_SRCS := $(foreach directory,$(APP_DIRS),$(wildcard $(directory)/*.c))
 APP_TEST_SRCS := $(foreach directory,$(APP_DIRS),$(wildcard $(directory)/test_*.c))
 APP_SRCS := $(filter-out $(APP_TEST_SRCS),$(APP_SRCS))
 
+ifeq ($(OBSTACLE),0)
+APP_SRCS := $(filter-out ../app_program/modules/obstacle/%,$(APP_SRCS))
+APP_TEST_SRCS := $(filter-out ../app_program/modules/obstacle/%,$(APP_TEST_SRCS))
+endif
+
+ifeq ($(OBSTACLE),1)
+EXE_FILE := $(EXE_FILE)_obs
+endif
+
 ifeq ($(TEST),1)
 APP_SRCS += $(APP_TEST_SRCS) ../app_program/tests/test_report.c
 EXE_FILE := $(EXE_FILE)_test
 endif
 
 # Separate object trees prevent stale APP_TEST values when TEST is switched.
-APP_OBJ_DIR := mtkernel_3/app_program/obj_test$(TEST)
+APP_OBJ_DIR := mtkernel_3/app_program/obj_obs$(OBSTACLE)_test$(TEST)
 APP_OBJS := $(patsubst ../app_program/%.c,$(APP_OBJ_DIR)/%.o,$(APP_SRCS))
 APP_DEPS := $(APP_OBJS:.o=.d)
 
@@ -39,7 +52,8 @@ $(APP_OBJ_DIR)/%.o: ../app_program/%.c
 	@echo 'Building file: $<'
 	@mkdir -p "$(dir $@)"
 	$(GCC) $(filter-out -std=%,$(CFLAGS)) -std=c99 -Wall -Wextra \
-	    -D$(TARGET) -DAPP_TEST=$(TEST) $(INCPATH) \
+	    -D$(TARGET) -DAPP_TEST=$(TEST) \
+	    -DAPP_OBSTACLE_ENABLED=$(OBSTACLE) $(INCPATH) \
 	    -I"../app_program" -I"../device/include" \
 	    -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
 	@echo 'Finished building: $<'

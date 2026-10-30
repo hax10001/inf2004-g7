@@ -17,12 +17,15 @@ static ir_shared_snapshot_t volatile g_latest_ir = {.left           = 0U,
 /* Set by any both-black sample; held until the controller takes it, so a
  * junction shorter than the controller period is not lost between reads.
  */
-static bool volatile gb_junction_latched = false;
 /* Set by any black sample on that side, for the same reason: a brief touch
  * of the line edge would otherwise be overwritten before it is acted on.
  */
-static bool volatile gb_left_latched  = false;
-static bool volatile gb_right_latched = false;
+static struct
+{
+    uint32_t b_junction : 1;
+    uint32_t b_left : 1;
+    uint32_t b_right : 1;
+} volatile g_latched = {0U, 0U, 0U};
 
 /* Initialize once from usermain(), before starting tasks. */
 ER ir_shared_init (void)
@@ -48,6 +51,11 @@ ER ir_shared_publish (uint32_t left, uint32_t right, uint32_t barcode)
 {
     SYSTIM now = {0};
     ER     error;
+
+    if ((left > 1U) || (right > 1U) || (barcode > 1U))
+    {
+        return E_PAR;
+    }
 
     if (gh_ir_mutex <= E_OK)
     {
@@ -76,17 +84,17 @@ ER ir_shared_publish (uint32_t left, uint32_t right, uint32_t barcode)
 
     if ((1U == left) && (1U == right))
     {
-        gb_junction_latched = true;
+        g_latched.b_junction = true;
     }
 
     if (1U == left)
     {
-        gb_left_latched = true;
+        g_latched.b_left = true;
     }
 
     if (1U == right)
     {
-        gb_right_latched = true;
+        g_latched.b_right = true;
     }
 
     return tk_unl_mtx(gh_ir_mutex);
@@ -112,8 +120,8 @@ ER ir_shared_take_junction (bool * p_b_seen)
         return error;
     }
 
-    *p_b_seen           = gb_junction_latched;
-    gb_junction_latched = false;
+    *p_b_seen           = g_latched.b_junction;
+    g_latched.b_junction = false;
 
     return tk_unl_mtx(gh_ir_mutex);
 }
@@ -138,10 +146,10 @@ ER ir_shared_take_sides (bool * p_b_left, bool * p_b_right)
         return error;
     }
 
-    *p_b_left        = gb_left_latched;
-    *p_b_right       = gb_right_latched;
-    gb_left_latched  = false;
-    gb_right_latched = false;
+    *p_b_left        = g_latched.b_left;
+    *p_b_right       = g_latched.b_right;
+    g_latched.b_left  = false;
+    g_latched.b_right = false;
 
     return tk_unl_mtx(gh_ir_mutex);
 }

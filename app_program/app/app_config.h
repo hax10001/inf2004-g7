@@ -8,6 +8,11 @@
 #define APP_IR_PRIORITY 5
 #define APP_CONTROLLER_PRIORITY 6
 #define APP_IMU_PRIORITY 7
+/* Enable only after Echo level shifting, servo and stopping calibration. */
+#ifndef APP_OBSTACLE_ENABLED
+#define APP_OBSTACLE_ENABLED 0
+#endif
+#define APP_OBSTACLE_PRIORITY 7
 #define APP_STARTUP_DELAY_MSEC 2000
 #define APP_CONTROLLER_PERIOD_MSEC 50U
 #define APP_IR_MAX_AGE_MSEC 200U

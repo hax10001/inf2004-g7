@@ -27,3 +27,4 @@ __pycache__/
 
 # Local validation outputs and pre-refactor snapshots.
 /tmp/
+/.tmp/

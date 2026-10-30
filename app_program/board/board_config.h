@@ -26,8 +26,16 @@
  * the [MOTOR SPEED] log, then set this value.
  */
 #define BOARD_ENC_COUNTS_PER_REV 1056U
-/* WARNING: Unverified; measure the driven wheel's outer diameter. */
-#define BOARD_WHEEL_DIAMETER_MM 65.0f
+/* User-measured outside diameter, 70 mm; encoder gearing still unverified. */
+#define BOARD_WHEEL_DIAMETER_MM 70.0f
+
+/* Buddy 5 wiring. Confirm on the physical vehicle before enabling.
+ * HC-SR04 Echo is 5 V: use a suitable 3.3 V level shifter/divider on GP5.
+ * Servo requires its own suitable supply with common ground.
+ */
+#define BOARD_US_TRIG_PIN 4U
+#define BOARD_US_ECHO_PIN 5U
+#define BOARD_SERVO_PIN 15U
 
 /* I2C0 pin configuration remains owned by the supplied device driver. */
 
