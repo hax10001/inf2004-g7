@@ -229,6 +229,7 @@ ASFLAGS := -mcpu=cortex-m0plus -mthumb -ffreestanding\
 
 LFLAGS := -mcpu=cortex-m0plus -mthumb -ffreestanding \
     -nostartfiles \
+    --specs=nano.specs \
     -O2 -g3 \
     -mfloat-abi=soft \
 
