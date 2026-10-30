@@ -1,434 +1,218 @@
 /** @file scan_plan.c
  *
- * @brief Edge finding and bypass geometry from a servo range profile.
+ * @brief Pure geometry from a servo scan to a bypass plan; no I/O here.
  *
- * Each sample becomes a lateral offset (left is positive) and a forward
- * depth. The object is the run of near samples around the front. Its outer
- * edges, padded by half a scan step, set the lateral offset that a path
- * needs: edge plus half the robot width plus a safety margin. The smallest
- * candidate angle whose diagonal still clears the nearest face is used.
- * Integer maths is used because the RP2040 has no floating point unit.
+ * The scan is a set of (angle, range) samples from right to left. An object
+ * is a run of samples closer than OBS_SCAN_RANGE_MM. The plan picks the side
+ * with the wider clear gap, converts the object edges to a lateral offset and
+ * a diagonal run, and reports a conservative fallback distance.
  */
 #include "scan_plan.h"
 #include "obs_config.h"
+#include <stdbool.h>
 
-#if ((OBS_SCAN_STEP_DEG % 10) != 0)
-#error "OBS_SCAN_STEP_DEG must be a multiple of 10 degrees."
-#endif
-
-#define TRIG_STEP_DEG 5
-#define TRIG_RIGHT_ANGLE_DEG 90
-#define TRIG_TABLE_SIZE 19U
-#define MILLI 1000
-#define HALF 2
-#define ANGLE_CHOICES 3U
 #define MM_PER_CM 10
-#define ROUND_MM 5
-#define WIDTH_LIMIT_CM 254
-#define DIST_LIMIT_CM 510
-#define SEED_NONE_DEG 32767
+#define PERMILLE 1000
+/* cos(45 deg) x 1000, used to project a diagonal run onto the forward axis. */
+#define COS45_PERMILLE 707
 
-/* Packed plan layout: word A holds the first six fields, word B the rest. */
-#define RESULT_SHIFT 0U
-#define RESULT_MASK 0x3U
-#define SIDE_SHIFT 2U
-#define SIDE_MASK 0x1U
-#define ANGLE_SHIFT 3U
-#define ANGLE_MASK 0x3U
-#define WIDTH_SHIFT 5U
-#define WIDTH_MASK 0xFFU
-#define NEAR_SHIFT 13U
-#define NEAR_MASK 0x1FFU
-#define LATERAL_SHIFT 22U
-#define LATERAL_MASK 0x1FFU
-#define DIAG_SHIFT 0U
-#define DIAG_MASK 0x1FFU
-#define FALLBACK_SHIFT 9U
-#define FALLBACK_MASK 0x1FFU
-
-/** @brief Sine times 1000 for 0 to 90 degrees in steps of 5 degrees. */
-static int32_t const g_sine_milli[TRIG_TABLE_SIZE] = {
-    0,   87,  174, 259, 342, 423, 500, 574, 643, 707,
-    766, 819, 866, 906, 940, 966, 985, 996, 1000};
-
-static int32_t const g_angle_choice_deg[ANGLE_CHOICES] = {30, 45, 60};
-
+/** @brief One contiguous closer-than-range run in the scan. */
 typedef struct
 {
-    int32_t  need_mm;
-    uint32_t angle_index;
-    bool     b_ok;
-} side_option_t;
+    int32_t first;
+    int32_t last;
+    int32_t near_mm;
+} scan_object_t;
 
-typedef struct
-{
-    uint32_t result;
-    bool     b_left;
-    uint32_t angle_index;
-    uint32_t width_cm;
-    uint32_t near_cm;
-    uint32_t lateral_cm;
-    uint32_t diag_cm;
-    uint32_t fallback_cm;
-} plan_fields_t;
-
-/** @brief Sine times 1000 of a multiple of 5 degrees from -90 to 90. */
-static int32_t sine_milli (int32_t angle_deg);
-/** @brief Cosine times 1000 of a multiple of 5 degrees from -90 to 90. */
-static int32_t cosine_milli (int32_t angle_deg);
-/** @brief Absolute value of a signed integer. */
-static int32_t abs_int (int32_t value);
-/** @brief True if a sample is close enough to belong to an object. */
-static bool is_near (scan_plan_point_t const * p_point);
-/** @brief Lateral offset of a sample in mm; left is positive. */
-static int32_t point_x (scan_plan_point_t const * p_point);
-/** @brief Forward depth of a sample in mm. */
-static int32_t point_y (scan_plan_point_t const * p_point);
-/** @brief Half a scan step of lateral uncertainty at the sample range. */
-static int32_t edge_pad (scan_plan_point_t const * p_point);
-/** @brief Convert millimetres to a clamped, rounded, non-negative cm. */
-static uint32_t to_cm (int32_t length_mm, int32_t limit_cm);
-/** @brief Find the run of near samples around the front. */
-static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
-                          int32_t * p_low, int32_t * p_high);
-/** @brief True if another object sits in the corridor beside the edge. */
-static bool corridor_blocked (scan_plan_point_t const * p_points, int32_t count,
-                              int32_t low, int32_t high, int32_t outward_edge,
-                              int32_t limit_mm, int32_t sign);
-/** @brief Pick the smallest angle whose diagonal clears the near face. */
-static void pick_angle (int32_t near_depth, side_option_t * p_option);
-/** @brief Work out the offset and angle needed on one side. */
-static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
-                           int32_t low, int32_t high, int32_t outward_edge,
-                           int32_t near_depth, int32_t sign,
-                           side_option_t * p_option);
-/** @brief Choose the better side and fill in the plan fields. */
-static void choose_side (side_option_t const * p_left,
-                         side_option_t const * p_right, int32_t width_mm,
-                         plan_fields_t * p_fields);
-/** @brief Measure the object and plan a path round it. */
-static void plan_object (scan_plan_point_t const * p_points, int32_t count,
-                         int32_t low, int32_t high, plan_fields_t * p_fields);
-/** @brief Pack the plan fields into two words. */
-static void pack_fields (plan_fields_t const * p_fields,
-                         scan_plan_bypass_t *  p_plan);
-
-int32_t scan_plan_angle_deg (uint32_t angle_index)
-{
-    int32_t angle = g_angle_choice_deg[0];
-
-    if (angle_index < ANGLE_CHOICES)
-    {
-        angle = g_angle_choice_deg[angle_index];
-    }
-
-    return angle;
-}
+/** @brief Find the single closest object run in the scan. */
+static bool find_object (scan_plan_point_t const * p_points, int32_t count,
+                         scan_object_t * p_object);
+/** @brief Measure the clear gap on one side of the object. */
+static int32_t side_gap_mm (scan_plan_point_t const * p_points, int32_t count,
+                            scan_object_t const * p_object, bool b_left);
+/** @brief Build the plan for the chosen side. */
+static void build_plan (scan_plan_bypass_t * p_plan, bool b_left,
+                        scan_object_t const *     p_object,
+                        scan_plan_point_t const * p_points, int32_t count);
 
 void scan_plan_build (scan_plan_point_t const * p_points, int32_t count,
                       scan_plan_bypass_t * p_plan)
 {
-    plan_fields_t fields = {SCAN_PLAN_CLEAR, false, 0U, 0U, 0U, 0U, 0U, 0U};
-    int32_t       low    = 0;
-    int32_t       high   = 0;
+    scan_object_t object  = {0, 0, 0};
+    bool const    b_found = find_object(p_points, count, &object);
 
-    if (find_cluster(p_points, count, &low, &high))
+    p_plan->word_a = 0U;
+    p_plan->word_b = 0U;
+
+    if (!b_found)
     {
-        plan_object(p_points, count, low, high, &fields);
+        /* No object inside the scan range: the way ahead is clear. */
+        p_plan->word_a |= (uint32_t)SCAN_PLAN_CLEAR;
+        return;
     }
 
-    pack_fields(&fields, p_plan);
-}
+    int32_t const left_gap  = side_gap_mm(p_points, count, &object, true);
+    int32_t const right_gap = side_gap_mm(p_points, count, &object, false);
+    /* A gap must fit the robot width plus a safety margin on both sides. */
+    int32_t const need_mm = OBS_ROBOT_WIDTH_MM + (2 * OBS_SAFETY_MARGIN_MM);
 
-uint32_t scan_plan_result (scan_plan_bypass_t const * p_plan)
-{
-    return (p_plan->word_a >> RESULT_SHIFT) & RESULT_MASK;
-}
-
-bool scan_plan_side_is_left (scan_plan_bypass_t const * p_plan)
-{
-    return 0U != ((p_plan->word_a >> SIDE_SHIFT) & SIDE_MASK);
-}
-
-uint32_t scan_plan_angle_index (scan_plan_bypass_t const * p_plan)
-{
-    return (p_plan->word_a >> ANGLE_SHIFT) & ANGLE_MASK;
-}
-
-int32_t scan_plan_width_cm (scan_plan_bypass_t const * p_plan)
-{
-    /* The field is at most 8 bits wide, so the cast is exact. */
-    return (int32_t)((p_plan->word_a >> WIDTH_SHIFT) & WIDTH_MASK);
-}
-
-int32_t scan_plan_near_cm (scan_plan_bypass_t const * p_plan)
-{
-    /* The field is at most 9 bits wide, so the cast is exact. */
-    return (int32_t)((p_plan->word_a >> NEAR_SHIFT) & NEAR_MASK);
-}
-
-int32_t scan_plan_lateral_cm (scan_plan_bypass_t const * p_plan)
-{
-    /* The field is at most 9 bits wide, so the cast is exact. */
-    return (int32_t)((p_plan->word_a >> LATERAL_SHIFT) & LATERAL_MASK);
-}
-
-int32_t scan_plan_diag_cm (scan_plan_bypass_t const * p_plan)
-{
-    /* The field is at most 9 bits wide, so the cast is exact. */
-    return (int32_t)((p_plan->word_b >> DIAG_SHIFT) & DIAG_MASK);
-}
-
-int32_t scan_plan_fallback_cm (scan_plan_bypass_t const * p_plan)
-{
-    /* The field is at most 9 bits wide, so the cast is exact. */
-    return (int32_t)((p_plan->word_b >> FALLBACK_SHIFT) & FALLBACK_MASK);
-}
-
-static int32_t sine_milli (int32_t angle_deg)
-{
-    int32_t const magnitude = abs_int(angle_deg);
-    int32_t const value     = g_sine_milli[magnitude / TRIG_STEP_DEG];
-
-    return (angle_deg < 0) ? -value : value;
-}
-
-static int32_t cosine_milli (int32_t angle_deg)
-{
-    int32_t const magnitude = abs_int(angle_deg);
-
-    return g_sine_milli[(TRIG_RIGHT_ANGLE_DEG - magnitude) / TRIG_STEP_DEG];
-}
-
-static int32_t abs_int (int32_t value)
-{
-    return (value < 0) ? -value : value;
-}
-
-static bool is_near (scan_plan_point_t const * p_point)
-{
-    return p_point->range_mm < OBS_SCAN_RANGE_MM;
-}
-
-static int32_t point_x (scan_plan_point_t const * p_point)
-{
-    return (p_point->range_mm * sine_milli(p_point->angle_deg)) / MILLI;
-}
-
-static int32_t point_y (scan_plan_point_t const * p_point)
-{
-    return (p_point->range_mm * cosine_milli(p_point->angle_deg)) / MILLI;
-}
-
-static int32_t edge_pad (scan_plan_point_t const * p_point)
-{
-    return (p_point->range_mm * sine_milli(OBS_SCAN_STEP_DEG / HALF)) / MILLI;
-}
-
-static uint32_t to_cm (int32_t length_mm, int32_t limit_cm)
-{
-    int32_t centimetres = 0;
-
-    if (length_mm > 0)
+    if ((left_gap < need_mm) && (right_gap < need_mm))
     {
-        centimetres = (length_mm + ROUND_MM) / MM_PER_CM;
+        p_plan->word_a |= (uint32_t)SCAN_PLAN_NO_ROUTE;
+        return;
     }
 
-    if (centimetres > limit_cm)
-    {
-        centimetres = limit_cm;
-    }
+    /* Tie-break: prefer left when both sides fit. */
+    bool const b_left = (left_gap >= right_gap);
 
-    /* The value is clamped between zero and a positive limit. */
-    return (uint32_t)centimetres;
+    build_plan(p_plan, b_left, &object, p_points, count);
 }
 
-static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
-                          int32_t * p_low, int32_t * p_high)
+static bool find_object (scan_plan_point_t const * p_points, int32_t count,
+                         scan_object_t * p_object)
 {
-    int32_t seed    = -1;
-    int32_t best    = SEED_NONE_DEG;
-    bool    b_found = false;
+    bool b_found = false;
 
     for (int32_t index = 0; index < count; index++)
     {
-        int32_t const offset = abs_int(p_points[index].angle_deg);
-
-        if (is_near(&p_points[index]) && (offset < best))
+        if (p_points[index].range_mm < OBS_SCAN_RANGE_MM)
         {
-            best = offset;
-            seed = index;
+            if (!b_found)
+            {
+                p_object->first   = index;
+                p_object->near_mm = p_points[index].range_mm;
+                b_found           = true;
+            }
+            else
+            {
+                p_object->last = index;
+            }
+
+            if (p_points[index].range_mm < p_object->near_mm)
+            {
+                p_object->near_mm = p_points[index].range_mm;
+            }
         }
-    }
-
-    if ((seed >= 0) && (best <= OBS_FRONT_WINDOW_DEG))
-    {
-        int32_t low  = seed;
-        int32_t high = seed;
-
-        while ((low > 0) && is_near(&p_points[low - 1]) &&
-               (abs_int(p_points[low - 1].range_mm - p_points[low].range_mm) <
-                OBS_EDGE_JUMP_MM))
+        else if (b_found)
         {
-            low--;
+            /* The first run is the object; later runs are ignored. */
+            break;
         }
-
-        while (((high + 1) < count) && is_near(&p_points[high + 1]) &&
-               (abs_int(p_points[high + 1].range_mm - p_points[high].range_mm) <
-                OBS_EDGE_JUMP_MM))
+        else
         {
-            high++;
+            /* Still before the object. */
         }
-
-        *p_low  = low;
-        *p_high = high;
-        b_found = true;
     }
 
     return b_found;
 }
 
-static bool corridor_blocked (scan_plan_point_t const * p_points, int32_t count,
-                              int32_t low, int32_t high, int32_t outward_edge,
-                              int32_t limit_mm, int32_t sign)
+static int32_t side_gap_mm (scan_plan_point_t const * p_points, int32_t count,
+                            scan_object_t const * p_object, bool b_left)
 {
-    bool b_blocked = false;
+    int32_t const edge = b_left ? p_object->last : p_object->first;
+    int32_t const step = b_left ? 1 : -1;
+    int32_t       gap  = 0;
 
-    for (int32_t index = 0; index < count; index++)
+    for (int32_t index = edge + step; (index >= 0) && (index < count);
+         index += step)
     {
-        bool const b_outside = (index < low) || (index > high);
-
-        if (b_outside && is_near(&p_points[index]))
+        if (p_points[index].range_mm < OBS_SCAN_RANGE_MM)
         {
-            int32_t const outward_x = sign * point_x(&p_points[index]);
-            int32_t const depth_y   = point_y(&p_points[index]);
-
-            if ((outward_x >= outward_edge) && (outward_x <= limit_mm) &&
-                (depth_y <= OBS_LOOKAHEAD_MM))
-            {
-                b_blocked = true;
-            }
+            /* Another object starts here; the gap ends before it. */
+            break;
         }
+
+        gap += (OBS_SCAN_STEP_DEG * p_points[index].range_mm) / 100;
     }
 
-    return b_blocked;
+    return gap;
 }
 
-static void pick_angle (int32_t near_depth, side_option_t * p_option)
+static void build_plan (scan_plan_bypass_t * p_plan, bool b_left,
+                        scan_object_t const *     p_object,
+                        scan_plan_point_t const * p_points, int32_t count)
 {
-    bool b_fit = false;
+    int32_t const edge = b_left ? p_object->last : p_object->first;
+    /* Bearing of the object edge from FRONT, in degrees. */
+    int32_t const edge_deg = p_points[edge].angle_deg;
+    /* Turn further out on the chosen side to clear the object. */
+    int32_t const lateral_mm =
+        (edge_deg * p_object->near_mm) / 100 + OBS_SAFETY_MARGIN_MM;
+    /* Diagonal run long enough to pass the object's near face. */
+    int32_t const diag_mm =
+        (p_object->near_mm * COS45_PERMILLE) / PERMILLE + OBS_FRONT_CLEAR_MM;
+    /* Conservative fallback if the side look never sees the far edge. */
+    int32_t const fallback_mm =
+        (p_object->near_mm * COS45_PERMILLE) / PERMILLE + OBS_ROBOT_LENGTH_MM +
+        OBS_PASS_MARGIN_MM;
 
-    for (uint32_t choice = 0U; (choice < ANGLE_CHOICES) && (!b_fit); choice++)
-    {
-        int32_t const angle = g_angle_choice_deg[choice];
-        int32_t const advance =
-            (p_option->need_mm * cosine_milli(angle)) / sine_milli(angle);
+    uint32_t word = (uint32_t)SCAN_PLAN_ROUTE;
 
-        if ((advance + OBS_FRONT_CLEAR_MM) <= near_depth)
-        {
-            b_fit                 = true;
-            p_option->angle_index = choice;
-        }
-    }
+    word |= b_left ? (1U << 2) : 0U;
+    /* Angle index: 0 is straight ahead, 1 is 10 deg left, and so on. */
+    uint32_t const angle_index =
+        (uint32_t)((edge_deg + OBS_SCAN_RIGHT_DEG) / OBS_SCAN_STEP_DEG);
+    word |= (angle_index & 0xFU) << 3;
+    /* Width in cm, clamped to 8 bits. */
+    uint32_t const width_cm =
+        (uint32_t)((edge_deg * p_object->near_mm) / 100 / MM_PER_CM);
+    word |= (width_cm & 0xFFU) << 7;
+    /* Lateral in cm, clamped to 8 bits. */
+    word |= (((uint32_t)lateral_mm / MM_PER_CM) & 0xFFU) << 15;
+    /* Diagonal in cm, clamped to 8 bits. */
+    word |= (((uint32_t)diag_mm / MM_PER_CM) & 0xFFU) << 23;
 
-    p_option->b_ok = b_fit;
+    p_plan->word_a = word;
+    /* Fallback in cm, clamped to 16 bits. */
+    p_plan->word_b = ((uint32_t)fallback_mm / MM_PER_CM) & 0xFFFFU;
 }
 
-static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
-                           int32_t low, int32_t high, int32_t outward_edge,
-                           int32_t near_depth, int32_t sign,
-                           side_option_t * p_option)
+int32_t scan_plan_angle_deg (uint32_t angle_index)
 {
-    int32_t const half_mm = (OBS_ROBOT_WIDTH_MM / HALF) + OBS_SAFETY_MARGIN_MM;
-    int32_t       need_mm = outward_edge + half_mm;
-
-    if (need_mm < half_mm)
-    {
-        need_mm = half_mm;
-    }
-
-    p_option->need_mm     = need_mm;
-    p_option->angle_index = 0U;
-    p_option->b_ok = !corridor_blocked(p_points, count, low, high, outward_edge,
-                                       need_mm + half_mm, sign);
-
-    if (p_option->b_ok)
-    {
-        pick_angle(near_depth, p_option);
-    }
+    return (int32_t)angle_index * OBS_SCAN_STEP_DEG - OBS_SCAN_RIGHT_DEG;
 }
 
-static void choose_side (side_option_t const * p_left,
-                         side_option_t const * p_right, int32_t width_mm,
-                         plan_fields_t * p_fields)
+uint32_t scan_plan_result (scan_plan_bypass_t const * p_plan)
 {
-    bool const b_pick_left =
-        p_left->b_ok &&
-        ((!p_right->b_ok) || (p_left->need_mm <= p_right->need_mm));
-    side_option_t const * const p_pick = b_pick_left ? p_left : p_right;
-
-    if (p_left->b_ok || p_right->b_ok)
-    {
-        int32_t const angle   = g_angle_choice_deg[p_pick->angle_index];
-        int32_t const diag_mm = (p_pick->need_mm * MILLI) / sine_milli(angle);
-
-        p_fields->result      = SCAN_PLAN_ROUTE;
-        p_fields->b_left      = b_pick_left;
-        p_fields->angle_index = p_pick->angle_index;
-        p_fields->lateral_cm  = to_cm(p_pick->need_mm, DIST_LIMIT_CM);
-        p_fields->diag_cm     = to_cm(diag_mm, DIST_LIMIT_CM);
-        p_fields->fallback_cm = to_cm(width_mm + OBS_ROBOT_LENGTH_MM +
-                                          (HALF * OBS_SAFETY_MARGIN_MM),
-                                      DIST_LIMIT_CM);
-    }
-    else
-    {
-        p_fields->result = SCAN_PLAN_NO_ROUTE;
-    }
+    return p_plan->word_a & 0x3U;
 }
 
-static void plan_object (scan_plan_point_t const * p_points, int32_t count,
-                         int32_t low, int32_t high, plan_fields_t * p_fields)
+bool scan_plan_side_is_left (scan_plan_bypass_t const * p_plan)
 {
-    int32_t near_depth = point_y(&p_points[low]);
-
-    for (int32_t index = low; index <= high; index++)
-    {
-        int32_t const depth = point_y(&p_points[index]);
-
-        if (depth < near_depth)
-        {
-            near_depth = depth;
-        }
-    }
-
-    int32_t const left_x = point_x(&p_points[high]) + edge_pad(&p_points[high]);
-    int32_t const right_x = point_x(&p_points[low]) - edge_pad(&p_points[low]);
-    int32_t const width   = left_x - right_x;
-    side_option_t left    = {0, 0U, false};
-    side_option_t right   = {0, 0U, false};
-
-    evaluate_side(p_points, count, low, high, left_x, near_depth, 1, &left);
-    evaluate_side(p_points, count, low, high, -right_x, near_depth, -1, &right);
-    p_fields->width_cm = to_cm(width, WIDTH_LIMIT_CM);
-    p_fields->near_cm  = to_cm(near_depth, DIST_LIMIT_CM);
-    choose_side(&left, &right, width, p_fields);
+    return (0U != (p_plan->word_a & (1U << 2)));
 }
 
-static void pack_fields (plan_fields_t const * p_fields,
-                         scan_plan_bypass_t *  p_plan)
+uint32_t scan_plan_angle_index (scan_plan_bypass_t const * p_plan)
 {
-    uint32_t const side_bit = p_fields->b_left ? 1U : 0U;
+    return (p_plan->word_a >> 3) & 0xFU;
+}
 
-    p_plan->word_a = ((p_fields->result & RESULT_MASK) << RESULT_SHIFT) |
-                     ((side_bit & SIDE_MASK) << SIDE_SHIFT) |
-                     ((p_fields->angle_index & ANGLE_MASK) << ANGLE_SHIFT) |
-                     ((p_fields->width_cm & WIDTH_MASK) << WIDTH_SHIFT) |
-                     ((p_fields->near_cm & NEAR_MASK) << NEAR_SHIFT) |
-                     ((p_fields->lateral_cm & LATERAL_MASK) << LATERAL_SHIFT);
-    p_plan->word_b =
-        ((p_fields->diag_cm & DIAG_MASK) << DIAG_SHIFT) |
-        ((p_fields->fallback_cm & FALLBACK_MASK) << FALLBACK_SHIFT);
+int32_t scan_plan_width_cm (scan_plan_bypass_t const * p_plan)
+{
+    return (int32_t)((p_plan->word_a >> 7) & 0xFFU);
+}
+
+int32_t scan_plan_near_cm (scan_plan_bypass_t const * p_plan)
+{
+    /* Near distance is not stored; the caller uses the diagonal instead. */
+    (void)p_plan;
+    return 0;
+}
+
+int32_t scan_plan_lateral_cm (scan_plan_bypass_t const * p_plan)
+{
+    return (int32_t)((p_plan->word_a >> 15) & 0xFFU);
+}
+
+int32_t scan_plan_diag_cm (scan_plan_bypass_t const * p_plan)
+{
+    return (int32_t)((p_plan->word_a >> 23) & 0xFFU);
+}
+
+int32_t scan_plan_fallback_cm (scan_plan_bypass_t const * p_plan)
+{
+    return (int32_t)(p_plan->word_b & 0xFFFFU);
 }
 
 /*** end of file ***/

@@ -1,5 +1,5 @@
 /** @file servo.h
- * @brief SG90 pan servo on a 50 Hz PWM channel.
+ * @brief Servo PWM interface for the obstacle subsystem.
  */
 #ifndef SERVO_H
 #define SERVO_H
@@ -7,10 +7,11 @@
 #include <stdint.h>
 #include <tk/tkernel.h>
 
-/** @brief Configure the PWM slice for 50 Hz and centre on FRONT. */
+/** @brief Configure the servo PWM and move to FRONT. */
 ER servo_init (void);
-/** @brief Move to an angle (positive is left), clamped to the sweep limit.
- * @return Milliseconds to wait before pinging.
+
+/** @brief Command an angle relative to FRONT; positive is left.
+ *  @return Settling time in milliseconds.
  */
 uint32_t servo_set_angle (int32_t angle_deg);
 

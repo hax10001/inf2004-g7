@@ -8,6 +8,7 @@
 #include "modules/motion/motion.h"
 #include "modules/terrain/terrain.h"
 #include "modules/obstacle/obstacle.h"
+#include "modules/obstacle/obs_state.h"
 #include <tm/tmonitor.h>
 
 #define JUNCTION_HOLD_CYCLES                                                   \

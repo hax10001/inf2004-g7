@@ -2,7 +2,8 @@
  *
  * @brief Tunable values for the obstacle subsystem.
  *
- * NOTE: Each value marked "Measure" must be calibrated on the robot.
+ * Every value marked "Measure" must be calibrated on the robot before the
+ * bypass is trusted. Defaults are conservative placeholders, not measurements.
  */
 #ifndef OBS_CONFIG_H
 #define OBS_CONFIG_H
@@ -12,7 +13,7 @@
 /* NOTE: Assumes a 125 MHz system clock, so a divider of 125 gives 1 usec. */
 #define OBS_PWM_CLK_MHZ 125U
 
-/* Ultrasonic ranging. */
+/* ---- Ultrasonic ranging ---- */
 #define OBS_TRIG_PULSE_USEC 12U
 #define OBS_ECHO_TIMEOUT_MSEC 30U
 #define OBS_PING_PERIOD_MSEC 30U
@@ -25,29 +26,24 @@
 /* A value of 1 stops the robot when the sensor stays silent. */
 #define OBS_FAILSAFE_NO_ECHO 1
 
-/* Servo (SG90). Measure every value in this group. */
-#define OBS_SERVO_FRONT_USEC 600
+/* ---- Servo (SG90). Measure every value in this group. ---- */
+#define OBS_SERVO_FRONT_USEC 1500
 #define OBS_SERVO_USEC_PER_DEG 10
 /* A value of 1 means that a longer pulse turns the sensor left. */
 #define OBS_SERVO_LEFT_SIGN 1
-#define OBS_SERVO_MIN_USEC 400
+#define OBS_SERVO_MIN_USEC 600
 #define OBS_SERVO_MAX_USEC 2400
 /* Measure: how far the servo can turn each side before it is blocked. */
 #define OBS_SERVO_LEFT_LIMIT_DEG 40
 #define OBS_SERVO_RIGHT_LIMIT_DEG 40
-/* The larger side; kept for code that assumes a symmetric sweep. */
-#define OBS_SERVO_LIMIT_DEG 40
 #define OBS_SERVO_SETTLE_BASE_MSEC 40
 #define OBS_SERVO_SETTLE_PER_DEG_MSEC 3
 
-/* Panning scan. The step must be a multiple of 10 degrees. */
+/* ---- Panning scan ---- */
 #define OBS_SCAN_STEP_DEG 10
-/* Sweep each side of FRONT; never more than the servo limits above. */
 #define OBS_SCAN_LEFT_DEG 40
 #define OBS_SCAN_RIGHT_DEG 40
-/* The larger side; kept for code that assumes a symmetric sweep. */
-#define OBS_SCAN_LIMIT_DEG 40
-/* Equals the left plus right sweep divided by the step, plus one. */
+/* Equals (left + right) / step + 1. */
 #define OBS_SCAN_POINTS 9
 #define OBS_SCAN_PINGS 3U
 #define OBS_SCAN_RANGE_MM 400
@@ -55,14 +51,14 @@
 #define OBS_FRONT_WINDOW_DEG 20
 #define OBS_LOOKAHEAD_MM 300
 
-/* Robot geometry. Measure all of these; the track width can change. */
+/* ---- Robot geometry. Measure all of these. ---- */
 #define OBS_ROBOT_WIDTH_MM 150
 #define OBS_ROBOT_LENGTH_MM 200
 #define OBS_SAFETY_MARGIN_MM 40
 #define OBS_FRONT_CLEAR_MM 20
 #define OBS_TRACK_WIDTH_MM 110
 
-/* Bypass motion. Heading values are in tenths of a degree. */
+/* ---- Bypass motion. Heading values are in tenths of a degree. ---- */
 #define OBS_DRIVE_RPM 20
 #define OBS_TURN_LEAD_DDEG 80
 #define OBS_ALIGN_TOL_DDEG 300
@@ -72,24 +68,16 @@
 #define OBS_SCAN_TIMEOUT_MSEC 12000U
 #define OBS_STATE_TIMEOUT_MSEC 15000U
 
-/* Passing the object and finding the line again. */
+/* ---- Side look and forward safety while passing the object ---- */
 #define OBS_SIDE_LOOK_DEG 40
 #define OBS_SIDE_NEAR_MM 400
 #define OBS_SIDE_CLEAR_HITS 3U
-#define OBS_PASS_MAX_MM 600
-#define OBS_PASS_MARGIN_MM 40
-#define OBS_SEARCH_MARGIN_MM 150
-#define OBS_LINE_CONFIRM_CYCLES 2U
-#define OBS_ALIGN_MAX_MSEC 2500U
-#define OBS_VERIFY_CYCLES 6U
-
-/* Side look and forward safety while passing the object. */
-/* cos(OBS_SIDE_LOOK_DEG) x 1000; update it if the look angle changes. */
+/* cos(OBS_SIDE_LOOK_DEG) x 1000; update if the look angle changes. */
 #define OBS_SIDE_COS_PERMILLE 766
-/* Travel allowed between stops to check
-forward while the sensor looks aside. */
+/* Travel allowed between stops to check forward
+while the sensor looks aside. */
 #define OBS_FWD_CHECK_MM 100
-/* Forward range needed to carry on: the stop range plus the next leg. */
+/* Forward range needed to carry on: stop range plus the next leg. */
 #define OBS_FWD_CLEAR_MM (OBS_STOP_MM + OBS_FWD_CHECK_MM)
 #define OBS_FWD_PINGS 3U
 /* Measure: front range that stops a moving leg; must stay below OBS_STOP_MM. */
@@ -99,21 +87,29 @@ forward while the sensor looks aside. */
  */
 #define OBS_ALLOW_BLIND_PASS 0
 
-/* Handing back to line following. */
+/* ---- Handing back to line following ---- */
 /* A value of 1 means the line continues along the heading before the bypass. */
 #define OBS_TRACK_STRAIGHT 1
 #define OBS_VERIFY_MM 60
+#define OBS_VERIFY_CYCLES 6U
 #define OBS_VERIFY_MAX_MSEC 4000U
+#define OBS_ALIGN_MAX_MSEC 2500U
+#define OBS_LINE_CONFIRM_CYCLES 2U
+#define OBS_SEARCH_MARGIN_MM 150
+#define OBS_PASS_MAX_MM 600
+#define OBS_PASS_MARGIN_MM 40
 
 /* Longest wait for the status lock; the lock is held for microseconds. */
 #define OBS_LOCK_TIMEOUT_MSEC 20
 
-/* Every servo bearing must fit inside the pulse clamp, otherwise several scan
+/* ---- Compile-time servo reach check ----
+ * Every servo bearing must fit inside the pulse clamp, otherwise several scan
  * angles would silently share one physical direction. A negative array size
  * makes the build fail when a limit does not fit. Set OBS_SERVO_REACH_CHECK
  * to 0 only for bench builds; the scan and side look are wrong without it.
  */
 #define OBS_SERVO_REACH_CHECK 1
+
 #define OBS_SERVO_PULSE_LEFT_USEC                                              \
     (OBS_SERVO_FRONT_USEC + (OBS_SERVO_LEFT_SIGN * OBS_SERVO_LEFT_LIMIT_DEG *  \
                              OBS_SERVO_USEC_PER_DEG))
