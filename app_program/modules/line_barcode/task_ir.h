@@ -6,7 +6,7 @@
 
 #include <tk/tkernel.h>
 
-/** @brief Sample and publish IR inputs at the tested 100 ms interval. */
+/** @brief Sample and publish IR inputs using APP_IR_PERIOD_MSEC. */
 void task_ir_task (INT start_code, void * p_context);
 
 #endif /* TASK_IR_H */

@@ -38,6 +38,14 @@ ER ir_shared_take_junction (bool * p_b_seen);
  */
 ER ir_shared_take_sides (bool * p_b_left, bool * p_b_right);
 
+/** @brief Internal subsystem lock shared with the barcode mailbox.
+ * No hardware, logging, or nested snapshot calls while held. A zero
+ * timeout lets barcode sampling skip contention without delaying IR.
+ */
+ER ir_shared_lock (TMO timeout);
+/** @brief Release a successful ir_shared_lock(). */
+ER ir_shared_unlock (void);
+
 #endif /* IR_SHARED_H */
 
 /*** end of file ***/

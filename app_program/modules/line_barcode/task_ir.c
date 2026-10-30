@@ -3,7 +3,9 @@
  */
 #include "task_ir.h"
 #include "ir_shared.h"
+#include "line_barcode.h"
 #include "drivers/ir.h"
+#include "drivers/encoder.h"
 #include "app/app_config.h"
 #include "platform/console.h"
 #include <tm/tmonitor.h>
@@ -47,7 +49,10 @@ void task_ir_task (INT start_code, void * p_context)
         uint32_t right_raw   = 0U;
         uint32_t barcode_raw = 0U;
 
+        uint32_t const sample_usec = encoder_now_usec();
+
         ir_read(&left_raw, &right_raw, &barcode_raw);
+        line_barcode_sample(barcode_raw, sample_usec);
         error = ir_shared_publish(left_raw, right_raw, barcode_raw);
 
         if (error < E_OK)
@@ -56,6 +61,7 @@ void task_ir_task (INT start_code, void * p_context)
             tm_printf((UB *)"[IR] Publish error: %d\n", error);
         }
 
+        line_barcode_log();
         tk_dly_tsk(APP_IR_PERIOD_MSEC);
     }
 }

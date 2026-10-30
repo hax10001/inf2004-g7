@@ -209,7 +209,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
         reading.left  = b_left ? 1U : 0U;
         reading.right = b_right ? 1U : 0U;
         /* UB views the same string bytes; tm_printf does not modify them. */
-        tm_printf((UB *)"[CTRL] Line touch seen between reads\n");
+        //tm_printf((UB *)"[CTRL] Line touch seen between reads\n");
     }
     else
     {
@@ -361,8 +361,8 @@ static robot_state_t apply_action (ir_shared_snapshot_t const * p_reading,
         /* UINT matches the original %u arguments on the 32-bit target.
          * UB views string bytes; tm_printf does not modify the string.
          */
-        tm_printf((UB *)"[CTRL] L=%u R=%u ACTION=%s\n", (UINT)p_reading->left,
-                  (UINT)p_reading->right, line_follow_text(action));
+        //tm_printf((UB *)"[CTRL] L=%u R=%u ACTION=%s\n", (UINT)p_reading->left,
+        //          (UINT)p_reading->right, line_follow_text(action));
 
         p_history->previous_action        = action;
         p_history->b_have_previous_action = true;

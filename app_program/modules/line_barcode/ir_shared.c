@@ -173,5 +173,20 @@ ER ir_shared_get_latest (ir_shared_snapshot_t * p_output)
     return tk_unl_mtx(gh_ir_mutex);
 }
 
+ER ir_shared_lock (TMO timeout)
+{
+    if (gh_ir_mutex <= E_OK)
+    {
+        return E_OBJ;
+    }
+
+    return tk_loc_mtx(gh_ir_mutex, timeout);
+}
+
+ER ir_shared_unlock (void)
+{
+    return tk_unl_mtx(gh_ir_mutex);
+}
+
 /*** end of file ***/
 

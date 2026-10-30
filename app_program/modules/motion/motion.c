@@ -37,7 +37,7 @@
 #define MOTION_MAX_PERCENT 100.0f
 
 /* Driving speed on a straight. 40 RPM is about 140 mm/s. */
-#define MOTION_TARGET_RPM 20.0f
+#define MOTION_TARGET_RPM 15.0f
 /* Largest change in the base speed per period, when starting or stopping. */
 #define MOTION_RAMP_RPM 8.0f
 /* Largest growth in steer per period; lower is smoother, but too low lags
@@ -153,7 +153,7 @@ ER motion_start (void)
 void motion_apply (line_follow_action_t action)
 {
     /* UB views the same string bytes; tm_printf does not modify them. */
-    tm_printf((UB *)"[MOTOR REQUEST] Action=%s\n", line_follow_text(action));
+    //tm_printf((UB *)"[MOTOR REQUEST] Action=%s\n", line_follow_text(action));
 
     switch (action)
     {
@@ -223,8 +223,9 @@ void motion_apply (line_follow_action_t action)
     motor_set_forward(status.left_pwm, status.right_pwm);
 
     /* PWM counts are at most 12499, within INT; UB preserves string bytes. */
-    tm_printf((UB *)"[MOTOR REQUEST] LEFT=%d RIGHT=%d\n", (INT)status.left_pwm,
-              (INT)status.right_pwm);
+    //tm_printf((UB *)"[MOTOR REQUEST] LEFT=%d RIGHT=%d\n",
+    //          (INT)status.left_pwm,
+    //          (INT)status.right_pwm);
 
     float const mm_per_rev = MOTION_PI * BOARD_WHEEL_DIAMETER_MM;
 
@@ -253,12 +254,12 @@ void motion_apply (line_follow_action_t action)
         /* STEER is in percent. Truncation to INT is for display only;
          * UB preserves the string bytes.
          */
-        tm_printf((UB *)"[MOTOR SPEED] RPM L=%d R=%d TARGET L=%d R=%d "
-                        "STEER=%d COUNT L=%d R=%d MM/S=%d\n",
-                  (INT)status.left_rpm, (INT)status.right_rpm,
-                  (INT)status.left_target_rpm, (INT)status.right_target_rpm,
-                  (INT)(g_steer * 100.0f), (INT)left.count, (INT)right.count,
-                  (INT)status.speed_mm_per_sec);
+        // tm_printf((UB *)"[MOTOR SPEED] RPM L=%d R=%d TARGET L=%d R=%d "
+        //                 "STEER=%d COUNT L=%d R=%d MM/S=%d\n",
+        //           (INT)status.left_rpm, (INT)status.right_rpm,
+        //           (INT)status.left_target_rpm, (INT)status.right_target_rpm,
+        //           (INT)(g_steer * 100.0f), (INT)left.count, (INT)right.count,
+        //           (INT)status.speed_mm_per_sec);
     }
 
     g_log_countdown--;

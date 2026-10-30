@@ -14,7 +14,7 @@
 /* Faster than the controller, so each decision sees a recent reading and a
  * brief touch of the line edge is caught for the controller's latches.
  */
-#define APP_IR_PERIOD_MSEC 10
+#define APP_IR_PERIOD_MSEC 1
 /* At a junction: readings ignored while coasting, then how long a line must
  * be seen after being placed back before following resumes. A lift during
  * the hold is not seen, so the hold is kept just long enough to stop.
@@ -45,7 +45,7 @@
 #define APP_SPEED_CONTROL_ENABLED 1
 
 /* One CSV line per control period, for tuning: paste into a spreadsheet. */
-#define APP_MOTION_DEBUG_CSV 1
+#define APP_MOTION_DEBUG_CSV 0
 
 #endif /* APP_CONFIG_H */
 
