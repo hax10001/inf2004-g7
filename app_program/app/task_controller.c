@@ -49,9 +49,6 @@ static robot_state_t handle_idle (void);
 #if APP_OBSTACLE_ENABLED
 /** @brief Keep all movement under the normal controller task. */
 static robot_state_t handle_obstacle (controller_history_t * p_history);
-/** @brief Release avoidance and immediately apply the current line action. */
-static robot_state_t resume_line (controller_history_t * p_history,
-                                  ir_shared_snapshot_t const * p_reading);
 #endif
 /** @brief Follow the line, preserving stop and error behaviour. */
 static robot_state_t handle_following (controller_history_t * p_history);
@@ -247,7 +244,9 @@ static robot_state_t handle_following (controller_history_t * p_history)
     /* Never enter bypass while IR readings are stale or at a junction. */
     if (obstacle_has_fault())
     {
-        return resume_line(p_history, &reading);
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        return ROBOT_ERROR;
     }
 
     if (obstacle_is_blocked())
@@ -256,15 +255,18 @@ static robot_state_t handle_following (controller_history_t * p_history)
 
         if (line_barcode_set_avoidance(true) < E_OK)
         {
-            return resume_line(p_history, &reading);
+            obstacle_abort();
+            return ROBOT_ERROR;
         }
 
         if (b_junction ||
             ((1U == reading.left) && (1U == reading.right)))
         {
-            return resume_line(p_history, &reading);
+            obstacle_abort();
+            return ROBOT_STOPPED;
         }
 
+        tm_printf((UB *)"[CTRL] LINE_FOLLOWING -> OBSTACLE\n");
         return ROBOT_OBSTACLE;
     }
 #endif
@@ -433,18 +435,15 @@ static robot_state_t apply_action (ir_shared_snapshot_t const * p_reading,
 }
 
 #if APP_OBSTACLE_ENABLED
-static robot_state_t resume_line (controller_history_t * p_history,
-                                  ir_shared_snapshot_t const * p_reading)
-{
-    obstacle_abort();
-    /* Barcode availability must not prevent the requested line fallback. */
-    (void)line_barcode_set_avoidance(false);
-    p_history->b_have_previous_action = false;
-    return apply_action(p_reading, p_history);
-}
-
 static robot_state_t handle_obstacle (controller_history_t * p_history)
 {
+    if (obstacle_has_fault())
+    {
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        return ROBOT_ERROR;
+    }
+
     ir_shared_snapshot_t reading = {0};
     SYSTIM now = {0};
     ER error = ir_shared_get_latest(&reading);
@@ -467,7 +466,10 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
                                                   (uint32_t)now.lo);
     if (drive.b_fault || obstacle_has_fault())
     {
-        return resume_line(p_history, &reading);
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        tm_printf((UB *)"[CTRL] Avoidance failed -> STOPPED until reset\n");
+        return ROBOT_ERROR;
     }
 
     if (drive.b_done)
@@ -492,11 +494,15 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
         }
         if (line_barcode_set_avoidance(false) < E_OK)
         {
-            return resume_line(p_history, &reading);
+            motion_apply(LINE_UNCERTAIN);
+            obstacle_abort();
+            return ROBOT_ERROR;
         }
 
         p_history->b_have_previous_action = false;
-        return apply_action(&reading, p_history);
+        motion_apply(LINE_UNCERTAIN);
+        tm_printf((UB *)"[CTRL] OBSTACLE -> LINE_FOLLOWING\n");
+        return ROBOT_LINE_FOLLOWING;
     }
 
     if (drive.b_stop)

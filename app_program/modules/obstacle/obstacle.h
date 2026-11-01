@@ -31,13 +31,13 @@ ER obstacle_init (void);
 ER obstacle_start (void);
 /** @brief True once an obstacle has been confirmed ahead. */
 bool obstacle_is_blocked (void);
-/** @brief Sonar no longer withholds permission to follow the line. */
+/** @brief Require valid, fresh centred sonar before normal forward drive. */
 bool obstacle_front_ready (uint32_t now_msec);
-/** @brief Whether front detections may start a new avoidance attempt. */
+/** @brief Whether the initialized front monitor can process detections. */
 bool obstacle_monitor_ready (void);
 /** @brief True if a critical sensor fault should stop the robot. */
 bool obstacle_has_fault (void);
-/** @brief Cancel any scan or bypass and park the servo. */
+/** @brief Cancel motion/scanning without clearing latched safety faults. */
 void obstacle_abort (void);
 /** @brief Advance the bypass one step; call once per controller period.
  *  @param line_left Left IR, 1 is black.

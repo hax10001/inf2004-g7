@@ -125,10 +125,26 @@ static void run_monitor (monitor_t * p_monitor)
             p_monitor->no_echo++;
         }
 
+        if (p_monitor->no_echo >= OBS_NO_ECHO_LIMIT)
+        {
+            obs_state_faults_update(OBS_FAULT_NO_ECHO, 0U);
+        }
     }
     else
     {
         p_monitor->no_echo = 0U;
+
+        if (range_mm <= OBS_EMERGENCY_MM)
+        {
+            /* A close raw return must stop without median-filter latency. */
+            obs_state_front_mark(false, 0U);
+            obs_state_set_distance_mm(range_mm);
+            obs_state_set_phase(OBS_PHASE_CONFIRM);
+            obs_state_flags_set(OBS_EVT_BLOCKED);
+            p_monitor->filled = 0U;
+            p_monitor->hits = 0U;
+            return;
+        }
 
         SYSTIM now = {0};
 
@@ -139,10 +155,11 @@ static void run_monitor (monitor_t * p_monitor)
             return;
         }
 
-        obs_state_front_mark(true, now.lo);
+        /* Stop on the first <=300 mm sample while confirmation continues. */
+        obs_state_front_mark(range_mm > OBS_STOP_MM, now.lo);
 
         uint32_t const shift = p_monitor->next * MONITOR_RANGE_BITS;
-        /* Round up so 251 mm cannot be filtered into the 250 mm trigger. */
+        /* Preserve the exact 300/301 mm boundary of the confirmation band. */
         uint32_t const range_cm = ((uint32_t)range_mm + 9U) / 10U;
         p_monitor->history =
             (p_monitor->history & ~(MONITOR_RANGE_MASK << shift)) |

@@ -73,12 +73,11 @@ typedef struct
     int32_t           previous_left;
     int32_t           previous_right;
     uint32_t          previous_msec;
+    int32_t           lateral_mmx1000;
 } obstacle_seq_t;
 
 static obstacle_seq_t g_seq;
 static bool g_b_available = false;
-static bool volatile g_b_retry_delay = false;
-static uint32_t volatile g_resume_usec = 0U;
 
 /** @brief Read the signed wheel counts; false until motion has data. */
 static bool counts_read (int32_t * p_left, int32_t * p_right);
@@ -107,7 +106,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                        obstacle_pose_t const * p_pose, bool b_black,
                        uint32_t now_msec);
 /** @brief Drive one wheel only; positive turn is left. */
-static void set_arc (obstacle_drive_t * p_out, int32_t turn);
+static void set_arc (obstacle_drive_t * p_out, int32_t turn, int32_t rpm);
 /** @brief Drive straight, trimming towards a target heading. */
 static void set_straight (obstacle_drive_t * p_out, int32_t heading_ddeg,
                           int32_t target_ddeg);
@@ -126,7 +125,6 @@ ER obstacle_init (void)
     ER error = E_OK;
 
     g_b_available = false;
-    g_b_retry_delay = false;
 
     if (0 != APP_OBSTACLE_ENABLED)
     {
@@ -150,16 +148,17 @@ ER obstacle_init (void)
     }
 
     g_b_available = (error >= E_OK);
-    if (error < E_OK)
-    {
-        tm_printf((UB *)"[OBS] Unavailable -> LINE_FOLLOWING\n");
-    }
-    return E_OK;
+    return error;
 }
 
 ER obstacle_start (void)
 {
     ER error = E_OK;
+
+    if ((0 != APP_OBSTACLE_ENABLED) && (!g_b_available))
+    {
+        return E_OBJ;
+    }
 
     if ((0 != APP_OBSTACLE_ENABLED) && g_b_available)
     {
@@ -181,16 +180,16 @@ ER obstacle_start (void)
     if (error < E_OK)
     {
         g_b_available = false;
-        tm_printf((UB *)"[OBS] Task unavailable -> LINE_FOLLOWING\n");
+        tm_printf((UB *)"[OBS] Task unavailable -> STOPPED\n");
     }
-    return E_OK;
+    return error;
 }
 
 bool obstacle_is_blocked (void)
 {
     bool b_blocked = false;
 
-    if ((0 != APP_OBSTACLE_ENABLED) && g_b_available)
+    if (0 != APP_OBSTACLE_ENABLED)
     {
         b_blocked = (0U != (obs_state_flags_read() & OBS_EVT_BLOCKED));
     }
@@ -202,11 +201,11 @@ bool obstacle_has_fault (void)
 {
     bool b_fault = false;
 
-    if ((0 != APP_OBSTACLE_ENABLED) && g_b_available)
+    if (0 != APP_OBSTACLE_ENABLED)
     {
         uint32_t const faults = obs_state_status_faults(obs_state_status_get());
 
-        b_fault = (0U != (faults & (OBS_FAULT_NO_ECHO |
+        b_fault = (!g_b_available) || (0U != (faults & (OBS_FAULT_NO_ECHO |
                                      OBS_FAULT_TIMEOUT | OBS_FAULT_SERVO |
                                      OBS_FAULT_NO_ROUTE |
                                      OBS_FAULT_LINE_LOST)));
@@ -217,35 +216,22 @@ bool obstacle_has_fault (void)
 
 bool obstacle_front_ready (uint32_t now_msec)
 {
-    (void)now_msec;
-    return true;
+    return (0 == APP_OBSTACLE_ENABLED) ||
+           (g_b_available && (!obstacle_has_fault()) &&
+            obs_state_front_ready(now_msec, OBS_FRONT_MAX_AGE_MSEC));
 }
 
 bool obstacle_monitor_ready (void)
 {
-    return g_b_available &&
-           ((!g_b_retry_delay) ||
-            ((encoder_now_usec() - g_resume_usec) >=
-             (OBS_RETRY_DELAY_MSEC * 1000U)));
+    return g_b_available;
 }
 
 void obstacle_abort (void)
 {
     if (0 != APP_OBSTACLE_ENABLED)
     {
-        if (0U != obs_state_status_faults(obs_state_status_get()))
-        {
-            g_resume_usec = encoder_now_usec();
-            g_b_retry_delay = true;
-            tm_printf((UB *)"[OBS] Avoidance failed -> LINE_FOLLOWING\n");
-        }
-        obs_state_faults_update(0U, OBS_FAULT_NO_ECHO | OBS_FAULT_NO_ROUTE |
-                                    OBS_FAULT_LINE_LOST | OBS_FAULT_SERVO |
-                                    OBS_FAULT_TIMEOUT);
-        obs_state_flags_clear(OBS_EVT_BLOCKED | OBS_EVT_SCAN_REQ |
-                              OBS_EVT_SCAN_DONE | OBS_EVT_SIDE_WATCH |
-                              OBS_EVT_SIDE_SEEN | OBS_EVT_SIDE_CLEAR);
-        obs_state_set_phase(OBS_PHASE_IDLE);
+        /* Cancellation never clears a safety fault or grants forward drive. */
+        obs_state_front_mark(false, 0U);
         obs_state_flags_set(OBS_EVT_ABORT);
         g_seq.b_active = false;
         if (OBS_PHASE_FAULT != obs_state_status_phase(obs_state_status_get()))
@@ -320,6 +306,31 @@ obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,
                                       ((right_mm - left_mm) * OBS_RAD_TO_DDEG) /
                                           OBS_TRACK_WIDTH_MM,
                                       left_mm, right_mm};
+        int32_t const previous_left_mm = counts_to_mm(counts_delta(
+            p_seq->previous_left, p_seq->base_left)) * OBS_LEFT_FORWARD_SIGN;
+        int32_t const previous_right_mm = counts_to_mm(counts_delta(
+            p_seq->previous_right, p_seq->base_right)) * OBS_RIGHT_FORWARD_SIGN;
+        int32_t const previous_heading =
+            ((previous_right_mm - previous_left_mm) * OBS_RAD_TO_DDEG) /
+                OBS_TRACK_WIDTH_MM;
+        int32_t const travel = pose.dist_mm -
+                               ((previous_left_mm + previous_right_mm) / 2);
+        int32_t const heading =
+            ((pose.heading_ddeg + previous_heading) / 2) -
+            p_seq->heading0_ddeg;
+        int64_t const lateral = (int64_t)p_seq->lateral_mmx1000 +
+            ((int64_t)travel * obs_geom_sine_milli(heading));
+
+        if ((lateral > INT32_MAX) || (lateral < INT32_MIN))
+        {
+            raise_fault(p_seq, &out, OBS_FAULT_TIMEOUT);
+            return out;
+        }
+
+        /* Integrate the observed heading, including drift alongside the
+         * obstacle, rather than assuming the outbound path stayed ideal.
+         */
+        p_seq->lateral_mmx1000 = (int32_t)lateral;
         bool const b_black = (1U == line_left) != (1U == line_right);
         uint32_t const drive_elapsed = now_msec - p_seq->previous_msec;
 
@@ -360,10 +371,11 @@ obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,
             raise_fault(p_seq, &out, OBS_FAULT_TIMEOUT);
         }
         else if ((1U == line_left) && (1U == line_right) &&
-                 (p_seq->phase >= OBS_PHASE_SEARCH_LINE) &&
-                 (p_seq->phase <= OBS_PHASE_VERIFY))
+                 (OBS_PHASE_VERIFY == p_seq->phase))
         {
-            /* Buddy 3 calls both-black a junction, not a recovered edge. */
+            /* A transverse crossing is a candidate during SEARCH/ALIGN;
+             * handoff still requires a normal line edge, not a junction.
+             */
             raise_fault(p_seq, &out, OBS_FAULT_LINE_LOST);
         }
         else
@@ -374,7 +386,10 @@ obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,
 
             if ((!b_moving) || permit_motion(p_seq, &out, &pose, now_msec))
             {
-                run_phase(p_seq, &out, &pose, b_black, now_msec);
+                bool const b_candidate = b_black ||
+                    ((OBS_PHASE_SEARCH_LINE == p_seq->phase) &&
+                     (1U == line_left) && (1U == line_right));
+                run_phase(p_seq, &out, &pose, b_candidate, now_msec);
             }
 
             if (old_phase != p_seq->phase)
@@ -398,11 +413,21 @@ static void reassess (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                        obstacle_pose_t const * p_pose, uint32_t now_msec,
                        uint32_t reason)
 {
-    (void)p_pose;
-    (void)now_msec;
-    /* The controller immediately resumes line following on this report. */
-    raise_fault(p_seq, p_out, (OBS_GUARD_REASON_SENSOR == reason)
-                                ? OBS_FAULT_NO_ECHO : OBS_FAULT_NO_ROUTE);
+    p_out->b_stop = true;
+
+    if (p_seq->rescan_count >= OBS_MAX_RESCANS)
+    {
+        raise_fault(p_seq, p_out, (OBS_GUARD_REASON_SENSOR == reason)
+                                    ? OBS_FAULT_NO_ECHO : OBS_FAULT_NO_ROUTE);
+    }
+    else
+    {
+        p_seq->saved_phase = p_seq->phase;
+        p_seq->saved_start_mm = p_seq->seg_start_mm;
+        p_seq->guard_reason = reason;
+        p_seq->b_reassess_scan = false;
+        enter_phase(p_seq, OBS_PHASE_REASSESS, now_msec, p_pose->dist_mm);
+    }
 }
 
 static bool path_deviated (obstacle_seq_t const * p_seq,
@@ -426,9 +451,14 @@ static bool path_deviated (obstacle_seq_t const * p_seq,
 
     int32_t const rel = p_seq->side *
                         (p_pose->heading_ddeg - p_seq->heading0_ddeg);
+    bool const b_sideways = (900U == p_seq->angle_ddeg) &&
+        ((OBS_PHASE_DIAG_OUT == p_seq->phase) ||
+         (OBS_PHASE_SEARCH_LINE == p_seq->phase));
+    int32_t const limit = b_sideways ? OBS_SIDEWAYS_HEADING_DDEG :
+                                      OBS_PATH_MAX_ERROR_DDEG;
 
-    return b_straight && (((rel - target) > OBS_PATH_MAX_ERROR_DDEG) ||
-                          ((rel - target) < -OBS_PATH_MAX_ERROR_DDEG));
+    return b_straight && (((rel - target) > limit) ||
+                          ((rel - target) < -limit));
 }
 
 static bool permit_motion (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
@@ -523,6 +553,9 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                                : OBS_STATE_TIMEOUT_MSEC;
     uint32_t const limit = (OBS_PHASE_STOPPING == p_seq->phase) ?
                            OBS_STOP_TIMEOUT_MSEC : scan_limit;
+    bool const b_sideways = (900U == p_seq->angle_ddeg);
+    int32_t const lead = b_sideways ? 0 : OBS_TURN_LEAD_DDEG;
+    int32_t const turn_rpm = b_sideways ? OBS_PRECISE_TURN_RPM : OBS_DRIVE_RPM;
 
     if (OBS_PHASE_FAULT == p_seq->phase)
     {
@@ -566,9 +599,9 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             break;
 
             case OBS_PHASE_TURN_OUT:
-                set_arc(p_out, p_seq->side);
+                set_arc(p_out, p_seq->side, turn_rpm);
 
-                if (rel >= (p_seq->angle_ddeg - OBS_TURN_LEAD_DDEG))
+                if (rel >= (p_seq->angle_ddeg - lead))
                 {
                     enter_phase(p_seq, OBS_PHASE_DIAG_OUT, now_msec,
                                 p_pose->dist_mm);
@@ -588,9 +621,9 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             break;
 
             case OBS_PHASE_TURN_PARALLEL:
-                set_arc(p_out, -p_seq->side);
+                set_arc(p_out, -p_seq->side, turn_rpm);
 
-                if (rel <= OBS_TURN_LEAD_DDEG)
+                if (rel <= lead)
                 {
                     /* After a left bypass, the object is on our right. */
                     obs_state_watch_side_set(-p_seq->side);
@@ -698,9 +731,9 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             break;
 
             case OBS_PHASE_TURN_BACK:
-                set_arc(p_out, -p_seq->side);
+                set_arc(p_out, -p_seq->side, turn_rpm);
 
-                if (rel <= (OBS_TURN_LEAD_DDEG - p_seq->angle_ddeg))
+                if (rel <= (lead - p_seq->angle_ddeg))
                 {
                     p_seq->line_hits = 0U;
                     enter_phase(p_seq, OBS_PHASE_SEARCH_LINE, now_msec,
@@ -712,28 +745,38 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                 set_straight(p_out, p_pose->heading_ddeg,
                              p_seq->heading0_ddeg -
                                  (p_seq->side * p_seq->angle_ddeg));
-                p_seq->line_hits = b_black ? (p_seq->line_hits + 1U) : 0U;
+                {
+                    int32_t const lateral = p_seq->side *
+                        (p_seq->lateral_mmx1000 / 1000);
+                    /* IR must be near the original estimated line. Allow
+                     * its mounting envelope and 5% cumulative odometry error.
+                     */
+                    int32_t const window = obs_geom_radius_mm() +
+                        OBS_POSITION_UNCERTAINTY_MM +
+                        ((p_pose->dist_mm + 19) / 20);
+                    bool const b_near = (lateral <= window) &&
+                                       (lateral >= -window);
+                    p_seq->line_hits = (b_black && b_near)
+                                          ? (p_seq->line_hits + 1U) : 0U;
 
-                if (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES)
-                {
-                    p_seq->b_black_seen = true;
-                    enter_phase(p_seq, OBS_PHASE_ALIGN, now_msec,
-                                p_pose->dist_mm);
-                }
-                else if (seg >= (((p_seq->diag_mm * SEARCH_SCALE_NUM) /
-                                  SEARCH_SCALE_DEN) +
-                                 OBS_SEARCH_MARGIN_MM))
-                {
-                    raise_fault(p_seq, p_out, OBS_FAULT_LINE_LOST);
-                }
-                else
-                {
-                    /* Keep creeping towards the line. */
+                    if (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES)
+                    {
+                        p_seq->b_black_seen = true;
+                        enter_phase(p_seq, OBS_PHASE_ALIGN, now_msec,
+                                    p_pose->dist_mm);
+                    }
+                    else if ((lateral < -window) ||
+                             (seg > (((p_seq->diag_mm * SEARCH_SCALE_NUM) /
+                                      SEARCH_SCALE_DEN) +
+                                     OBS_SEARCH_MARGIN_MM)))
+                    {
+                        raise_fault(p_seq, p_out, OBS_FAULT_LINE_LOST);
+                    }
                 }
             break;
 
             case OBS_PHASE_ALIGN:
-                set_arc(p_out, p_seq->side);
+                set_arc(p_out, p_seq->side, turn_rpm);
                 p_seq->b_black_seen = p_seq->b_black_seen || b_black;
 
                 if (rel >= -OBS_ALIGN_TOL_DDEG)
@@ -746,6 +789,12 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
             case OBS_PHASE_VERIFY:
                 p_out->b_line_follow = true;
+                if ((elapsed > OBS_VERIFY_TIMEOUT_MSEC) ||
+                    (seg > OBS_VERIFY_MAX_MM))
+                {
+                    raise_fault(p_seq, p_out, OBS_FAULT_LINE_LOST);
+                    break;
+                }
                 if (b_black)
                 {
                     p_seq->verify_cycles++;
@@ -831,6 +880,7 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
     p_seq->line_hits     = 0U;
     p_seq->verify_cycles = 0U;
     p_seq->stop_hits     = 0U;
+    p_seq->lateral_mmx1000 = 0;
     p_seq->rescan_count  = 0U;
     p_seq->b_black_seen  = false;
     p_seq->guard_epoch = 0U;
@@ -856,16 +906,21 @@ static void enter_phase (obstacle_seq_t * p_seq, obs_state_phase_t phase,
     tm_printf((UB *)"[OBS] phase=%u\n", (UINT)phase);
 }
 
-static void set_arc (obstacle_drive_t * p_out, int32_t turn)
+static void set_arc (obstacle_drive_t * p_out, int32_t turn, int32_t rpm)
 {
-    p_out->left_rpm  = (turn > 0) ? 0 : OBS_DRIVE_RPM;
-    p_out->right_rpm = (turn > 0) ? OBS_DRIVE_RPM : 0;
+    p_out->left_rpm  = (turn > 0) ? 0 : rpm;
+    p_out->right_rpm = (turn > 0) ? rpm : 0;
 }
 
 static void set_straight (obstacle_drive_t * p_out, int32_t heading_ddeg,
                           int32_t target_ddeg)
 {
-    int32_t trim = (target_ddeg - heading_ddeg) / OBS_HEADING_TRIM_DIV;
+    bool const b_sideways = (900U == g_seq.angle_ddeg) &&
+        ((OBS_PHASE_DIAG_OUT == g_seq.phase) ||
+         (OBS_PHASE_SEARCH_LINE == g_seq.phase));
+    int32_t const divisor = b_sideways ? OBS_SIDEWAYS_TRIM_DIV :
+                                       OBS_HEADING_TRIM_DIV;
+    int32_t trim = (target_ddeg - heading_ddeg) / divisor;
 
     if (trim > OBS_HEADING_TRIM_MAX)
     {
@@ -934,9 +989,20 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
     {
         finish_bypass(p_seq, p_out, false);
     }
-    else if ((SCAN_PLAN_ROUTE != result) && (SCAN_PLAN_BEST_EFFORT != result))
+    else if (SCAN_PLAN_ROUTE != result)
     {
-        raise_fault(p_seq, p_out, OBS_FAULT_NO_ROUTE);
+        if (p_seq->rescan_count < OBS_MAX_RESCANS)
+        {
+            p_seq->rescan_count++;
+            obs_state_flags_set(OBS_EVT_SCAN_REQ);
+            enter_phase(p_seq, OBS_PHASE_SCANNING, now_msec,
+                        p_pose->dist_mm);
+            tm_printf((UB *)"[OBS] No verified route; stationary rescan\n");
+        }
+        else
+        {
+            raise_fault(p_seq, p_out, OBS_FAULT_NO_ROUTE);
+        }
     }
     else
     {
@@ -948,14 +1014,12 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             scan_plan_angle_deg(scan_plan_angle_index(&plan)) * DDEG_PER_DEG;
         p_seq->diag_mm       = scan_plan_diag_cm(&plan) * MM_PER_CM;
         p_seq->heading0_ddeg = p_pose->heading_ddeg;
+        p_seq->lateral_mmx1000 = 0;
         obs_state_set_route(b_left ? OBS_ROUTE_LEFT : OBS_ROUTE_RIGHT);
         obs_state_set_width_cm(scan_plan_width_cm(&plan));
-        if (SCAN_PLAN_BEST_EFFORT == result)
-        {
-            tm_printf((UB *)"[OBS] BEST_EFFORT side=%s angle=%u\n",
-                      b_left ? "LEFT" : "RIGHT",
-                      (UINT)(p_seq->angle_ddeg / DDEG_PER_DEG));
-        }
+        tm_printf((UB *)"[OBS] Verified route=%s angle=%u\n",
+                  b_left ? "LEFT" : "RIGHT",
+                  (UINT)(p_seq->angle_ddeg / DDEG_PER_DEG));
         enter_phase(p_seq, OBS_PHASE_TURN_OUT, now_msec, p_pose->dist_mm);
     }
 }

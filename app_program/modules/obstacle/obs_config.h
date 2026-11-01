@@ -19,12 +19,10 @@
 #define OBS_MEDIAN_SAMPLES 3U
 #define OBS_FAR_MM 4000
 /* Measure: how close an obstacle may get before the robot stops. */
-#define OBS_STOP_MM 250
+#define OBS_STOP_MM 300
 #define OBS_EMERGENCY_MM 250
 #define OBS_CONFIRM_HITS 3U
 #define OBS_NO_ECHO_LIMIT 5U
-/* Continue line following briefly after a failed avoidance attempt. */
-#define OBS_RETRY_DELAY_MSEC 1000U
 
 /* Servo (SG90). Measure every value in this group. */
 #define OBS_SERVO_FRONT_USEC 1500
@@ -62,7 +60,7 @@
 #endif
 #define OBS_FRONT_OVERHANG_MM 135
 #define OBS_REAR_OVERHANG_MM (OBS_ROBOT_LENGTH_MM - OBS_FRONT_OVERHANG_MM)
-#define OBS_SENSOR_FORWARD_MM 90
+#define OBS_SENSOR_FORWARD_MM 110
 #define OBS_SENSOR_LEFT_MM 0
 #define OBS_SAFETY_MARGIN_MM 40
 #define OBS_POSITION_UNCERTAINTY_MM 20
@@ -93,6 +91,10 @@
 
 /* Bypass motion. Heading values are in tenths of a degree. */
 #define OBS_DRIVE_RPM 12
+#define OBS_PRECISE_TURN_RPM 6
+/* The 90-degree detour must hold within two degrees of sideways. */
+#define OBS_SIDEWAYS_HEADING_DDEG 20
+#define OBS_SIDEWAYS_TRIM_DIV 10
 #define OBS_TURN_LEAD_DDEG 40
 #define OBS_ALIGN_TOL_DDEG 100
 #define OBS_HEADING_TRIM_DIV 70
@@ -131,6 +133,8 @@
 #define OBS_PASS_MARGIN_MM 40
 #define OBS_SEARCH_MARGIN_MM 150
 #define OBS_LINE_CONFIRM_CYCLES 2U
+#define OBS_VERIFY_TIMEOUT_MSEC 4000U
+#define OBS_VERIFY_MAX_MM 50
 
 /* These limits match the compact controller handoff and local counters. */
 #if ((OBS_DRIVE_RPM + OBS_HEADING_TRIM_MAX) > 31)
@@ -146,6 +150,10 @@
 #endif
 #if (OBS_SERVO_LIMIT_DEG > 127)
 #error "Commanded servo angle must fit signed eight bits."
+#endif
+#if ((OBS_SIDEWAYS_HEADING_DDEG > 20) || \
+     (OBS_SIDEWAYS_HEADING_DDEG < 1))
+#error "The sideways swept bound requires a heading error of at most 2 deg."
 #endif
 #if (OBS_STALL_DRIVE_MSEC > 2047U)
 #error "Stall drive timer must fit eleven bits."

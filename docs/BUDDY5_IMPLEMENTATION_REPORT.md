@@ -1,5 +1,123 @@
 # Buddy 5 implementation and verification
 
+## Current correction: 1 November 2026
+
+Baseline for this correction: `buddy5` at `d310d0c`. All changes remain local
+and uncommitted. No hardware was flashed or operated. The earlier report
+below is retained as historical evidence; this section supersedes its
+configuration, route choices and test counts.
+
+The reported collision loop was reproduced in host regressions. Failed
+avoidance called `resume_line()`, cleared faults and bypass state, then
+applied the forward line action. A one-second retry delay suppressed new
+front detection, and `obstacle_front_ready()` always returned true.
+Initialization/task failures also returned success. Those paths are removed.
+
+Current behavior:
+
+- Detection threshold is **300 mm**, with an immediate raw emergency stop
+  at **250 mm**. A first reading <=300 mm withholds forward drive while the
+  median/confirmation window completes. The lower range is not ignored.
+  Sensor failure or stale front data prevents motion.
+- Sonar position is updated to **110 mm forward, 0 mm lateral**, centred on
+  the axle. Other supplied dimensions remain: width153, track110, wheel
+  diameter70, front135 and rear65 mm. The latter sum to200 mm; the longer
+  envelope is retained rather than the inconsistent190 mm estimate.
+- Planner candidates are30/45/60/**90 degrees**. The new90-degree detour
+  turns slowly, translates sideways, turns parallel, passes the obstacle,
+  confirms rear clearance and turns toward the original line. Unsafe
+  `BEST_EFFORT` selection is removed; no route never permits forward driving.
+- The90-degree swept-depth model bounds both stopped-wheel turns. With
+  front135, half-width90 and half-track55 mm, the first-turn projection is
+  at most199 mm. The second-turn bound includes251 mm plus forward drift
+  from a sideways heading error of up to2 degrees. A410 mm lateral run
+  requires271 mm of measured forward depth with current margins. Wider
+  obstacles or constrained sides can require more; a250 mm scan can
+  legitimately be rejected. The planner never substitutes an unchecked side.
+- Sideways heading must remain within2 degrees; slow6 RPM pivots have no
+  early turn lead, and sideways straight control uses a tighter correction.
+  Entry-capsule inflation includes the combined156 mm displacement of the
+  two turns. These are mathematical bounds requiring physical calibration,
+  not evidence of measured turn accuracy or stopping distance.
+- All moving phases keep front/inner/outer sensing and small movement
+  permissions. One stationary reassessment is permitted. Unknown/occupied
+  reassessment, repeated hazards, no route, odometry failure or failed line
+  recovery produces a latched stop until reset. Abort does not clear faults.
+- The rear-clearance bound is **823 mm** after an observed side edge, using
+  95% of the smaller wheel travel and continued valid side clearance.
+- Lateral position is integrated from both encoders and observed heading,
+  including drift while passing the object. IR hits are accepted near the
+  estimated original-line region, allowing the sensor mounting envelope,
+  20 mm position reserve and5% accumulated odometry uncertainty. An early
+  unrelated stripe is ignored. A transverse both-black reading can seed
+  SEARCH; final VERIFY still requires a normal single-edge line reading.
+  Verification is bounded by4 seconds and50 mm; failure stays stopped.
+
+The robot cannot identify an arbitrary stripe uniquely using two binary IR
+sensors. Encoder signs/gearing, wheel slip, actual IR mounting coordinates,
+turn accuracy and stop distance still need supervised physical verification.
+The original-line region is an estimate, not a guaranteed stripe identity.
+A single panning sonar also has side/rear/vertical blind spots. If a route
+cannot be supported by its measurements, the safe result is to remain stopped.
+
+Changed production files for this correction: `app/task_controller.c` and
+obstacle `obs_config.h`, `obstacle.c/.h`, `task_obstacle.c`, `scan_plan.c/.h`,
+`obs_geom.c/.h`. Existing `obstacle/host/run_tests.py` and `test_obstacle.c`
+now assert safe failure behavior. `tools/test_app.py` explicitly builds its
+baseline-only regression target with `APP_OBSTACLE_ENABLED=0`, independently
+of the user's enabled application header. No new permanent test framework,
+kernel/BSP changes or separate motor/IR driver were introduced.
+
+Actual verification on the corrected source:
+
+| Check | Result |
+| --- | --- |
+| `python tools/check_app_standard.py` | 71 files, 0 errors; checker unchanged |
+| `python app_program/modules/obstacle/host/run_tests.py --cc gcc` | 55 scenarios pass |
+| `python tools/test_app.py --cc gcc --units-only` | Unit checks and original11 TEST=1 checks pass; historical traces explicitly skipped |
+| Temporary real ultrasonic/servo driver simulations | 7 cases pass; temporary sources removed |
+| Integer heading interpolation check | 14,403 headings, symmetry, wrapping and integer extremes checked |
+| Strict Cortex-M0+ compile, C99 `-Wall -Wextra -Werror` | All28 production units, obstacle disabled and enabled, pass |
+| UART firmware builds `(OBSTACLE,TEST)=(0,0),(1,0),(1,1)` | ELF and UF2 generated; production images exclude test functions |
+| Physical robot | Not performed; reported collision was user-observed |
+
+The55 host cases include300/301 mm detection, first-close-sample stop,
+startup failures, both valid90-degree directions, unknown result3 rejection,
+no-route hold, continuous sensing, rear reappearance, heading drift,
+successful bounded reassessment, original-region gating, transverse-line
+search, lost verification and persistent stops. Existing committed tests
+remain reproducible; development-only harness sources were removed.
+Earlier barcode fixture/diagnostic and captured trace failures are outside
+this correction and are described in the historical evidence below.
+
+| Current UART ELF stem | Text | Data | BSS |
+| --- | ---: | ---: | ---: |
+| `mtk3pico_smp1_uart` | 79512 | 276 | 14784 |
+| `mtk3pico_smp1_uart_obs` | 93184 | 280 | 14892 |
+| `mtk3pico_smp1_uart_obs_test` | 93828 | 280 | 14892 |
+
+Active obstacle UF2 SHA256:
+`b8ebfffac8c7f53faccece637d4960fba39c932bdd9db6a574755bd7e524772a`.
+The added encoder lateral accumulator uses4 bytes; packed status, scan-point,
+plan and coverage layouts are unchanged. The fourth route angle fits the
+existing2-bit angle index. No new telemetry payload is introduced.
+
+From `build_make/`, with the existing ARM and MSYS toolchains on PATH:
+
+```powershell
+& 'C:\msys64\usr\bin\make.exe' -j4 SMP=1 CONSOLE=uart OBSTACLE=1 TEST=0 PYTHON=python SHELL=C:/msys64/usr/bin/sh.exe
+```
+
+The current header has `APP_OBSTACLE_ENABLED=1`; Make's explicit `OBSTACLE`
+option overrides it, and Make still defaults to0. Use the rebuilt
+`build_make/mtk3pico_smp1_uart_obs.uf2` for the corrected active feature.
+This task did not build the USB profile; the earlier missing TinyUSB
+dependency remains documented below. UART console pins are reused by encoders.
+The supervised electrical/servo/encoder checks and manual flash procedure
+in the historical section still apply. Do not use the old UF2 to test this fix.
+
+## Historical implementation report: 30 October 2026
+
 Branch: `buddy5`, starting at `e470bfb`, 30 October 2026. Changes are local;
 no branch switch, merge, commit, push or physical flashing was performed.
 The checked-out application was the baseline. Selected historical obstacle

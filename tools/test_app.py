@@ -26,12 +26,14 @@ def build(sources, includes, name, legacy, args, env, app_test=0):
     if Path(compiler).stem.lower() == "cl":
         command = [compiler, "/nologo", "/std:c11", "/W3", "/D_CRT_SECURE_NO_WARNINGS",
                    f"/DLEGACY={int(legacy)}", f"/DAPP_TEST={app_test}",
+                   "/DAPP_OBSTACLE_ENABLED=0",
                    *["/I" + str(p) for p in includes],
                    *map(str, sources), str(TESTS / "robot_harness.c"),
                    "/Fe" + str(executable), "/Fo" + str(folder) + os.sep]
     else:
         command = [compiler, "-std=c99", "-Wall", "-Wextra",
                    f"-DLEGACY={int(legacy)}", f"-DAPP_TEST={app_test}",
+                   "-DAPP_OBSTACLE_ENABLED=0",
                    *["-I" + str(p) for p in includes],
                    *map(str, sources), str(TESTS / "robot_harness.c"),
                    "-lm", "-o", str(executable)]
