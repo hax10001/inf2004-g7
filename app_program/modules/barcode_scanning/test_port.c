@@ -35,16 +35,17 @@ static void check (uint8_t ok, char const * p_name)
     }
 }
 
-ID tk_cre_mtx (T_CMTX const * p_config)
+ID tk_cre_sem (T_CSEM const * p_config)
 {
-    (void)p_config;
+    check((1 == p_config->isemcnt) && (1 == p_config->maxsem) &&
+          (TA_TPRI == p_config->sematr), "binary priority semaphore");
     return 7;
 }
 
-ER tk_loc_mtx (ID mutex, TMO timeout)
+ER tk_wai_sem (ID semaphore, INT count, TMO timeout)
 {
     int rc;
-    if (7 != mutex)
+    if ((7 != semaphore) || (1 != count))
     {
         return E_OBJ;
     }
@@ -53,9 +54,9 @@ ER tk_loc_mtx (ID mutex, TMO timeout)
     return (0 == rc) ? E_OK : E_OBJ;
 }
 
-ER tk_unl_mtx (ID mutex)
+ER tk_sig_sem (ID semaphore, INT count)
 {
-    if (7 != mutex)
+    if ((7 != semaphore) || (1 != count))
     {
         return E_OBJ;
     }
@@ -243,6 +244,9 @@ static void test_input_rejections (void)
     check(0U == (result.info & BC_PORT_VALID_FLAG),
           "too-fast polling never creates a letter");
     check(E_OK == bc_port_ack(result.sequence), "ack speed issue");
+    bc_port_stats_t stats = {0};
+    check(E_OK == bc_port_stats(&stats), "input diagnostics snapshot");
+    check(stats.step_invalid > 0U, "oversized sample counter");
 
     check(E_OK == bc_port_clear(), "clear before stale encoder");
     tick(0U, 0U);
@@ -256,6 +260,8 @@ static void test_input_rejections (void)
     check(0U == (result.info & BC_PORT_VALID_FLAG),
           "stale measurement invalid");
     gb_stale_edge = 0U;
+    check(E_OK == bc_port_stats(&stats), "stale diagnostics snapshot");
+    check(stats.stale_edge > 0U, "stale edge counter");
 }
 
 /** A rejected scan may be superseded without a controller rejection ACK. */
@@ -326,6 +332,28 @@ static void test_four_millisecond_capture (void)
     check(0U == (result.info & BC_PORT_VALID_FLAG),
           "invalid 4 ms record cannot become valid letter");
     check(E_OK == bc_port_ack(result.sequence), "invalid ACK");
+    bc_port_stats_t stats = {0};
+    check(E_OK == bc_port_stats(&stats), "IRQ diagnostics snapshot");
+    check(stats.capture_invalid > 0U, "invalid capture counter");
+    check(E_PAR == bc_port_stats(0), "diagnostics null rejected");
+}
+
+static void test_input_report_throttle (void)
+{
+    uint32_t usec = g_time * 1000U;
+    check(E_OK == bc_port_clear(), "clear before repeated input errors");
+    int before = g_print_count;
+    for (uint8_t i = 0U; i < 2U; ++i)
+    {
+        usec += 4000U;
+        check(E_OK == bc_port_sample_counts(0U, usec,
+            g_left_count, g_right_count, usec, usec, 0U),
+            "invalid capture for throttle test");
+        check(E_OK == bc_port_process(), "process repeated input error");
+        check(E_OK == bc_uart_poll(), "report repeated input error");
+    }
+    check(before + 1 == g_print_count,
+          "repeated input errors do not flood console");
 }
 
 static void test_microsecond_wrap (void)
@@ -350,6 +378,7 @@ int test_port_run (void)
     test_input_rejections();
     test_rejection_does_not_block_letter();
     test_four_millisecond_capture();
+    test_input_report_throttle();
     test_microsecond_wrap();
     printf("Barcode adapter: %d assertions, %d failed\n",
            g_checks, g_fail);

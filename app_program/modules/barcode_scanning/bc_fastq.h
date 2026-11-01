@@ -6,8 +6,9 @@
 
 #include <stdint.h>
 
-#define BC_FASTQ_CAPACITY 32U
-#define BC_FAST_PERIOD_USEC 4000U
+/* 500 Hz capture; retain about 128 ms of queue headroom. */
+#define BC_FASTQ_CAPACITY 64U
+#define BC_FAST_PERIOD_USEC 2000U
 #define BC_FAST_MAX_LATE_USEC 1000U
 
 typedef struct
@@ -19,6 +20,8 @@ typedef struct
     uint32_t right_edge_usec;
     uint8_t gpio_level;
     uint8_t valid;
+    uint16_t adc_raw;    /**< 12-bit AO reading; zero in digital mode. */
+    uint8_t adc_valid;   /**< ADC hardware result was available. */
 } bc_fastq_sample_t;
 
 /** @brief Reset only before producer starts or after it stops. */

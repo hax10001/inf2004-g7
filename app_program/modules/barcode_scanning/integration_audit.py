@@ -23,6 +23,14 @@ def main() -> int:
     fast = (ROOT / 'app_program/modules/barcode_scanning/bc_fast.c').read_text()
     cal = (ROOT / 'app_program/modules/barcode_scanning/bc_cal.h').read_text()
     passed = []
+    encoder_only = re.search(r'^#define BC_CAL_ENCODER_ONLY 1$', cal, re.M)
+    if encoder_only:
+        passed.append(check('encoder-only startup',
+                            '#if BC_CAL_ENCODER_ONLY' in app_main and
+                            'return bc_enc_run();' in app_main,
+                            'motor-off logger bypasses normal robot startup'))
+        print('INFO normal startup hooks below apply only after '
+              'BC_CAL_ENCODER_ONLY is restored to 0')
 
     markers = ['motion_init()', 'line_barcode_init()', 'bc_setup_init()',
                'line_barcode_start()', 'bc_setup_start()']
@@ -47,17 +55,28 @@ def main() -> int:
                         'BC_FAST_ALARM_MASK' in fast and
                         'bc_fastq_push(&sample)' in fast,
                         'hardware timer and fixed handoff queue present'))
-    passed.append(check('safe calibration gate',
-                        re.search(r'^#define BC_CAL_READY 0$', cal, re.M)
-                        is not None,
-                        'scanner disabled until measured settings are entered'))
+    modes = {}
+    for name in ('READY', 'MEASURE', 'AUTO_ACK'):
+        match = re.search(r'^#define BC_CAL_' + name + r' ([01])$',
+                          cal, re.M)
+        modes[name] = int(match[1]) if match else None
+    passed.append(check('calibration mode flags',
+                        all(value is not None for value in modes.values()),
+                        str(modes)))
+    if modes['READY'] == 0:
+        print('INFO barcode disabled; enable measurement mode to calibrate')
+    elif modes['MEASURE'] == 1:
+        print('INFO measurement mode enabled; decoding remains off')
+    else:
+        print('INFO scanning requested; invalid calibration falls back to '
+              'measurement. Physical thresholds remain unverified.')
 
     controller = (ROOT / 'app_program/app/task_controller.c').read_text()
     if 'bc_port_peek(' in controller and 'bc_port_ack(' in controller:
         print('INFO mission integration: consumer present; runtime unverified')
     else:
         print('BLOCKED mission integration: no controller result consumer. '
-              'Owner must add peek/ACK/STOP clearing; no shared edits made.')
+              'Owner must add peek/ACK/STOP clearing for navigation.')
 
     others = []
     for base in ('app_program', 'kernel', 'lib'):

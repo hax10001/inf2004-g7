@@ -150,6 +150,7 @@ uint8_t bc_scan_feed (bc_scan_t * p_scan, uint8_t b_black,
 
     width = travel_units - p_scan->last_edge_units;
 
+
     if (width < p_scan->cfg.min_run_units)
     {
         return bc_scan_reject(p_scan, BC_SCAN_ERROR_WIDTH, now_msec);

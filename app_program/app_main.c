@@ -6,6 +6,8 @@
 #include "app_main.h"
 #include "app/app_config.h"
 #include "modules/barcode_scanning/bc_setup.h"
+#include "modules/barcode_scanning/bc_cal.h"
+#include "modules/barcode_scanning/bc_enc.h"
 #include "app/controller.h"
 #include "modules/line_barcode/line_barcode.h"
 #include "modules/motion/motion.h"
@@ -19,6 +21,10 @@
 
 INT usermain (void)
 {
+#if BC_CAL_ENCODER_ONLY
+    /* Dedicated hand-roll build: never start any mission or sensor task. */
+    return bc_enc_run();
+#else
     tk_dly_tsk(APP_STARTUP_DELAY_MSEC);
 
     /* UB views the same string bytes; tm_printf does not modify them. */
@@ -110,6 +116,7 @@ INT usermain (void)
 
     tk_slp_tsk(TMO_FEVR);
     return 0;
+#endif
 }
 
 /*** end of file ***/

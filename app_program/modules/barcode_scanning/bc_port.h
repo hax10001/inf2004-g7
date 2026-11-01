@@ -40,14 +40,44 @@ typedef struct
     uint8_t black_gpio_level;     /**< 0 or 1, measured on target. */
 } bc_port_config_t;
 
-/** @brief Create mutex and set actual measured scan parameters.
+/** Cumulative input diagnostics; counters can overlap for one bad sample. */
+typedef struct
+{
+    uint32_t samples;
+    uint32_t capture_invalid;
+    uint32_t gap_invalid;
+    uint32_t direction_invalid;
+    uint32_t skew_invalid;
+    uint32_t step_invalid;
+    uint32_t stale_edge;
+    uint32_t lock_lost;
+    uint32_t max_gap_usec;
+    uint32_t raw;
+    uint32_t edges;
+    uint32_t state;
+    uint32_t runs;
+    uint32_t scan_units;
+    uint32_t last_event;
+    uint32_t last_error;
+    uint32_t last_runs;
+    uint32_t last_scan_units;
+    uint32_t last_widths[BC_CODE_ELEMENTS];
+} bc_port_stats_t;
+
+/** @brief Copy input-failure counters from task context. */
+ER bc_port_stats (bc_port_stats_t * p_output);
+
+/** @brief Copy live capture including partial widths, for buffered tracing. */
+ER bc_port_snapshot (bc_scan_t * p_output);
+
+/** @brief Create binary semaphore and set measured scan parameters.
  * @note Call after motion_init/encoder_init, before sampling begins.
  * @return E_OK for success, E_PAR for invalid calibration.
  */
 ER bc_port_init (bc_port_config_t const * p_config);
 
 /** @brief Legacy direct-feed API retained for host tests/integration.
- * Production 4 ms ISR captures into bc_fastq, never calls this API.
+ * Production 2 ms ISR captures into bc_fastq, never calls this API.
  * @return E_OK; E_OBJ when not configured; lock error otherwise.
  */
 ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec);
@@ -64,6 +94,10 @@ ER bc_port_sample_counts (uint8_t raw_gpio, uint32_t now_usec,
                           uint32_t right_edge_usec, uint8_t b_valid);
 
 ER bc_port_process (void);
+
+/** @brief Publish an exact buffered match through the normal result slot. */
+ER bc_port_publish_buffered (bc_code_result_t const * p_result,
+                              uint32_t timestamp_msec);
 
 /** @brief Copy result safely without consuming it.
  * @return E_OK if a result was copied, E_OBJ if none is pending.

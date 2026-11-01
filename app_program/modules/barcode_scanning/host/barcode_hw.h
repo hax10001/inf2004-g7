@@ -1,12 +1,20 @@
 /* Host fixtures only. These values are not physical robot calibration. */
 #ifndef BARCODE_HW_H
 #define BARCODE_HW_H
-#include <tk/tkernel.h>
+/* Existing register doubles model digital GPIO, not the ADC peripheral. */
+#define APP_BARCODE_ANALOG_ENABLED 0
+#include "barcode_kernel.h"
 #define TIMER_ALARM2 0x40054018U
 #define TIMER_ARMED 0x40054020U
 #define TIMER_INTR 0x40054034U
 #define TIMER_INTE 0x40054038U
 #define BC_CAL_H
+#ifndef BC_CAL_TEST_RELAXED_CAPTURE
+#define BC_CAL_TEST_RELAXED_CAPTURE 0
+#endif
+#ifndef BC_CAL_TEST_IGNORE_INPUT_ERRORS
+#define BC_CAL_TEST_IGNORE_INPUT_ERRORS 0
+#endif
 #ifndef BC_CAL_READY
 #define BC_CAL_READY 1
 #endif

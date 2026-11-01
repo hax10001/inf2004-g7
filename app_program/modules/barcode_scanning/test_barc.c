@@ -212,6 +212,76 @@ static void test_sampled_pdfs (void)
     }
 }
 
+static void test_recorded_reverse_a (void)
+{
+    /* Actual complete COM8 frame supplied by the user, 2026-10-29.
+     * Independent of the symbol lookup table; narrow widths span 35..118.
+     */
+    uint32_t const recorded[BC_CODE_ELEMENTS] = {
+        82U,46U,252U,35U,252U,49U,83U,222U,73U,63U,
+        239U,39U,69U,223U,62U,100U,64U,79U,213U,90U,
+        87U,45U,223U,76U,208U,118U,35U,248U,71U
+    };
+    uint32_t changed[BC_CODE_ELEMENTS] = {0U};
+    bc_code_result_t result = bc_code_decode(recorded, 20U);
+    test_check(result.valid && result.letter == 0U && result.reverse,
+               "recorded moving reverse A");
+    for (uint8_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
+    {
+        changed[i] = recorded[BC_CODE_ELEMENTS - 1U - i];
+    }
+    result = bc_code_decode(changed, 20U);
+    test_check(result.valid && result.letter == 0U && !result.reverse,
+               "recorded A in forward order");
+    for (uint8_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
+    {
+        changed[i] = recorded[i] * 2U;
+    }
+    result = bc_code_decode(changed, 40U);
+    test_check(result.valid && result.letter == 0U && result.reverse,
+               "recorded A at doubled scale");
+    for (uint8_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
+    {
+        changed[i] = recorded[i];
+    }
+    changed[3U] = 20U;
+    result = bc_code_decode(changed, 20U);
+    test_check(!result.valid, "extreme short narrow run still rejected");
+    changed[3U] = recorded[3U];
+    changed[25U] = 190U;
+    result = bc_code_decode(changed, 20U);
+    test_check(!result.valid, "ambiguous wide/narrow separation rejected");
+}
+
+static void test_narrow_variation (void)
+{
+    uint32_t const narrow[20] = {
+        5U,8U,9U,10U,11U,12U,16U,10U,9U,11U,
+        10U,8U,12U,10U,9U,11U,10U,9U,10U,10U
+    };
+    for (uint8_t letter = 0U; letter < 26U; ++letter)
+    {
+        uint32_t widths[BC_CODE_ELEMENTS] = {0U};
+        uint32_t reversed[BC_CODE_ELEMENTS] = {0U};
+        uint8_t next = 0U;
+        test_make(letter, widths);
+        for (uint8_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
+        {
+            if (TEST_NARROW == widths[i])
+            {
+                widths[i] = narrow[next++];
+            }
+            reversed[BC_CODE_ELEMENTS - 1U - i] = widths[i];
+        }
+        bc_code_result_t result = bc_code_decode(widths, 4U);
+        test_check(result.valid && result.letter == letter &&
+                   !result.reverse, "A-Z with median-bounded narrow runs");
+        result = bc_code_decode(reversed, 4U);
+        test_check(result.valid && result.letter == letter &&
+                   result.reverse, "reverse A-Z with narrow variation");
+    }
+}
+
 static void test_pauses_and_tilt (void)
 {
     bc_scan_t capture;
@@ -246,11 +316,47 @@ static void test_pauses_and_tilt (void)
                "interrupted scan rejected");
 }
 
+static void test_recorded_z (void)
+{
+    /* User-confirmed Z: black/white widths have different baselines. */
+    uint32_t widths[BC_CODE_ELEMENTS] = {
+        34U, 257U, 15U, 126U, 159U, 123U, 167U, 126U, 15U,
+        163U, 9U, 253U, 165U, 119U, 155U, 120U, 14U, 135U, 15U,
+        126U, 16U, 264U, 12U, 139U, 139U, 109U, 203U, 136U, 12U
+    };
+    uint32_t reverse[BC_CODE_ELEMENTS] = {0U};
+    bc_code_result_t result = bc_code_decode(widths, 3U);
+    test_check(result.valid && (25U == result.letter) && !result.reverse,
+               "recorded biased-width Z forward");
+    for (uint8_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
+    {
+        reverse[i] = widths[BC_CODE_ELEMENTS - 1U - i];
+    }
+    result = bc_code_decode(reverse, 3U);
+    test_check(result.valid && (25U == result.letter) && result.reverse,
+               "recorded biased-width Z reverse");
+
+    widths[21U] = 190U;
+    result = bc_code_decode(widths, 3U);
+    test_check(!result.valid, "ambiguous space separation rejected");
+    widths[21U] = 264U;
+    widths[9U] = 253U;
+    result = bc_code_decode(widths, 3U);
+    test_check(!result.valid, "recorded Z wide separator rejected");
+    widths[9U] = 163U;
+    widths[10U] = 0U;
+    result = bc_code_decode(widths, 3U);
+    test_check(!result.valid, "zero measured width rejected");
+}
+
 int test_barc_run (void)
 {
     test_letters();
     test_invalid();
     test_sampled_pdfs();
+    test_recorded_reverse_a();
+    test_recorded_z();
+    test_narrow_variation();
     test_pauses_and_tilt();
     printf("Barcode core: %d assertions, %d failed\n",
            g_assertions, g_failures);

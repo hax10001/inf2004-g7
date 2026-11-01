@@ -33,6 +33,8 @@ typedef struct
 bool bc_code_get (uint8_t letter, bc_code_pattern_t * p_pattern);
 
 /** @brief Decode 29 alternating black/white element widths.
+ * Bars and spaces are classified separately within each nine-run symbol.
+ * Wide elements must be at least 1.4x the largest same-colour narrow run.
  * @param p_width 29 encoder travel widths; starts and ends in black.
  * @param min_width Minimum trustworthy width in same travel units.
  * @return Only exact * / A-Z / * matches are accepted.

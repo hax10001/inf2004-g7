@@ -1,7 +1,36 @@
 # Barcode scanner: integration status and team-owner handoff
 
-Verified against `inf2004-g7(9).zip` (branch `barcode`). **No source outside
-`app_program/modules/barcode_scanning/` was changed in this delivery.**
+Checked against the current workspace. Barcode implementation stays inside
+`app_program/modules/barcode_scanning/`. At the user's later request to
+disable motion and IR for hand-roll calibration, one startup gate was added
+to `app_main.c`. `BC_CAL_ENCODER_ONLY=1` bypasses all normal robot startup
+and runs the motor-off encoder logger. Set it to 0 to restore the startup
+hooks documented below. No motion/IR/controller implementation was edited.
+The user has now requested normal motion/IR operation again: the current
+flag is 0 and barcode READY/console AUTO_ACK are 1. This is an initial
+drive-and-decode test profile; navigation mapping is still not connected.
+
+## Module-local integration fixes
+
+- Barcode protection uses one priority-ordered binary semaphore, leaving
+  the four configured mutex slots for motion (one), IR (one), and terrain
+  (two). Previously, enabling calibrated barcode scanning consumed a fifth
+  mutex and caused later terrain initialization to fail. The semaphore
+  has no priority inheritance; locked work is bounded and contains no I/O,
+  waits or barcode decoding.
+- The worker processes each captured sample before feeding the next one.
+  A rejection or completion no longer discards the remainder of a buffered
+  batch and hides the next leading quiet zone.
+- Alarm ownership is checked again when the IR hook first arms capture.
+  Failure cleanup leaves an alarm untouched when barcode never armed it.
+  Static TIMER ALARM2 reservation is still required.
+- The read-only audit accepts explicit measurement/scanning mode flags;
+  calibration no longer causes the test runner to fail merely because
+  `BC_CAL_READY` was intentionally set to 1.
+
+Register-model tests include an exhausted mutex pool, a rejection followed
+by a valid frame in one queued batch, and an alarm claimed between setup
+and arming. These checks do not establish physical timing or reliability.
 
 ## Already connected (do not reapply previous patches)
 

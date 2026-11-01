@@ -1,5 +1,5 @@
 /** @file bc_fast.h
- * @brief Barcode-only 4 ms RP2040 alarm-2 capture without RTOS sleeps.
+ * @brief Barcode-only 2 ms RP2040 alarm-2 capture without RTOS sleeps.
  */
 #ifndef BC_FAST_H
 #define BC_FAST_H
@@ -21,8 +21,23 @@ void bc_fast_stop (void);
 /** @brief Report a fatal alarm-programming failure to the worker task. */
 ER bc_fast_error (void);
 
-/** @brief Drain sampled data in low-priority task, never in ISR. */
+/** @brief Drain and process each sample in task context, never in ISR. */
 ER bc_fast_drain (void);
+
+/** ADC range over processed samples since the previous diagnostic report.
+ * Read/reset only from the same barcode worker that calls drain.
+ */
+typedef struct
+{
+    uint32_t samples;
+    uint32_t errors;
+    uint32_t latest;
+    uint32_t minimum;
+    uint32_t maximum;
+    uint32_t filtered_spikes; /**< Unconfirmed colour pulses suppressed. */
+} bc_fast_adc_stats_t;
+
+void bc_fast_adc_report (bc_fast_adc_stats_t * p_stats);
 
 #endif /* BC_FAST_H */
 

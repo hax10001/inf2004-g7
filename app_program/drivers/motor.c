@@ -3,6 +3,7 @@
  */
 #include "motor.h"
 #include "board/board_config.h"
+#include "app/app_config.h"
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
 #include <bsp/libbsp.h>
@@ -41,6 +42,9 @@ void motor_init (void)
     /* UB views the same string bytes; tm_printf does not modify them. */
     tm_printf((UB *)"[MOTOR INIT] Motor controller initialized PWM "
                     "successfully.\n");
+#if !APP_MOTOR_MOVEMENT_ENABLED
+    tm_printf((UB *)"[MOTOR] Movement disabled for stationary calibration\n");
+#endif
 }
 
 void motor_stop (void)
@@ -60,6 +64,10 @@ void motor_stop (void)
 
 void motor_set_forward (uint32_t left_pwm, uint32_t right_pwm)
 {
+#if !APP_MOTOR_MOVEMENT_ENABLED
+    left_pwm = 0U;
+    right_pwm = 0U;
+#endif
     /* WARNING: The tested robot drives the left wheel through its B pin. */
     pwm_set_cc(BOARD_MOTOR_LEFT_A_PIN, 0U);
     pwm_set_cc(BOARD_MOTOR_LEFT_B_PIN, left_pwm);

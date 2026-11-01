@@ -7,9 +7,12 @@
 #include "bc_uart.h"
 #include "bc_fast.h"
 #include "bc_fastq.h"
+#include "bc_trace.h"
+#include "bc_wave.h"
 #include "app/tasks.h"
 #include "app/app_config.h"
 #include "platform/console.h"
+#include "drivers/encoder.h"
 #include <tm/tmonitor.h>
 
 #if BC_CAL_READY
@@ -38,6 +41,11 @@ typedef struct
     uint32_t max_step_units;
     uint32_t max_skew_units;
     uint32_t invalid;
+    uint32_t adc_raw;
+    uint32_t adc_min;
+    uint32_t adc_max;
+    uint32_t adc_samples;
+    uint32_t adc_errors;
 } bc_measure_t;
 
 static uint8_t volatile g_setup_mode = BC_SETUP_OFF;
@@ -46,6 +54,111 @@ static uint8_t gb_fast_ready = 0U;
 static uint8_t volatile gb_worker_ready = 0U;
 static uint8_t g_reported_mode = BC_SETUP_OFF;
 static bc_measure_t g_measure;
+static uint32_t g_input_report_usec;
+#if !APP_BARCODE_ANALOG_ENABLED || !APP_BARCODE_BUFFERED_ENABLED
+static uint32_t g_reported_event;
+static uint32_t g_frame_report_usec;
+
+static void bc_setup_frame_report (bc_port_stats_t const * p_stats,
+                                   uint32_t now)
+{
+    if (g_reported_event != p_stats->last_event)
+    {
+        g_reported_event = p_stats->last_event;
+        if ((BC_SCAN_ERROR_INPUT != p_stats->last_error) ||
+            ((uint32_t)(now - g_frame_report_usec) >= 1000000U))
+        {
+            char line[384] = {0};
+            uint32_t used = 0U;
+            g_frame_report_usec = now;
+            tm_printf((UB *)"[BC FRAME] event=%u capture_error=%u "
+                              "runs=%u/29 travel_units=%u\n",
+                      (UINT)p_stats->last_event,
+                      (UINT)p_stats->last_error,
+                      (UINT)p_stats->last_runs,
+                      (UINT)p_stats->last_scan_units);
+            for (uint32_t i = 0U;
+                 (i < p_stats->last_runs) && (i < BC_CODE_ELEMENTS); ++i)
+            {
+                char digits[10] = {0};
+                uint32_t count = 0U;
+                uint32_t value = p_stats->last_widths[i];
+                do
+                {
+                    digits[count++] = (char)('0' + value % 10U);
+                    value /= 10U;
+                } while (value > 0U);
+                if (used + count + 1U >= sizeof(line))
+                {
+                    break;
+                }
+                if (i > 0U)
+                {
+                    line[used++] = ',';
+                }
+                for (; count > 0U; --count)
+                {
+                    line[used++] = digits[count - 1U];
+                }
+                line[used] = '\0';
+            }
+            tm_printf((UB *)"[BC WIDTHS] event=%u %s\n",
+                      (UINT)p_stats->last_event, line);
+        }
+    }
+}
+#endif
+
+#if APP_BARCODE_ANALOG_ENABLED
+static void bc_setup_adc_report (void)
+{
+    bc_fast_adc_stats_t adc = {0};
+    bc_fast_adc_report(&adc);
+    tm_printf((UB *)"[BC ADC] raw=%u min=%u max=%u n=%u errors=%u "
+                      "filtered=%u threshold=%u hysteresis=%u black_high=%u\n",
+              (UINT)adc.latest, (UINT)adc.minimum, (UINT)adc.maximum,
+              (UINT)adc.samples, (UINT)adc.errors,
+              (UINT)adc.filtered_spikes,
+              (UINT)APP_BARCODE_ADC_THRESHOLD,
+              (UINT)APP_BARCODE_ADC_HYSTERESIS,
+              (UINT)APP_BARCODE_ADC_BLACK_HIGH);
+}
+#endif
+
+#if !APP_BARCODE_ANALOG_ENABLED || !APP_BARCODE_BUFFERED_ENABLED
+static void bc_setup_input_report (void)
+{
+    uint32_t now = encoder_now_usec();
+    bc_port_stats_t stats = {0};
+    if (E_OK != bc_port_stats(&stats))
+    {
+        return;
+    }
+    bc_setup_frame_report(&stats, now);
+    if ((uint32_t)(now - g_input_report_usec) >= 1000000U)
+    {
+        g_input_report_usec = now;
+#if APP_BARCODE_ANALOG_ENABLED
+        bc_setup_adc_report();
+#endif
+        {
+            tm_printf((UB *)"[BC INPUT] raw=%u n=%u irq=%u gap=%u "
+                              "dir=%u skew=%u step=%u stale=%u lock=%u "
+                              "max_gap_us=%u\n",
+                      (UINT)stats.raw, (UINT)stats.samples,
+                      (UINT)stats.capture_invalid, (UINT)stats.gap_invalid,
+                      (UINT)stats.direction_invalid,
+                      (UINT)stats.skew_invalid, (UINT)stats.step_invalid,
+                      (UINT)stats.stale_edge, (UINT)stats.lock_lost,
+                      (UINT)stats.max_gap_usec);
+            tm_printf((UB *)"[BC SCAN] edges=%u state=%u runs=%u/29 "
+                              "travel_units=%u\n",
+                      (UINT)stats.edges, (UINT)stats.state,
+                      (UINT)stats.runs, (UINT)stats.scan_units);
+        }
+    }
+}
+#endif
 
 static void bc_setup_fail (ER error)
 {
@@ -139,6 +252,30 @@ static void bc_measure_poll (void)
     {
         if (0U != bc_fastq_pop(&sample))
         {
+#if APP_BARCODE_ANALOG_ENABLED
+            if (0U != sample.adc_valid)
+            {
+                if (0U == g_measure.adc_samples)
+                {
+                    g_measure.adc_min = sample.adc_raw;
+                    g_measure.adc_max = sample.adc_raw;
+                }
+                if (sample.adc_raw < g_measure.adc_min)
+                {
+                    g_measure.adc_min = sample.adc_raw;
+                }
+                if (sample.adc_raw > g_measure.adc_max)
+                {
+                    g_measure.adc_max = sample.adc_raw;
+                }
+                g_measure.adc_raw = sample.adc_raw;
+                ++g_measure.adc_samples;
+            }
+            else
+            {
+                ++g_measure.adc_errors;
+            }
+#endif
             bc_measure_sample(&sample);
         }
     }
@@ -146,6 +283,20 @@ static void bc_measure_poll (void)
         ((uint32_t)(g_measure.time_usec - g_measure.log_usec) >=
          BC_MEASURE_LOG_USEC))
     {
+#if APP_BARCODE_ANALOG_ENABLED
+        tm_printf((UB *)"[BC ADC] raw=%u min=%u max=%u n=%u errors=%u "
+                          "threshold=%u hysteresis=%u black_high=%u\n",
+                  (UINT)g_measure.adc_raw, (UINT)g_measure.adc_min,
+                  (UINT)g_measure.adc_max, (UINT)g_measure.adc_samples,
+                  (UINT)g_measure.adc_errors,
+                  (UINT)APP_BARCODE_ADC_THRESHOLD,
+                  (UINT)APP_BARCODE_ADC_HYSTERESIS,
+                  (UINT)APP_BARCODE_ADC_BLACK_HIGH);
+        g_measure.adc_min = 0U;
+        g_measure.adc_max = 0U;
+        g_measure.adc_samples = 0U;
+        g_measure.adc_errors = 0U;
+#endif
         tm_printf((UB *)"[BC CAL] raw=%u L=%d R=%d gap_us=%u "
                           "step=%u skew=%u invalid=%u\n",
                   (UINT)g_measure.level, (INT)g_measure.left,
@@ -257,6 +408,33 @@ ER bc_setup_poll (void)
         else if (BC_SETUP_SCAN == g_setup_mode)
         {
             tm_printf((UB *)"[BARCODE] Scanning enabled\n");
+#if APP_BARCODE_ANALOG_ENABLED
+#if APP_BARCODE_BUFFERED_ENABLED
+            tm_printf((UB *)"[BARCODE] Buffered waveform mode; "
+                              "start on white; fixed threshold compares\n");
+            tm_printf((UB *)"[BARCODE] One trial per boot; "
+                              "driving held when recording freezes\n");
+#else
+            tm_printf((UB *)"[BARCODE] Analog AO on GP27/ADC1; "
+                              "software threshold enabled\n");
+#endif
+#if APP_BARCODE_TRACE_ENABLED
+            tm_printf((UB *)"[BARCODE] Buffered trace armed; "
+                              "one pass per boot, wait for TRACE END\n");
+#endif
+#if APP_BARCODE_EDGE_FILTER_ENABLED && !APP_BARCODE_BUFFERED_ENABLED
+            tm_printf((UB *)"[BARCODE] Two-sample edge filter enabled; "
+                              "first-sample position retained\n");
+#endif
+#endif
+#if BC_CAL_TEST_IGNORE_INPUT_ERRORS
+            tm_printf((UB *)"[BARCODE] TEST MODE: "
+                              "input validity checks bypassed\n");
+#endif
+#if BC_CAL_TEST_RELAXED_CAPTURE
+            tm_printf((UB *)"[BARCODE] TEST MODE: "
+                              "broad capture; separate bar/space decoding\n");
+#endif
         }
         else if (BC_SETUP_FAILED == g_setup_mode)
         {
@@ -271,7 +449,17 @@ ER bc_setup_poll (void)
     else if (BC_SETUP_SCAN == g_setup_mode)
     {
         (void)bc_fast_drain();
-        (void)bc_port_process();
+#if APP_BARCODE_ANALOG_ENABLED && APP_BARCODE_BUFFERED_ENABLED
+        bc_wave_poll();
+        uint32_t now = encoder_now_usec();
+        if ((uint32_t)(now - g_input_report_usec) >= 1000000U)
+        {
+            g_input_report_usec = now;
+            bc_setup_adc_report();
+        }
+#else
+        bc_setup_input_report();
+#endif
         (void)bc_uart_poll();
 #if BC_CAL_AUTO_ACK
         bc_port_result_t result = {0};
@@ -285,6 +473,12 @@ ER bc_setup_poll (void)
     {
         return g_setup_error;
     }
+#if APP_BARCODE_ANALOG_ENABLED && APP_BARCODE_TRACE_ENABLED
+    if (BC_SETUP_SCAN == g_setup_mode)
+    {
+        bc_trace_poll();
+    }
+#endif
 #endif
     return E_OK;
 }

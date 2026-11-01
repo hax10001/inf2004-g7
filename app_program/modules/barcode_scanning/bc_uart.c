@@ -9,6 +9,11 @@
 #define BC_UART_DEBUG 1
 #endif
 
+#if BC_UART_DEBUG
+static uint8_t gb_reported_input_error;
+static uint32_t g_input_error_msec;
+#endif
+
 ER bc_uart_poll (void)
 {
 #if BC_UART_DEBUG
@@ -39,8 +44,21 @@ ER bc_uart_poll (void)
         uint8_t reason = (uint8_t)
             ((result.info & BC_PORT_ERROR_MASK) >>
              BC_PORT_ERROR_SHIFT);
-        tm_printf((UB *)"[BARCODE] Rejected: code %d\n",
-                  (INT)reason);
+        /* Repeated input errors must not amplify console-induced delays.
+         * Counters still record every failed sample in [BC INPUT].
+         */
+        if ((1U != reason) || (0U == gb_reported_input_error) ||
+            ((uint32_t)(result.timestamp_msec - g_input_error_msec) >=
+             1000U))
+        {
+            tm_printf((UB *)"[BARCODE] Rejected: code %d\n",
+                      (INT)reason);
+            if (1U == reason)
+            {
+                gb_reported_input_error = 1U;
+                g_input_error_msec = result.timestamp_msec;
+            }
+        }
     }
     return E_OK;
 #else

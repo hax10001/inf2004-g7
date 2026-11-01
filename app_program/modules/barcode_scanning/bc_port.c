@@ -1,14 +1,15 @@
 /** @file bc_port.c
- * @brief Nonblocking capture feed and mutex-protected decoded-letter slot.
+ * @brief Nonblocking capture feed and semaphore-protected decoded-letter slot.
  */
 #include "bc_port.h"
+#include "bc_cal.h"
 #include "drivers/encoder.h"
 
 #define BC_PORT_ERROR_PATTERN 7U
 #define BC_PORT_ERROR_BUSY 8U
 #define BC_PORT_DIAG_SLOTS 4U
 
-static ID gh_port_mutex = 0;
+static ID gh_port_lock = 0;
 static bc_port_config_t g_port_config;
 static bc_scan_t g_port_scan;
 static bc_port_result_t g_port_result;
@@ -26,6 +27,12 @@ static uint64_t g_clock_usec = 0U;
 static uint8_t gb_have_clock = 0U;
 static uint8_t gb_have_result = 0U;
 static uint8_t volatile gb_sample_lost = 0U;
+static bc_port_stats_t g_input_stats;
+static uint8_t gb_scan_active;
+
+static ER bc_port_store (bc_code_result_t decoded, uint32_t timestamp,
+                         uint8_t error_code, uint8_t event);
+
 
 static uint8_t bc_port_ticks (int32_t left, int32_t right)
 {
@@ -51,7 +58,16 @@ static uint8_t bc_port_ticks (int32_t left, int32_t right)
 
     if ((step_l < 0) || (step_r < 0))
     {
+        ++g_input_stats.direction_invalid;
+#if BC_CAL_TEST_IGNORE_INPUT_ERRORS
+        /* Test bypass retains forward travel without inventing travel
+         * from backward steps. Direction failures remain in diagnostics.
+         */
+        step_l = (step_l < 0) ? 0 : step_l;
+        step_r = (step_r < 0) ? 0 : step_r;
+#else
         return 0U;
+#endif
     }
 
     difference = (step_l > step_r) ?
@@ -59,13 +75,24 @@ static uint8_t bc_port_ticks (int32_t left, int32_t right)
                  (uint64_t)(step_r - step_l);
     sum = (uint64_t)step_l + (uint64_t)step_r;
 
-    if ((difference > g_port_config.max_wheel_step_delta) ||
-        (sum > UINT32_MAX - g_travel_units))
+    if (difference > g_port_config.max_wheel_step_delta)
+    {
+        ++g_input_stats.skew_invalid;
+#if !BC_CAL_TEST_IGNORE_INPUT_ERRORS
+        return 0U;
+#endif
+    }
+    /* Keep arithmetic bounded even during permissive testing. */
+    if (sum > UINT32_MAX - g_travel_units)
     {
         return 0U;
     }
 
     g_travel_units += (uint32_t)sum;
+    if (sum > g_port_config.max_sample_travel_units)
+    {
+        ++g_input_stats.step_invalid;
+    }
     /* If any sample spans too much travel, a narrow element might
      * have been missed: reject rather than invent missing transitions.
      */
@@ -74,8 +101,8 @@ static uint8_t bc_port_ticks (int32_t left, int32_t right)
 
 ER bc_port_init (bc_port_config_t const * p_config)
 {
-    T_CMTX mutex_config = {0};
-    ID mutex;
+    T_CSEM lock_config = {0};
+    ID lock;
 
     if ((0 == p_config) ||
         ((1 != p_config->left_forward_sign) &&
@@ -89,7 +116,7 @@ ER bc_port_init (bc_port_config_t const * p_config)
         return E_PAR;
     }
 
-    if (gh_port_mutex > E_OK)
+    if (gh_port_lock > E_OK)
     {
         return E_OBJ;
     }
@@ -99,15 +126,24 @@ ER bc_port_init (bc_port_config_t const * p_config)
         return E_PAR;
     }
 
-    mutex_config.mtxatr = TA_INHERIT;
-    mutex = tk_cre_mtx(&mutex_config);
+    /* Motion, IR and terrain use all four configured mutex slots.
+     * A binary semaphore preserves task-context exclusion without taking
+     * a fifth slot. No I/O, delays or decoding occur while holding it.
+     * Priority ordering does not provide mutex priority inheritance.
+     */
+    lock_config.sematr = TA_TPRI;
+    lock_config.isemcnt = 1;
+    lock_config.maxsem = 1;
+    lock = tk_cre_sem(&lock_config);
 
-    if (mutex <= E_OK)
+    if (lock <= E_OK)
     {
-        return mutex;
+        return (E_OK == lock) ? E_OBJ : lock;
     }
 
     g_port_config = *p_config;
+    g_input_stats = (bc_port_stats_t){0};
+    gb_scan_active = 0U;
     g_port_result = (bc_port_result_t){0U, 0U, 0U};
     gb_have_counts = 0U;
     gb_have_time = 0U;
@@ -118,7 +154,7 @@ ER bc_port_init (bc_port_config_t const * p_config)
     g_diag_count = 0U;
     gb_sample_lost = 0U;
     g_travel_units = 0U;
-    gh_port_mutex = mutex;
+    gh_port_lock = lock;
     return E_OK;
 }
 
@@ -132,7 +168,7 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
         g_port_config.max_sample_interval_msec * 1000U;
     ER error;
 
-    if (gh_port_mutex <= E_OK)
+    if (gh_port_lock <= E_OK)
     {
         return E_OBJ;
     }
@@ -141,11 +177,24 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
         gb_sample_lost = 1U;
         return E_PAR;
     }
-    error = tk_loc_mtx(gh_port_mutex, 0);
+    error = tk_wai_sem(gh_port_lock, 1, 0);
     if (error < E_OK)
     {
         gb_sample_lost = 1U;
+        ++g_input_stats.lock_lost;
         return error;
+    }
+
+    if ((0U != g_input_stats.samples) &&
+        (g_input_stats.raw != raw_gpio_level))
+    {
+        ++g_input_stats.edges;
+    }
+    ++g_input_stats.samples;
+    g_input_stats.raw = raw_gpio_level;
+    if (0U == b_valid)
+    {
+        ++g_input_stats.capture_invalid;
     }
 
     if ((0U != gb_have_counts) &&
@@ -154,6 +203,7 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
          ((right != g_last_right) &&
           ((uint32_t)(now_usec - right_edge_usec) > edge_age_limit))))
     {
+        ++g_input_stats.stale_edge;
         b_valid = 0U;
     }
     if (0U == bc_port_ticks(left, right))
@@ -166,7 +216,13 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
     uint32_t const elapsed_usec = now_usec - g_last_time_usec;
     if ((0U != gb_have_time) && (elapsed_usec > edge_age_limit))
     {
+        ++g_input_stats.gap_invalid;
         b_valid = 0U;
+    }
+    if ((0U != gb_have_time) &&
+        (elapsed_usec > g_input_stats.max_gap_usec))
+    {
+        g_input_stats.max_gap_usec = elapsed_usec;
     }
     if (0U == gb_have_clock)
     {
@@ -189,8 +245,19 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
     (void)bc_scan_feed(&g_port_scan,
                        (raw_gpio_level ==
                         g_port_config.black_gpio_level) ? 1U : 0U,
-                       g_travel_units, now_msec, b_valid);
-    return tk_unl_mtx(gh_port_mutex);
+                       g_travel_units, now_msec,
+                       BC_CAL_TEST_IGNORE_INPUT_ERRORS ? 1U : b_valid);
+    if ((BC_SCAN_CAPTURING == g_port_scan.state) ||
+        (BC_SCAN_END_CANDIDATE == g_port_scan.state) ||
+        (BC_SCAN_COMPLETE == g_port_scan.state))
+    {
+        gb_scan_active = 1U;
+    }
+    g_input_stats.state = g_port_scan.state;
+    g_input_stats.runs = g_port_scan.run_count;
+    g_input_stats.scan_units = (0U != gb_scan_active) ?
+        g_travel_units - g_port_scan.start_units : 0U;
+    return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec)
@@ -213,23 +280,36 @@ ER bc_port_process (void)
     uint8_t error_code = BC_SCAN_ERROR_NONE;
     uint8_t event;
     bc_code_result_t decoded;
-    bc_port_result_t result = {0U, 0U, 0U};
     ER error;
 
-    if (gh_port_mutex <= E_OK)
+    if (gh_port_lock <= E_OK)
     {
         return E_OBJ;
     }
 
-    error = tk_loc_mtx(gh_port_mutex, 0);
+    error = tk_wai_sem(gh_port_lock, 1, 0);
     if (error < E_OK)
     {
         return error;
     }
 
+    if ((BC_SCAN_COMPLETE == g_port_scan.state) ||
+        (BC_SCAN_INVALID == g_port_scan.state))
+    {
+        ++g_input_stats.last_event;
+        g_input_stats.last_error = g_port_scan.error;
+        g_input_stats.last_runs = g_port_scan.run_count;
+        g_input_stats.last_scan_units = g_input_stats.scan_units;
+        for (uint8_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
+        {
+            g_input_stats.last_widths[i] = (i < g_port_scan.run_count) ?
+                g_port_scan.widths[i] : 0U;
+        }
+        gb_scan_active = 0U;
+    }
     event = bc_scan_take(&g_port_scan, widths, &error_code,
                          &timestamp);
-    error = tk_unl_mtx(gh_port_mutex);
+    error = tk_sig_sem(gh_port_lock, 1);
 
     if (error < E_OK)
     {
@@ -251,6 +331,14 @@ ER bc_port_process (void)
         }
     }
 
+    return bc_port_store(decoded, timestamp, error_code, event);
+}
+
+static ER bc_port_store (bc_code_result_t decoded, uint32_t timestamp,
+                         uint8_t error_code, uint8_t event)
+{
+    bc_port_result_t result = {0U, 0U, 0U};
+    ER error;
     result.timestamp_msec = timestamp;
     result.info = (uint16_t)((0U != decoded.valid) ?
                              decoded.letter : BC_CODE_LETTER_INVALID);
@@ -271,7 +359,7 @@ ER bc_port_process (void)
         result.info |= BC_PORT_REVERSE_FLAG;
     }
 
-    error = tk_loc_mtx(gh_port_mutex, TMO_FEVR);
+    error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
     if (error < E_OK)
     {
         return error;
@@ -304,8 +392,24 @@ ER bc_port_process (void)
         g_diag_queue[tail] = result;
         ++g_diag_count;
     }
-    error = tk_unl_mtx(gh_port_mutex);
+    error = tk_sig_sem(gh_port_lock, 1);
     return (0U != b_busy) ? E_OBJ : error;
+}
+
+ER bc_port_publish_buffered (bc_code_result_t const * p_result,
+                              uint32_t timestamp_msec)
+{
+    if ((0 == p_result) || (0U == p_result->valid) ||
+        (p_result->letter >= 26U))
+    {
+        return E_PAR;
+    }
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
+    return bc_port_store(*p_result, timestamp_msec,
+                         BC_SCAN_ERROR_NONE, BC_SCAN_EVENT_READY);
 }
 
 ER bc_port_peek (bc_port_result_t * p_output)
@@ -316,12 +420,12 @@ ER bc_port_peek (bc_port_result_t * p_output)
     {
         return E_PAR;
     }
-    if (gh_port_mutex <= E_OK)
+    if (gh_port_lock <= E_OK)
     {
         return E_OBJ;
     }
 
-    error = tk_loc_mtx(gh_port_mutex, TMO_FEVR);
+    error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
     if (error < E_OK)
     {
         return error;
@@ -329,12 +433,12 @@ ER bc_port_peek (bc_port_result_t * p_output)
 
     if (0U == gb_have_result)
     {
-        (void)tk_unl_mtx(gh_port_mutex);
+        (void)tk_sig_sem(gh_port_lock, 1);
         return E_OBJ;
     }
 
     *p_output = g_port_result;
-    return tk_unl_mtx(gh_port_mutex);
+    return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_diag_pop (bc_port_result_t * p_output)
@@ -345,35 +449,35 @@ ER bc_port_diag_pop (bc_port_result_t * p_output)
     {
         return E_PAR;
     }
-    if (gh_port_mutex <= E_OK)
+    if (gh_port_lock <= E_OK)
     {
         return E_OBJ;
     }
-    error = tk_loc_mtx(gh_port_mutex, TMO_FEVR);
+    error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
     if (error < E_OK)
     {
         return error;
     }
     if (0U == g_diag_count)
     {
-        (void)tk_unl_mtx(gh_port_mutex);
+        (void)tk_sig_sem(gh_port_lock, 1);
         return E_OBJ;
     }
     *p_output = g_diag_queue[g_diag_head];
     g_diag_head = (uint8_t)((g_diag_head + 1U) % BC_PORT_DIAG_SLOTS);
     --g_diag_count;
-    return tk_unl_mtx(gh_port_mutex);
+    return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_ack (uint16_t sequence)
 {
     ER error;
 
-    if (gh_port_mutex <= E_OK)
+    if (gh_port_lock <= E_OK)
     {
         return E_OBJ;
     }
-    error = tk_loc_mtx(gh_port_mutex, TMO_FEVR);
+    error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
     if (error < E_OK)
     {
         return error;
@@ -382,23 +486,23 @@ ER bc_port_ack (uint16_t sequence)
     if ((0U == gb_have_result) ||
         (sequence != g_port_result.sequence))
     {
-        (void)tk_unl_mtx(gh_port_mutex);
+        (void)tk_sig_sem(gh_port_lock, 1);
         return E_OBJ;
     }
 
     gb_have_result = 0U;
-    return tk_unl_mtx(gh_port_mutex);
+    return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_clear (void)
 {
     ER error;
 
-    if (gh_port_mutex <= E_OK)
+    if (gh_port_lock <= E_OK)
     {
         return E_OBJ;
     }
-    error = tk_loc_mtx(gh_port_mutex, TMO_FEVR);
+    error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
     if (error < E_OK)
     {
         return error;
@@ -411,7 +515,49 @@ ER bc_port_clear (void)
     gb_have_counts = 0U;
     gb_have_time = 0U;
     gb_sample_lost = 0U;
-    return tk_unl_mtx(gh_port_mutex);
+    gb_scan_active = 0U;
+    g_input_stats.state = BC_SCAN_IDLE;
+    g_input_stats.runs = 0U;
+    g_input_stats.scan_units = 0U;
+    return tk_sig_sem(gh_port_lock, 1);
+}
+
+ER bc_port_snapshot (bc_scan_t * p_output)
+{
+    if (0 == p_output)
+    {
+        return E_PAR;
+    }
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
+    ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
+    if (error < E_OK)
+    {
+        return error;
+    }
+    *p_output = g_port_scan;
+    return tk_sig_sem(gh_port_lock, 1);
+}
+
+ER bc_port_stats (bc_port_stats_t * p_output)
+{
+    if (0 == p_output)
+    {
+        return E_PAR;
+    }
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
+    ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
+    if (error < E_OK)
+    {
+        return error;
+    }
+    *p_output = g_input_stats;
+    return tk_sig_sem(gh_port_lock, 1);
 }
 
 /*** end of file ***/

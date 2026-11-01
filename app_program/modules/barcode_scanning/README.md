@@ -3,6 +3,17 @@
 Source: Group G7 `improve-movement` at `db69547`. These files were added
 without editing any existing team source, build rule or Git history.
 
+**Current drive test:** `BC_CAL_ENCODER_ONLY=0` restores normal motion/IR
+startup. Barcode decoding is enabled with initial limits derived from the
+12.34 units/mm hand-roll calibration and the reported print sizes. Complete
+scans print `[BARCODE] Detected: X`; console auto-ACK permits later scans.
+See the first section of `CALIBRATION_GUIDE.md` for the named UF2 and limits.
+The encoder-only logger remains available by setting its mode flag to 1.
+After the first moving log showed code-1 rejections, `build_drive.sh` now
+provides a USB-only console build, disabling the blocking UART mirror.
+Use its `_barcode_drive_usb_only.uf2` and send the new `[BC INPUT]` counters
+with any rejection report. Motors/IR remain enabled; capture guards remain.
+
 ## What exists
 
 - `bc_code.[ch]`: 26 `const` nine-bit symbol masks, strict `*A*` to `*Z*`
@@ -47,7 +58,11 @@ other mapping is hardcoded. The Mission Coordinator owns that mapping.
 | 10–13 | error 0 none, 1 bad input, 2 width, 3 buffer overflow, 4 timeout, 5 distance, 6 interrupted, 7 pattern, 8 pending/busy (reserved) |
 | 14–15 | reserved, always zero |
 
-`bc_port_peek` copies the result under a µT-Kernel priority-inheritance mutex.
+`bc_port_peek` copies the result under a µT-Kernel binary semaphore.
+Waiters use priority order; this does not provide priority inheritance.
+Critical sections contain no decoding, console I/O or task delays. This
+uses one semaphore slot and no mutex slots: motion, IR and terrain already
+need all four mutex slots configured in the current application.
 The accepted event persists until `bc_port_ack(sequence)` or
 `bc_port_clear()` at STOP/FAULT. A second completed scan cannot overwrite an
 unacknowledged event. `bc_port_diag_pop` consumes diagnostic records separately
@@ -95,11 +110,11 @@ or letter-to-navigation mapping is implemented by this module.
   across a ruler-marked travel distance. One scanner travel unit is one
   increment in that sum, *not* millimetres.
 - Measure the narrowest black AND white barcode feature, leading and
-  trailing quiet zones. 141 mm is the approximate barcode span from first
-  to last bar; the separate 20 mm line gap is lateral, not the quiet zone.
+  trailing quiet zones. Measure the actual first-to-last bar span at each
+  required print scale; the separate 20 mm line gap is lateral.
 - Set MIN_RUN to an experimentally safe lower bound, LEADING/TRAILING to
   measured quiet-zone limits, and MIN/MAX_BARCODE to an evidence-supported
-  tolerance around the observed 141 mm span converted to travel units.
+  tolerance covering the smallest/largest validated print spans in travel units.
 - Set MAX_SAMPLE_UNITS no greater than one-quarter of the measured minimum
   feature distance (conservative initial sampling rule). Set MAX_SAMPLE_MSEC
   from actual worst-case scheduler jitter; exceeding it rejects the scan.
@@ -141,7 +156,7 @@ bash app_program/modules/barcode_scanning/run_tests.sh
 ```
 
 The tests compile the *actual* new C sources with GCC host stubs for RTOS
-mutex, encoder and `tm_printf`. Test code is excluded from normal firmware
+semaphores, encoders and `tm_printf`. Test code is excluded from normal firmware
 unless `TEST=1` is used. No helper source outside this module is modified.
 
 For target firmware (with installed ARM GCC + Make), from `build_make`:
@@ -239,3 +254,13 @@ mission-controller dependency; see `CALIBRATION_GUIDE.md` for safe on-target
 GP27/encoder/4 ms measurements. `integration_audit.py` verifies the hooks
 without changing other modules. Rejected events cannot block a later valid
 letter, while an unacknowledged valid letter remains protected.
+
+Print size varies. The earlier **141 mm** sample has nominal **3 mm narrow**
+and **9 mm wide** features, but is not a fixed scan-size requirement.
+The corrected first-to-last bar range is **15.46-29.7 cm (154.6-297 mm)**.
+At the full sheet length, provide white surface beyond the paper edges
+for quiet zones and verify the print is not clipped.
+`calibrate.py` requires an explicit measured `--span-mm` or source layout,
+and converts signed wheel count differences over a known distance into a
+worksheet. Source geometry and the remaining hardware measurements are
+documented in `CALIBRATION_GUIDE.md`.
