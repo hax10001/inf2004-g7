@@ -2,6 +2,7 @@
 #define HOST_LIBBSP_H
 #include <tk/tkernel.h>
 #define GPIO_MODE_IN 0U
+#define GPIO_MODE_OUT 1U
 ER gpio_set_pin(UINT pin, UINT mode);
 UINT gpio_get_val(UINT pin);
 ER gpio_set_val(UINT pin, UINT value);

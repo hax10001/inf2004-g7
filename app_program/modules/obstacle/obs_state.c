@@ -32,10 +32,9 @@ static uint32_t volatile g_status      = 0U;
 static uint32_t volatile g_plan_word_a = 0U;
 static uint32_t volatile g_plan_word_b = 0U;
 static int32_t volatile g_watch_angle  = 0;
-static int32_t volatile g_side_range   = -1;
-static uint32_t volatile g_side_seq    = 0U;
-static int32_t volatile g_front_range  = -1;
-static uint32_t volatile g_front_seq   = 0U;
+static obs_state_reading_t g_side_reading  = {0U, 0, 0, OBS_ECHO_NONE, 0U};
+static obs_state_reading_t g_front_reading = {0U, 0, 0, OBS_ECHO_NONE, 0U};
+static obs_state_aim_info_t g_aim = {0U, 0, OBS_AIM_UNAVAILABLE};
 
 /** @brief Take the lock; false if the lock does not exist yet. */
 static bool lock_take (void);
@@ -45,6 +44,15 @@ static void lock_give (void);
 static void status_update (uint32_t shift, uint32_t mask, uint32_t value);
 /** @brief Read one field of the status word. */
 static uint32_t field_get (uint32_t shift, uint32_t mask);
+/** @brief Store a ping under the lock and advance its sequence count. */
+static void reading_store (obs_state_reading_t * p_slot, obs_state_echo_t echo,
+                           int32_t range_mm, int32_t bearing_deg,
+                           uint32_t time_msec);
+/** @brief Copy a ping out under the lock. */
+static void reading_copy (obs_state_reading_t const * p_slot,
+                          obs_state_reading_t *       p_reading);
+/** @brief Bound a value to the signed 8-bit bearing field. */
+static int8_t bearing_field (int32_t bearing_deg);
 
 ER obs_state_init (void)
 {
@@ -249,37 +257,55 @@ int32_t obs_state_watch_angle_get (void)
     return g_watch_angle;
 }
 
-void obs_state_side_range_set (int32_t range_mm)
+void obs_state_side_reading_set (obs_state_echo_t echo, int32_t range_mm,
+                                 int32_t bearing_deg, uint32_t time_msec)
 {
-    /* The range is written first, so a new count never shows an old range. */
-    g_side_range = range_mm;
-    g_side_seq   = g_side_seq + 1U;
+    reading_store(&g_side_reading, echo, range_mm, bearing_deg, time_msec);
 }
 
-int32_t obs_state_side_range_get (void)
+void obs_state_side_reading_get (obs_state_reading_t * p_reading)
 {
-    return g_side_range;
+    reading_copy(&g_side_reading, p_reading);
 }
 
-uint32_t obs_state_side_seq_get (void)
+void obs_state_front_reading_set (obs_state_echo_t echo, int32_t range_mm,
+                                  uint32_t time_msec)
 {
-    return g_side_seq;
+    reading_store(&g_front_reading, echo, range_mm, 0, time_msec);
 }
 
-void obs_state_front_range_set (int32_t range_mm)
+void obs_state_front_reading_get (obs_state_reading_t * p_reading)
 {
-    g_front_range = range_mm;
-    g_front_seq   = g_front_seq + 1U;
+    reading_copy(&g_front_reading, p_reading);
 }
 
-int32_t obs_state_front_range_get (void)
+void obs_state_aim_set (obs_state_aim_t aim, int32_t bearing_deg,
+                        uint32_t time_msec)
 {
-    return g_front_range;
+    if (lock_take())
+    {
+        /* Enumerators are below 8, so the cast to the 8-bit field is exact. */
+        g_aim.aim         = (uint8_t)aim;
+        g_aim.bearing_deg = bearing_field(bearing_deg);
+        g_aim.time_msec   = time_msec;
+        lock_give();
+    }
 }
 
-uint32_t obs_state_front_seq_get (void)
+void obs_state_aim_get (obs_state_aim_info_t * p_info)
 {
-    return g_front_seq;
+    if (NULL != p_info)
+    {
+        p_info->aim         = OBS_AIM_UNAVAILABLE;
+        p_info->bearing_deg = 0;
+        p_info->time_msec   = 0U;
+
+        if (lock_take())
+        {
+            *p_info = g_aim;
+            lock_give();
+        }
+    }
 }
 
 static bool lock_take (void)
@@ -304,6 +330,62 @@ static void status_update (uint32_t shift, uint32_t mask, uint32_t value)
 static uint32_t field_get (uint32_t shift, uint32_t mask)
 {
     return (obs_state_status_get() >> shift) & mask;
+}
+
+static void reading_store (obs_state_reading_t * p_slot, obs_state_echo_t echo,
+                           int32_t range_mm, int32_t bearing_deg,
+                           uint32_t time_msec)
+{
+    int32_t range = 0;
+
+    if (OBS_ECHO_VALID == echo)
+    {
+        range = (range_mm < 0) ? 0 : range_mm;
+        range = (range > INT16_MAX) ? INT16_MAX : range;
+    }
+
+    if (lock_take())
+    {
+        /* The range is bounded to the int16_t field just above. */
+        p_slot->range_mm    = (int16_t)range;
+        p_slot->bearing_deg = bearing_field(bearing_deg);
+        /* Enumerators are below 8, so the cast to the 8-bit field is exact. */
+        p_slot->echo      = (uint8_t)echo;
+        p_slot->time_msec = time_msec;
+        /* The sequence count wraps by design; only a change matters. */
+        p_slot->seq = (uint8_t)(p_slot->seq + 1U);
+        lock_give();
+    }
+}
+
+static void reading_copy (obs_state_reading_t const * p_slot,
+                          obs_state_reading_t *       p_reading)
+{
+    if (NULL != p_reading)
+    {
+        p_reading->time_msec   = 0U;
+        p_reading->range_mm    = 0;
+        p_reading->bearing_deg = 0;
+        p_reading->echo        = OBS_ECHO_NONE;
+        p_reading->seq         = 0U;
+
+        if (lock_take())
+        {
+            *p_reading = *p_slot;
+            lock_give();
+        }
+    }
+}
+
+static int8_t bearing_field (int32_t bearing_deg)
+{
+    int32_t bearing = bearing_deg;
+
+    bearing = (bearing > INT8_MAX) ? INT8_MAX : bearing;
+    bearing = (bearing < INT8_MIN) ? INT8_MIN : bearing;
+
+    /* The bearing is bounded to the int8_t range just above. */
+    return (int8_t)bearing;
 }
 
 /*** end of file ***/

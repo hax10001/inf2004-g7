@@ -51,6 +51,43 @@ typedef enum
 #define OBS_EVT_SIDE_WATCH 0x10U
 #define OBS_EVT_FRONT_WATCH 0x20U
 
+/** @brief What a single ping found. */
+typedef enum
+{
+    OBS_ECHO_VALID = 0, /**< An echo, so the range is a real surface. */
+    OBS_ECHO_BEYOND,    /**< Echo started but nothing came back in range. */
+    OBS_ECHO_NONE       /**< No echo pulse at all: unknown, never clear. */
+} obs_state_echo_t;
+
+/** @brief Where the ultrasonic sensor points, as the obstacle task knows. */
+typedef enum
+{
+    OBS_AIM_FORWARD = 0, /**< Settled at FRONT. */
+    OBS_AIM_LEFT,        /**< Settled at a bearing to the left. */
+    OBS_AIM_RIGHT,       /**< Settled at a bearing to the right. */
+    OBS_AIM_RETURNING,   /**< Moving back to FRONT; not usable yet. */
+    OBS_AIM_SETTLING,    /**< Moving to a side bearing; not usable yet. */
+    OBS_AIM_UNAVAILABLE  /**< Not started or parked after an abort. */
+} obs_state_aim_t;
+
+/** @brief One published ping, copied out as a whole under the lock. */
+typedef struct
+{
+    uint32_t time_msec;   /**< Kernel time when the ping ended. */
+    int16_t  range_mm;    /**< Meaningful only for OBS_ECHO_VALID. */
+    int8_t   bearing_deg; /**< Servo bearing during the ping; + is left. */
+    uint8_t  echo;        /**< An obs_state_echo_t value. */
+    uint8_t  seq;         /**< Changes with every new ping. */
+} obs_state_reading_t;
+
+/** @brief The sensor orientation state. */
+typedef struct
+{
+    uint32_t time_msec;   /**< When this state was entered. */
+    int8_t   bearing_deg; /**< Commanded bearing; + is left. */
+    uint8_t  aim;         /**< An obs_state_aim_t value. */
+} obs_state_aim_info_t;
+
 /** @brief Create the mutex and event flags; call before any task starts.
  *  @return E_OK, or a kernel error code.
  */
@@ -107,19 +144,25 @@ void obs_state_plan_load (scan_plan_bypass_t * p_plan);
 void obs_state_watch_angle_set (int32_t angle_deg);
 /** @brief Get the servo angle for the side watch. */
 int32_t obs_state_watch_angle_get (void);
-/** @brief Publish the latest side ping in mm, or -1 when it found nothing. */
-void obs_state_side_range_set (int32_t range_mm);
-/** @brief Latest side ping in mm, or -1 when it found nothing. */
-int32_t obs_state_side_range_get (void);
-/** @brief Count of side pings published; changes with each new ping. */
-uint32_t obs_state_side_seq_get (void);
-/** @brief Publish the latest front ping in mm, or -1 when it found nothing. */
-void obs_state_front_range_set (int32_t range_mm);
-/** @brief Latest front ping in mm, or -1 when it found nothing. */
-int32_t obs_state_front_range_get (void);
-/** @brief Count of front pings published; changes with each new ping. */
-uint32_t obs_state_front_seq_get (void);
 
+/** @brief Publish a side ping with the bearing the servo really had. */
+void obs_state_side_reading_set (obs_state_echo_t echo, int32_t range_mm,
+                                 int32_t bearing_deg, uint32_t time_msec);
+/** @brief Copy the latest side ping; seq changes with each new ping. */
+void obs_state_side_reading_get (obs_state_reading_t * p_reading);
+/** @brief Publish a forward ping; only taken with the servo at FRONT. */
+void obs_state_front_reading_set (obs_state_echo_t echo, int32_t range_mm,
+                                  uint32_t time_msec);
+/** @brief Copy the latest forward ping; seq changes with each new ping. */
+void obs_state_front_reading_get (obs_state_reading_t * p_reading);
+
+/** @brief Publish where the sensor points and whether it has settled.
+ *  @param time_msec When the servo reached, or was sent to, the bearing.
+ */
+void obs_state_aim_set (obs_state_aim_t aim, int32_t bearing_deg,
+                        uint32_t time_msec);
+/** @brief Copy the sensor orientation state. */
+void obs_state_aim_get (obs_state_aim_info_t * p_info);
 
 #endif /* OBS_STATE_H */
 

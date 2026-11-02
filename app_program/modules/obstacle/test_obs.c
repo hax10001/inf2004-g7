@@ -98,13 +98,17 @@ void test_obs_run (void)
            (SCAN_PLAN_ROUTE == scan_plan_result(&plan)) &&
                ((scan_plan_lateral_cm(&plan) * 10) >= OBS_LATERAL_UNKNOWN_MM));
 
-    /* Separate objects beside it on both sides block both corridors. */
+    /* Separate objects beside it on both sides block both corridors, and
+     * going round them as well would need more than the widest offset.
+     */
     fill(points, 1500);
-    points[zero - 2].range_mm = 400;
+    points[zero - 4].range_mm = 400;
+    points[zero - 3].range_mm = 400;
     points[zero - 1].range_mm = 254;
     points[zero].range_mm     = 250;
     points[zero + 1].range_mm = 254;
-    points[zero + 2].range_mm = 400;
+    points[zero + 3].range_mm = 400;
+    points[zero + 4].range_mm = 400;
     scan_plan_build(points, OBS_SCAN_POINTS, &plan);
     report("objects on both sides give no route",
            SCAN_PLAN_NO_ROUTE == scan_plan_result(&plan));

@@ -10,6 +10,7 @@ typedef int32_t PRI;
 typedef int32_t W;
 typedef int32_t SZ;
 typedef int32_t TMO;
+typedef uint32_t RELTIM;
 typedef uint32_t UINT;
 typedef uint32_t UW;
 typedef uint8_t UB;
@@ -23,10 +24,16 @@ typedef struct {
     UW tskatr;
 } T_CTSK;
 typedef struct { UW mtxatr; } T_CMTX;
+typedef struct { UW sematr; INT isemcnt; INT maxsem; } T_CSEM;
+typedef struct { UW flgatr; UINT iflgptn; } T_CFLG;
+typedef struct { UINT flgptn; } T_RFLG;
 #define EXPORT
 #define IMPORT extern
 #define LOCAL static
 #define Inline static inline
+#define TA_TFIFO 0U
+#define TA_FIRST 0U
+#define TA_WMUL 0x04U
 #define TA_HLNG 1U
 #define TA_RNG3 0x300U
 #define TA_INHERIT 1U
@@ -43,6 +50,13 @@ ER tk_sta_tsk(ID task, INT code);
 ER tk_dly_tsk(UINT delay);
 ER tk_slp_tsk(TMO timeout);
 ID tk_cre_mtx(const T_CMTX *config);
+ID tk_cre_sem(const T_CSEM *config);
+ER tk_wai_sem(ID sem, INT count, TMO timeout);
+ER tk_sig_sem(ID sem, INT count);
+ID tk_cre_flg(const T_CFLG *config);
+ER tk_ref_flg(ID flag, T_RFLG *info);
+ER tk_set_flg(ID flag, UINT bits);
+ER tk_clr_flg(ID flag, UINT keep);
 ER tk_loc_mtx(ID mutex, TMO timeout);
 ER tk_unl_mtx(ID mutex);
 ER tk_del_mtx(ID mutex);

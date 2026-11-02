@@ -51,6 +51,7 @@ static int create_zero;
 static uint32_t now_msec = 1000U;
 static int quiet, exhaustive;
 static uint16_t raw_word;
+static UINT obstacle_event_bits;
 
 INT tm_printf(const UB *format, ...)
 {
@@ -78,6 +79,48 @@ ID tk_cre_mtx(const T_CMTX *config)
 {
     printf("MUTEX attr=%u\n", config->mtxatr);
     return fail_mutex ? -5 : 10;
+}
+/* Host-only binary semaphore and event-flag behaviour for Buddy 5.
+ * The deterministic harness is single threaded; hardware RTOS concurrency
+ * must still be tested separately on the Pico.
+ */
+ID tk_cre_sem(const T_CSEM *config)
+{
+    (void)config;
+    return 30;
+}
+ER tk_wai_sem(ID sem, INT count, TMO timeout)
+{
+    (void)sem; (void)count; (void)timeout;
+    return E_OK;
+}
+ER tk_sig_sem(ID sem, INT count)
+{
+    (void)sem; (void)count;
+    return E_OK;
+}
+ID tk_cre_flg(const T_CFLG *config)
+{
+    obstacle_event_bits = config->iflgptn;
+    return 31;
+}
+ER tk_ref_flg(ID flag, T_RFLG *info)
+{
+    (void)flag;
+    info->flgptn = obstacle_event_bits;
+    return E_OK;
+}
+ER tk_set_flg(ID flag, UINT bits)
+{
+    (void)flag;
+    obstacle_event_bits |= bits;
+    return E_OK;
+}
+ER tk_clr_flg(ID flag, UINT keep)
+{
+    (void)flag;
+    obstacle_event_bits &= keep;
+    return E_OK;
 }
 ER tk_loc_mtx(ID mutex, TMO timeout)
 {
