@@ -26,8 +26,8 @@
  * the [MOTOR SPEED] log, then set this value.
  */
 #define BOARD_ENC_COUNTS_PER_REV 1056U
-/* WARNING: Unverified; measure the driven wheel's outer diameter. */
-#define BOARD_WHEEL_DIAMETER_MM 65.0f
+/* Measured outer diameter of the driven wheel. */
+#define BOARD_WHEEL_DIAMETER_MM 70.0f
 
 #define BOARD_US_TRIG_PIN 4U
 /* WARNING: HC-SR04 ECHO is 5 V. Fit a divider (e.g. 1k/2k) before GP5. */

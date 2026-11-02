@@ -91,9 +91,22 @@ void test_obs_run (void)
               (UINT)scan_plan_lateral_cm(&plan), (UINT)scan_plan_diag_cm(&plan),
               (UINT)scan_plan_side_is_left(&plan));
 
+    /* Filling the sweep hides both edges, so the widest offset is used. */
     fill(points, 200);
     scan_plan_build(points, OBS_SCAN_POINTS, &plan);
-    report("wall gives no route",
+    report("object filling the sweep uses the unknown-edge offset",
+           (SCAN_PLAN_ROUTE == scan_plan_result(&plan)) &&
+               ((scan_plan_lateral_cm(&plan) * 10) >= OBS_LATERAL_UNKNOWN_MM));
+
+    /* Separate objects beside it on both sides block both corridors. */
+    fill(points, 1500);
+    points[zero - 2].range_mm = 400;
+    points[zero - 1].range_mm = 254;
+    points[zero].range_mm     = 250;
+    points[zero + 1].range_mm = 254;
+    points[zero + 2].range_mm = 400;
+    scan_plan_build(points, OBS_SCAN_POINTS, &plan);
+    report("objects on both sides give no route",
            SCAN_PLAN_NO_ROUTE == scan_plan_result(&plan));
 
 #if OBS_TEST_HW

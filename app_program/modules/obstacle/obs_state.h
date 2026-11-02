@@ -49,8 +49,7 @@ typedef enum
 #define OBS_EVT_SCAN_DONE 0x04U
 #define OBS_EVT_ABORT 0x08U
 #define OBS_EVT_SIDE_WATCH 0x10U
-#define OBS_EVT_SIDE_SEEN 0x20U
-#define OBS_EVT_SIDE_CLEAR 0x40U
+#define OBS_EVT_FRONT_WATCH 0x20U
 
 /** @brief Create the mutex and event flags; call before any task starts.
  *  @return E_OK, or a kernel error code.
@@ -104,10 +103,23 @@ void obs_state_faults_update (uint32_t set_mask, uint32_t clear_mask);
 void obs_state_plan_store (scan_plan_bypass_t const * p_plan);
 /** @brief Load the stored plan. */
 void obs_state_plan_load (scan_plan_bypass_t * p_plan);
-/** @brief Set the side to watch: 1 is left, -1 is right. */
-void obs_state_watch_side_set (int32_t side);
-/** @brief Get the side to watch. */
-int32_t obs_state_watch_side_get (void);
+/** @brief Set the servo angle for the side watch; positive looks left. */
+void obs_state_watch_angle_set (int32_t angle_deg);
+/** @brief Get the servo angle for the side watch. */
+int32_t obs_state_watch_angle_get (void);
+/** @brief Publish the latest side ping in mm, or -1 when it found nothing. */
+void obs_state_side_range_set (int32_t range_mm);
+/** @brief Latest side ping in mm, or -1 when it found nothing. */
+int32_t obs_state_side_range_get (void);
+/** @brief Count of side pings published; changes with each new ping. */
+uint32_t obs_state_side_seq_get (void);
+/** @brief Publish the latest front ping in mm, or -1 when it found nothing. */
+void obs_state_front_range_set (int32_t range_mm);
+/** @brief Latest front ping in mm, or -1 when it found nothing. */
+int32_t obs_state_front_range_get (void);
+/** @brief Count of front pings published; changes with each new ping. */
+uint32_t obs_state_front_seq_get (void);
+
 
 #endif /* OBS_STATE_H */
 

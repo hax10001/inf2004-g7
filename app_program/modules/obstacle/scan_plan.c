@@ -5,8 +5,11 @@
  * Each sample becomes a lateral offset (left is positive) and a forward
  * depth. The object is the run of near samples around the front. Its outer
  * edges, padded by half a scan step, set the lateral offset that a path
- * needs: edge plus half the robot width plus a safety margin. The smallest
- * candidate angle whose diagonal still clears the nearest face is used.
+ * needs: edge plus half the robot width plus a safety margin. If the object
+ * reaches the end of the sweep on a side, that edge was never seen, so the
+ * side needs at least OBS_LATERAL_UNKNOWN_MM. The smallest candidate angle
+ * whose turn and run still clear the nearest face is used; a 90 degree turn
+ * always fits, so only another object beside the path makes a side unusable.
  * Integer maths is used because the RP2040 has no floating point unit.
  */
 #include "scan_plan.h"
@@ -21,7 +24,7 @@
 #define TRIG_TABLE_SIZE 19U
 #define MILLI 1000
 #define HALF 2
-#define ANGLE_CHOICES 3U
+#define ANGLE_CHOICES 4U
 #define MM_PER_CM 10
 #define ROUND_MM 5
 #define WIDTH_LIMIT_CM 254
@@ -51,7 +54,8 @@ static int32_t const g_sine_milli[TRIG_TABLE_SIZE] = {
     0,   87,  174, 259, 342, 423, 500, 574, 643, 707,
     766, 819, 866, 906, 940, 966, 985, 996, 1000};
 
-static int32_t const g_angle_choice_deg[ANGLE_CHOICES] = {30, 45, 60};
+static int32_t const g_angle_choice_deg[ANGLE_CHOICES] = {30, 45, 60, 90};
+
 
 typedef struct
 {
@@ -95,12 +99,14 @@ static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
 static bool corridor_blocked (scan_plan_point_t const * p_points, int32_t count,
                               int32_t low, int32_t high, int32_t outward_edge,
                               int32_t limit_mm, int32_t sign);
-/** @brief Pick the smallest angle whose diagonal clears the near face. */
+/** @brief Pick the smallest angle whose run clears the near face. */
 static void pick_angle (int32_t near_depth, side_option_t * p_option);
-/** @brief Work out the offset and angle needed on one side. */
+/** @brief Work out the offset and angle needed on one side.
+ *  @param b_edge_seen False if the object reaches the end of the sweep.
+ */
 static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
                            int32_t low, int32_t high, int32_t outward_edge,
-                           int32_t near_depth, int32_t sign,
+                           bool b_edge_seen, int32_t near_depth, int32_t sign,
                            side_option_t * p_option);
 /** @brief Choose the better side and fill in the plan fields. */
 static void choose_side (side_option_t const * p_left,
@@ -318,25 +324,34 @@ static void pick_angle (int32_t near_depth, side_option_t * p_option)
 {
     bool b_fit = false;
 
+    /* The steepest angle is the fallback: turning square on adds no forward
+     * travel, so it suits an object that is already close.
+     */
+    p_option->angle_index = ANGLE_CHOICES - 1U;
+
     for (uint32_t choice = 0U; (choice < ANGLE_CHOICES) && (!b_fit); choice++)
     {
         int32_t const angle = g_angle_choice_deg[choice];
+        /* Pivoting on one wheel also carries the robot forward. */
+        int32_t const pivot =
+            ((OBS_TRACK_WIDTH_MM / HALF) * sine_milli(angle)) / MILLI;
         int32_t const advance =
             (p_option->need_mm * cosine_milli(angle)) / sine_milli(angle);
 
-        if ((advance + OBS_FRONT_CLEAR_MM) <= near_depth)
+        /* The body reaches past the sensor, which the range is from. */
+        int32_t const overhang = OBS_ROBOT_FRONT_MM - OBS_SENSOR_TO_AXLE_MM;
+
+        if ((advance + pivot + overhang + OBS_FRONT_CLEAR_MM) <= near_depth)
         {
             b_fit                 = true;
             p_option->angle_index = choice;
         }
     }
-
-    p_option->b_ok = b_fit;
 }
 
 static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
                            int32_t low, int32_t high, int32_t outward_edge,
-                           int32_t near_depth, int32_t sign,
+                           bool b_edge_seen, int32_t near_depth, int32_t sign,
                            side_option_t * p_option)
 {
     int32_t const half_mm = (OBS_ROBOT_WIDTH_MM / HALF) + OBS_SAFETY_MARGIN_MM;
@@ -345,6 +360,11 @@ static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
     if (need_mm < half_mm)
     {
         need_mm = half_mm;
+    }
+
+    if ((!b_edge_seen) && (need_mm < OBS_LATERAL_UNKNOWN_MM))
+    {
+        need_mm = OBS_LATERAL_UNKNOWN_MM;
     }
 
     p_option->need_mm     = need_mm;
@@ -377,7 +397,8 @@ static void choose_side (side_option_t const * p_left,
         p_fields->angle_index = p_pick->angle_index;
         p_fields->lateral_cm  = to_cm(p_pick->need_mm, DIST_LIMIT_CM);
         p_fields->diag_cm     = to_cm(diag_mm, DIST_LIMIT_CM);
-        p_fields->fallback_cm = to_cm(width_mm + OBS_ROBOT_LENGTH_MM +
+        p_fields->fallback_cm = to_cm(width_mm + OBS_ROBOT_FRONT_MM +
+                                          OBS_ROBOT_REAR_MM +
                                           (HALF * OBS_SAFETY_MARGIN_MM),
                                       DIST_LIMIT_CM);
     }
@@ -405,11 +426,28 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
     int32_t const left_x = point_x(&p_points[high]) + edge_pad(&p_points[high]);
     int32_t const right_x = point_x(&p_points[low]) - edge_pad(&p_points[low]);
     int32_t const width   = left_x - right_x;
-    side_option_t left    = {0, 0U, false};
-    side_option_t right   = {0, 0U, false};
+    /* Samples are ordered right to left, so the ends are the sweep limits. */
+    bool const    b_left_seen  = high < (count - 1);
+    bool const    b_right_seen = low > 0;
+    side_option_t left         = {0, 0U, false};
+    side_option_t right        = {0, 0U, false};
 
-    evaluate_side(p_points, count, low, high, left_x, near_depth, 1, &left);
-    evaluate_side(p_points, count, low, high, -right_x, near_depth, -1, &right);
+    evaluate_side(p_points, count, low, high, left_x, b_left_seen, near_depth,
+                  1, &left);
+    evaluate_side(p_points, count, low, high, -right_x, b_right_seen,
+                  near_depth, -1, &right);
+
+    if ((!b_left_seen) && (!b_right_seen) && left.b_ok && right.b_ok &&
+        (left.need_mm == right.need_mm))
+    {
+        /* Neither edge was seen: go where the outermost sample is farther,
+         * as that end of the object is more likely to be turning away.
+         */
+        if (p_points[0].range_mm > p_points[count - 1].range_mm)
+        {
+            left.need_mm++;
+        }
+    }
     p_fields->width_cm = to_cm(width, WIDTH_LIMIT_CM);
     p_fields->near_cm  = to_cm(near_depth, DIST_LIMIT_CM);
     choose_side(&left, &right, width, p_fields);

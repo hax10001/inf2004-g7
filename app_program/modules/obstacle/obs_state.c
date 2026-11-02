@@ -31,7 +31,11 @@ static ID gh_flag                      = 0;
 static uint32_t volatile g_status      = 0U;
 static uint32_t volatile g_plan_word_a = 0U;
 static uint32_t volatile g_plan_word_b = 0U;
-static int32_t volatile g_watch_side   = 1;
+static int32_t volatile g_watch_angle  = 0;
+static int32_t volatile g_side_range   = -1;
+static uint32_t volatile g_side_seq    = 0U;
+static int32_t volatile g_front_range  = -1;
+static uint32_t volatile g_front_seq   = 0U;
 
 /** @brief Take the lock; false if the lock does not exist yet. */
 static bool lock_take (void);
@@ -235,14 +239,47 @@ void obs_state_plan_load (scan_plan_bypass_t * p_plan)
     p_plan->word_b = g_plan_word_b;
 }
 
-void obs_state_watch_side_set (int32_t side)
+void obs_state_watch_angle_set (int32_t angle_deg)
 {
-    g_watch_side = side;
+    g_watch_angle = angle_deg;
 }
 
-int32_t obs_state_watch_side_get (void)
+int32_t obs_state_watch_angle_get (void)
 {
-    return g_watch_side;
+    return g_watch_angle;
+}
+
+void obs_state_side_range_set (int32_t range_mm)
+{
+    /* The range is written first, so a new count never shows an old range. */
+    g_side_range = range_mm;
+    g_side_seq   = g_side_seq + 1U;
+}
+
+int32_t obs_state_side_range_get (void)
+{
+    return g_side_range;
+}
+
+uint32_t obs_state_side_seq_get (void)
+{
+    return g_side_seq;
+}
+
+void obs_state_front_range_set (int32_t range_mm)
+{
+    g_front_range = range_mm;
+    g_front_seq   = g_front_seq + 1U;
+}
+
+int32_t obs_state_front_range_get (void)
+{
+    return g_front_range;
+}
+
+uint32_t obs_state_front_seq_get (void)
+{
+    return g_front_seq;
 }
 
 static bool lock_take (void)

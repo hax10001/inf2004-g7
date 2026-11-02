@@ -36,8 +36,8 @@ bool obstacle_has_fault (void);
 /** @brief Cancel any scan or bypass and park the servo. */
 void obstacle_abort (void);
 /** @brief Advance the bypass one step; call once per controller period.
- *  @param line_left Left IR, 1 is black.
- *  @param line_right Right IR, 1 is black.
+ *  @param line_left Left IR, 1 if black now or since the last period.
+ *  @param line_right Right IR, 1 if black now or since the last period.
  *  @param now_msec Kernel time in milliseconds.
  */
 obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,

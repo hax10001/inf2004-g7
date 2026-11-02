@@ -355,8 +355,20 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
         return ROBOT_STOPPED;
     }
 
+    bool b_touch_left  = false;
+    bool b_touch_right = false;
+    bool b_touch_both  = false;
+
+    /* A quick crossing can fall between reads; the latches keep it. */
+    (void)ir_shared_take_sides(&b_touch_left, &b_touch_right);
+    (void)ir_shared_take_junction(&b_touch_both);
+
+    uint32_t const line_left =
+        (b_touch_left || b_touch_both) ? 1U : reading.left;
+    uint32_t const line_right =
+        (b_touch_right || b_touch_both) ? 1U : reading.right;
     obstacle_drive_t const drive =
-        obstacle_bypass_step(reading.left, reading.right, (uint32_t)now.lo);
+        obstacle_bypass_step(line_left, line_right, (uint32_t)now.lo);
 
     if (drive.b_fault)
     {
