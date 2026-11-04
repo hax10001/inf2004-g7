@@ -1,0 +1,25 @@
+'use strict';
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const {frame,TYPES,decodeFrame,interpret}=require('../server/protocol');
+const {RobotState,readinessReasons}=require('../server/state');
+test('V8.0 reports barcode motor hold and real requested PWM separately from ACK',()=>{
+ const p=Buffer.alloc(14);
+ p[0]=1;p[1]=1;p[2]=1;p[4]=2;
+ p.writeUInt16LE(7,7);p[9]=1;p.writeUInt16LE(0,10);p.writeUInt16LE(0,12);
+ const msg=interpret(decodeFrame(frame(TYPES.STATUS,p,{session:1,seq:1,ms:1000})));
+ assert.equal(msg.barcodeMotorHold,true);
+ assert.equal(msg.pwmLeft,0);assert.equal(msg.pwmRight,0);
+ assert.equal(msg.running,true);
+ assert.equal(msg.lastCommandTransaction,7);
+ const state=new RobotState();
+ state.ingest(frame(TYPES.STATUS,p,{session:1,seq:1,ms:1000}));
+ assert.match(state.logs[0].message,/barcode_hold=YES/);
+ assert.match(state.logs[0].message,/commanded_PWM_L=0 R=0/);
+ p[9]=0;p.writeUInt16LE(1125,10);p.writeUInt16LE(1143,12);
+ const after=interpret(decodeFrame(frame(TYPES.STATUS,p,{session:1,seq:2,ms:2000})));
+ assert.equal(after.barcodeMotorHold,false);
+ assert.equal(after.pwmLeft,1125);
+ assert.equal(after.pwmRight,1143);
+ assert.deepEqual(readinessReasons(128),['barcode capture still processing']);
+});
