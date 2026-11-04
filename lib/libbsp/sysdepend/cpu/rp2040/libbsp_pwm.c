@@ -123,7 +123,7 @@ ER pwm_set_enabled(UINT no, BOOL enable)
 	if(no >= GPIO_NUM) return E_PAR;
 
 	if(enable) {
-		set_w(PWM_CH_CSR(PWM_GET_CHNO(no)), PWM_CH_CSR_EN);	// Enable cahnel
+		set_w(PWM_CH_CSR(PWM_GET_CHNO(no)), PWM_CH_CSR_EN);	// Enable chanel
 	} else {
 		clr_w(PWM_CH_CSR(PWM_GET_CHNO(no)), PWM_CH_CSR_EN);	// Disable chanel
 	}

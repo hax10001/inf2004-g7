@@ -385,15 +385,15 @@ The blink task never touches the console, and that is the point:
 
 ### What is in `app_program/`
 
-| File | Lines | What it is |
-|---|---:|---|
-| `app_main.c` | 526 | The whole demo: the tasks, the kernel objects, the WiFi reporter, `usermain()` |
-| `demo_tasks.c/.h` | 90 | The console-independent blink task |
-| `usb_console_compat.h` | 31 | Console-state accessors, with constant stubs for UART builds |
+The current application is the robot vehicle, organised into subsystem
+lifecycle files, task files, feature logic and BSP/device drivers. See
+[app_program/README.md](../app_program/README.md) for the current layout,
+preserved settings and build/test commands, and
+[ROBOT_CODE_REVIEW.md](ROBOT_CODE_REVIEW.md) for validation limits.
 
-The build picks up whatever `.c` files are in this directory
-(`build_make/mtkernel_3/app_program/subdir.mk` globs them), so adding one
-needs no makefile edit.
+The remaining demo examples in this guide describe the upstream kernel port,
+not the robot's current task set. Original demo and diagnostic material is
+retained under `app_program/tests/reference/` and excluded from the build.
 
 ### A note on stack sizes
 

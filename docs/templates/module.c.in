@@ -1,0 +1,12 @@
+/** @file module.c
+ * @brief Describe the implementation responsibility and assumptions.
+ */
+#include "module.h"
+
+void module_init (void)
+{
+    /* TODO: Implement the documented operation. */
+}
+
+/*** end of file ***/
+
