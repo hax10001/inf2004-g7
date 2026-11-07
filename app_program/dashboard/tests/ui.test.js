@@ -1,9 +1,12 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const read=name=>fs.readFileSync(path.join(__dirname,'../public',name),'utf8');
-test('single navigation bar with Overview, Map, Telemetry Console and Monitor without redundant rail',()=>{
- const html=read('index.html');assert.equal((html.match(/class="navtab(?: active)?"/g)||[]).length,4);
+test('single navigation bar with Overview, Map, Telemetry Console, Monitor and Robot Log without redundant rail',()=>{
+ const html=read('index.html');assert.equal((html.match(/class="navtab(?: active)?"/g)||[]).length,5);
  assert.doesNotMatch(html,/class="rail"/);for(const id of ['telemetryOutput','mapThenStart','start','stop','recalibrate','networkDetails','connectionDialog','netReal','logFilter','consoleOutput','map','car3d'])assert.match(html,new RegExp(`id="${id}"`));
+});
+test('browser scripts parse (a syntax error leaves the dashboard stuck at CONNECTING)',()=>{
+ for(const f of ['app.js','car3d.js','car3d_fallback.js'])assert.doesNotThrow(()=>new (require('node:vm').Script)(read(f),{filename:f}),f);
 });
 test('3D renderer provides software fallback and stays inside browser',()=>{
  assert.match(read('index.html'),/car3d_fallback\.js/);assert.match(read('car3d.js'),/G7CreateSoftware3D/);

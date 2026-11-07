@@ -33,6 +33,13 @@ ER motion_start (void);
  * @note Call once per controller period; the integral assumes that rate.
  */
 void motion_apply (line_follow_action_t action);
+/** @brief Stop like motion_apply(LINE_UNCERTAIN), but if the robot was
+ * driving, short-brake for APP_JUNCTION_BRAKE_MSEC before coasting. Later
+ * stop requests keep the brake until that time is used up.
+ */
+void motion_brake (void);
+/** @brief Controller-owned forward wheel RPM targets for obstacle bypass. */
+void motion_drive (float left_rpm, float right_rpm);
 /** Constant bounded command for the autonomous junction controller only. */
 void motion_apply_maneuver (uint8_t mapped_action);
 /** @brief Copy the latest wheel speeds under their mutex, for telemetry.

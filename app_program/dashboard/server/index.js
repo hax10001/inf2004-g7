@@ -9,9 +9,12 @@ const env=process.env;
 const {Recorder}=require('./recorder');
 const {CommandTracker}=require('./commands');
 const {streamCsv}=require('./recording_export');
+const {RobotLog}=require('./robotlog');
 const recorder=new Recorder(env.RECORDING_DIR||path.resolve(__dirname,'../recordings'));
-process.on('SIGINT',()=>recorder.close().then(()=>process.exit(0)));
-process.on('SIGTERM',()=>recorder.close().then(()=>process.exit(0)));
+/* Robot serial console over MQTT, saved beside the recording. */
+const robotLog=new RobotLog(env.RECORDING_DIR||path.resolve(__dirname,'../recordings'),recorder.id);
+process.on('SIGINT',()=>Promise.all([recorder.close(),robotLog.close()]).then(()=>process.exit(0)));
+process.on('SIGTERM',()=>Promise.all([recorder.close(),robotLog.close()]).then(()=>process.exit(0)));
 /* Reuse local LAN secrets for both npm start and npm run lan, so the demo can
  * connect in either mode after one-time WiFi setup. Never serve this file. */
 let localSecrets={};try{localSecrets=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../.lan-secrets.json'),'utf8'));}catch{}
@@ -130,6 +133,13 @@ function bridge(){
     onMessage(topic,bytes){
       const segments=topic.split('/');
       const ns=MQTT_NAMESPACE.split('/');
+      /* Serial console text: shown and saved, never parsed as telemetry. */
+      if(segments.length===ns.length+2&&segments.slice(0,ns.length).every((s,i)=>s===ns[i])&&
+         segments[ns.length]===ROBOT_ID&&segments[ns.length+1]==='log'){
+        const lines=robotLog.add(bytes);
+        if(lines.length)for(const r of subscribers)send(r,'log',{lines});
+        return;
+      }
       if(segments.length!==ns.length+2||segments.slice(0,ns.length).some((s,i)=>s!==ns[i])||
          ![ROBOT_ID,'sim'].includes(segments[ns.length])||!['telemetry','ack'].includes(segments[ns.length+1]))return;
       const source=segments[ns.length];
@@ -213,7 +223,7 @@ function bridge(){
       push();
     },onClose(){streamReady=false;state.log('network','MQTT gateway disconnected; retrying','warn');push();setTimeout(bridge,2500);}});
   const timer=setInterval(()=>{if(client.socket.destroyed){clearInterval(timer);return;}
-    if(client.ready&&!streamReady){streamReady=client.subscribe(`${MQTT_NAMESPACE}/+/telemetry`);client.subscribe(`${MQTT_NAMESPACE}/+/ack`);state.log('network','MQTT gateway subscribed to binary telemetry');push();}
+    if(client.ready&&!streamReady){streamReady=client.subscribe(`${MQTT_NAMESPACE}/+/telemetry`);client.subscribe(`${MQTT_NAMESPACE}/+/ack`);client.subscribe(`${MQTT_NAMESPACE}/${ROBOT_ID}/log`);state.log('network','MQTT gateway subscribed to binary telemetry');push();}
   },100);
 }
 const mime={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'};
@@ -228,6 +238,11 @@ function authorized(req){
 const server=http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
+  if(url.pathname==='/api/robotlog.txt'&&req.method==='GET'){
+    if(!authorized(req)){res.writeHead(401);res.end('Unauthorized');return;}
+    res.setHeader('Content-Type','text/plain; charset=utf-8');res.setHeader('Content-Disposition','attachment; filename="'+robotLog.snapshot().file+'"');
+    const input=fs.createReadStream(robotLog.path);input.on('error',()=>res.destroy());input.pipe(res);return;
+  }
   if(['/api/recording','/api/recording.csv'].includes(url.pathname)&&req.method==='GET'){
     if(!authorized(req)){res.writeHead(401);res.end('Unauthorized');return;}
     if(url.pathname.endsWith('.csv')){
@@ -245,7 +260,7 @@ const server=http.createServer((req,res)=>{
   }
   if(url.pathname==='/api/events'&&req.method==='GET'){
     res.writeHead(200,{'Content-Type':'text/event-stream','Connection':'keep-alive','Cache-Control':'no-store'});
-    subscribers.add(res);send(res,'state',currentView());
+    subscribers.add(res);send(res,'state',currentView());send(res,'log',{reset:true,...robotLog.snapshot()});
     const keep=setInterval(()=>{if(!res.destroyed)res.write(': keepalive\n\n');},12000);
     req.on('close',()=>{clearInterval(keep);subscribers.delete(res);});return;
   }
@@ -297,7 +312,7 @@ const server=http.createServer((req,res)=>{
       try{
         const obj=JSON.parse(body);
         const kind=obj.kind;
-        if(!['SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU'].includes(kind))throw Error('invalid command');
+        if(!['SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU','RECALIBRATE_BARCODE'].includes(kind))throw Error('invalid command');
         const age=Date.now()-state.lastSeen;
         if(!state.frames||age>5000){res.writeHead(409);res.end('No recent telemetry. Start npm run demo for simulation, or connect the Pico W.');return;}
         const live=state.mode==='LIVE';
@@ -306,6 +321,12 @@ const server=http.createServer((req,res)=>{
         if(kind==='RECALIBRATE_IMU'){
           if(!state.snapshot || ![0,6,7].includes(state.snapshot.mission)){
             res.writeHead(409);res.end('STOP the robot before requesting IMU recalibration.');return;
+          }
+        }
+        if(kind==='RECALIBRATE_BARCODE'){
+          /* The robot also refuses while running; this gives a clear reason. */
+          if(!state.snapshot || ![0,6,7].includes(state.snapshot.mission)){
+            res.writeHead(409);res.end('STOP the robot and place the barcode sensor over white before recalibrating the barcode.');return;
           }
         }
         if(live){

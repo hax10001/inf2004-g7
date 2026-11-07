@@ -64,18 +64,42 @@
  */
 #define MOTION_INTEGRATE_MIN_RPM 15.0f
 #define MOTION_PERIOD_SEC ((float)APP_CONTROLLER_PERIOD_MSEC / 1000.0f)
+/* Stall rescue (see wheel_command): a wheel commanded to turn but measured
+ * below MOTION_STALL_RPM gets this much more duty every period (1 % per
+ * 50 ms, so +10 % after 0.5 s), up to the maximum; once it turns the boost
+ * is removed at the decay rate. 15 % on top of ~13 % stays well short of
+ * full power, so a jammed wheel is not driven hard. */
+#define MOTION_STALL_RPM 1.0f
+#define MOTION_STALL_STEP_PERCENT 1.0f
+#define MOTION_STALL_MAX_PERCENT 15.0f
+#define MOTION_STALL_DECAY_PERCENT 0.5f
 #define MOTION_LOG_EVERY 10U
 #define MOTION_PI 3.14159265f
-/* Low-duty turns, must be calibrated with wheels raised before driving on
- * a floor. Timeout and line reacquisition are controlled by nav_core. */
-#define MOTION_TURN_PWM_MAX 1700U
-#define MOTION_TURN_PWM_STEP 250U
+/* Junction pivots: wheels in opposite directions, each wheel's duty
+ * stepped every period so it moves MOTION_PIVOT_COUNTS per period whatever
+ * the floor grip (16 counts per 50 ms is ~70 degrees/s: a U-turn ~2.6 s,
+ * slow enough for the line sensors to catch the 18 mm tape). Angle, line
+ * reacquisition and time limits are nav_core's. PWM counts of 12499. */
+#define MOTION_PIVOT_COUNTS 16
+#define MOTION_PIVOT_PWM_START 1250U /* 10 %, just above the deadband */
+#define MOTION_PIVOT_PWM_STEP 125U
+#define MOTION_PIVOT_PWM_MIN 750U
+#define MOTION_PIVOT_PWM_MAX 3750U   /* 30 % */
+/* Nonzero while pivoting: the larger wheel duty (motion_brake reads it). */
 static uint32_t g_turn_pwm = 0U;
+static uint32_t g_pivot_pwm[ENCODER_WHEEL_COUNT];
+static int32_t g_pivot_last[ENCODER_WHEEL_COUNT];
+static uint8_t g_pivot_action = 0U;
+/* Stop periods left to hold the short brake before releasing to coast. */
+#define MOTION_BRAKE_CYCLES \
+    (APP_JUNCTION_BRAKE_MSEC / APP_CONTROLLER_PERIOD_MSEC)
+static uint32_t g_brake_cycles = 0U;
 
 typedef struct
 {
     wheel_speed_t speed;
     float         integral;   /**< Learned duty offset, kept while stopped. */
+    float         stall_boost; /**< Extra duty while commanded but stuck. */
     float         target_rpm; /**< Target actually commanded. */
     bool          b_running;
 } motion_wheel_t;
@@ -113,6 +137,8 @@ static float clamp_symmetric (float value, float limit);
 static uint32_t speed_to_pwm (float speed_percent);
 /** @brief Publish the latest status; failure only affects telemetry. */
 static void publish_status (motion_status_t const * p_status);
+/** @brief Apply wheel targets through the existing speed controller. */
+static void drive_wheels (line_follow_action_t action);
 
 ER motion_init (void)
 {
@@ -176,6 +202,7 @@ void motion_apply (line_follow_action_t action)
         case LINE_FORWARD:
         case LINE_CORRECT_LEFT:
         case LINE_CORRECT_RIGHT:
+            g_brake_cycles = 0U;
             g_steer = limit_steer(
                 g_steer,
                 steering_update(&g_steering, action, MOTION_PERIOD_SEC));
@@ -211,6 +238,52 @@ void motion_apply (line_follow_action_t action)
     p_left->target_rpm  = speed_rpm * (1.0f - g_steer);
     p_right->target_rpm = speed_rpm * (1.0f + g_steer);
 
+    drive_wheels(action);
+}
+
+void motion_brake (void)
+{
+#if APP_MOTOR_MOVEMENT_ENABLED
+    /* Only a robot that was driving needs braking; a repeat request while
+     * already braking or stopped must not restart the hold. */
+    if ((g_base_rpm > 0.0f) || (0U != g_turn_pwm))
+    {
+        g_brake_cycles = MOTION_BRAKE_CYCLES;
+    }
+#endif
+    motion_apply(LINE_UNCERTAIN);
+}
+
+void motion_drive (float left_rpm, float right_rpm)
+{
+    motion_wheel_t * const p_left = &g_wheels[ENCODER_LEFT];
+    motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
+#if !APP_MOTOR_MOVEMENT_ENABLED
+    motion_apply(LINE_UNCERTAIN);
+    return;
+#endif
+    /* Obstacle arcs use forward motion. Braking is never ramped. */
+    if (left_rpm < 0.0f) left_rpm = 0.0f;
+    if (right_rpm < 0.0f) right_rpm = 0.0f;
+    if ((left_rpm > 0.0f) || (right_rpm > 0.0f)) g_brake_cycles = 0U;
+    p_left->target_rpm = (left_rpm > p_left->target_rpm) ?
+        step_towards(p_left->target_rpm, left_rpm, MOTION_RAMP_RPM) : left_rpm;
+    p_right->target_rpm = (right_rpm > p_right->target_rpm) ?
+        step_towards(p_right->target_rpm, right_rpm, MOTION_RAMP_RPM) :
+        right_rpm;
+    g_base_rpm = 0.5f * (p_left->target_rpm + p_right->target_rpm);
+    g_steer = 0.0f;
+    g_turn_pwm = 0U;
+    steering_reset(&g_steering);
+    drive_wheels((left_rpm == 0.0f && right_rpm == 0.0f) ?
+                 LINE_UNCERTAIN : LINE_FORWARD);
+}
+
+static void drive_wheels (line_follow_action_t action)
+{
+    motion_wheel_t * const p_left = &g_wheels[ENCODER_LEFT];
+    motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
+
     /* Measure the period that just ended, under the previous command. */
     uint32_t const   now     = encoder_now_usec();
     encoder_sample_t left    = {0};
@@ -235,7 +308,16 @@ void motion_apply (line_follow_action_t action)
          * even when an encoder still measures coasting motion. */
         status.left_pwm = 0U;
         status.right_pwm = 0U;
-        motor_stop();
+
+        if (g_brake_cycles > 0U)
+        {
+            g_brake_cycles--;
+            motor_brake();
+        }
+        else
+        {
+            motor_stop();
+        }
     }
     else
     {
@@ -302,19 +384,57 @@ void motion_apply_maneuver (uint8_t mapped_action)
     int32_t left_pwm = 0;
     int32_t right_pwm = 0;
     stop_wheels();
-    g_turn_pwm += MOTION_TURN_PWM_STEP;
-    if (g_turn_pwm > MOTION_TURN_PWM_MAX)
-        g_turn_pwm = MOTION_TURN_PWM_MAX;
-    if (mapped_action == 1U) right_pwm = (int32_t)g_turn_pwm;
-    else if (mapped_action == 2U) left_pwm = (int32_t)g_turn_pwm;
-    else if (mapped_action == 3U) {
-        left_pwm = -(int32_t)g_turn_pwm;
-        right_pwm = (int32_t)g_turn_pwm;
+    g_brake_cycles = 0U;
+#if !APP_MOTOR_MOVEMENT_ENABLED
+    g_turn_pwm = 0U;
+    motor_stop();
+    return;
+#endif
+    if (mapped_action < 1U || mapped_action > 3U)
+    {
+        g_turn_pwm = 0U;
+        motor_stop();
+        return;
     }
-    else { g_turn_pwm = 0U; motor_stop(); return; }
-    motor_set_directional(left_pwm, right_pwm);
     encoder_read(ENCODER_LEFT, &left);
     encoder_read(ENCODER_RIGHT, &right);
+    if ((0U == g_turn_pwm) || (mapped_action != g_pivot_action))
+    {
+        /* New pivot: start both wheels just above the deadband. */
+        g_pivot_action = mapped_action;
+        g_pivot_pwm[ENCODER_LEFT] = MOTION_PIVOT_PWM_START;
+        g_pivot_pwm[ENCODER_RIGHT] = MOTION_PIVOT_PWM_START;
+    }
+    else
+    {
+        /* Speed each wheel up or down towards the target movement. */
+        int32_t const moved[ENCODER_WHEEL_COUNT] = {
+            left.count - g_pivot_last[ENCODER_LEFT],
+            right.count - g_pivot_last[ENCODER_RIGHT]};
+        for (uint32_t w = 0U; w < (uint32_t)ENCODER_WHEEL_COUNT; w++)
+        {
+            int32_t const m = (moved[w] < 0) ? -moved[w] : moved[w];
+            if (m < MOTION_PIVOT_COUNTS)
+                g_pivot_pwm[w] += MOTION_PIVOT_PWM_STEP;
+            else if (m > MOTION_PIVOT_COUNTS + (MOTION_PIVOT_COUNTS / 4))
+                g_pivot_pwm[w] -= MOTION_PIVOT_PWM_STEP;
+            if (g_pivot_pwm[w] > MOTION_PIVOT_PWM_MAX)
+                g_pivot_pwm[w] = MOTION_PIVOT_PWM_MAX;
+            if (g_pivot_pwm[w] < MOTION_PIVOT_PWM_MIN)
+                g_pivot_pwm[w] = MOTION_PIVOT_PWM_MIN;
+        }
+    }
+    g_pivot_last[ENCODER_LEFT] = left.count;
+    g_pivot_last[ENCODER_RIGHT] = right.count;
+    left_pwm = (int32_t)g_pivot_pwm[ENCODER_LEFT];
+    right_pwm = (int32_t)g_pivot_pwm[ENCODER_RIGHT];
+    g_turn_pwm = (left_pwm > right_pwm) ? (uint32_t)left_pwm :
+                                           (uint32_t)right_pwm;
+    /* Left and U-turn spin anticlockwise (left wheel back), right turns
+     * clockwise (right wheel back). */
+    if (mapped_action == 2U) right_pwm = -right_pwm;
+    else left_pwm = -left_pwm;
+    motor_set_directional(left_pwm, right_pwm);
     status.left_count = left.count;
     status.right_count = right.count;
     status.left_pwm = (uint32_t)(left_pwm < 0 ? -left_pwm : left_pwm);
@@ -356,6 +476,7 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
     {
         /* Keep the integral: it is this motor's learned offset. */
         p_wheel->b_running = false;
+        p_wheel->stall_boost = 0.0f;
         return 0.0f;
     }
 
@@ -368,7 +489,38 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
     {
         /* The last period measured a stopped wheel; do not react to it. */
         p_wheel->b_running = true;
-        return base_percent + p_wheel->integral;
+        return base_percent + p_wheel->integral + p_wheel->stall_boost;
+    }
+
+    /* Stall rescue. On a tight curve the outer wheel is asked for ~12 RPM
+     * with the inner wheel stopped; that is below the integrating range,
+     * so its ~13 % duty could sit there forever without turning it (logged:
+     * both encoders frozen ~7 s on a curve, still "following"). While a
+     * commanded wheel is not turning, raise its duty step by step until it
+     * moves; once it turns, the boost is taken back off gradually. */
+    if (measured_rpm < MOTION_STALL_RPM)
+    {
+        p_wheel->stall_boost += MOTION_STALL_STEP_PERCENT;
+        if (p_wheel->stall_boost >= MOTION_STALL_MAX_PERCENT)
+        {
+            if (p_wheel->stall_boost < (MOTION_STALL_MAX_PERCENT +
+                                        MOTION_STALL_STEP_PERCENT))
+            {
+                /* Once per stall: the boost has just reached its limit. */
+                tm_printf((UB *)"[MOTOR] Wheel stalled: target %d RPM, "
+                          "boost at max %d %%\n", (INT)target_rpm,
+                          (INT)MOTION_STALL_MAX_PERCENT);
+            }
+            p_wheel->stall_boost = MOTION_STALL_MAX_PERCENT;
+        }
+    }
+    else if (p_wheel->stall_boost > 0.0f)
+    {
+        p_wheel->stall_boost -= MOTION_STALL_DECAY_PERCENT;
+        if (p_wheel->stall_boost < 0.0f)
+        {
+            p_wheel->stall_boost = 0.0f;
+        }
     }
 
     float const error = target_rpm - measured_rpm;
@@ -382,7 +534,8 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
 
     return base_percent +
            clamp_symmetric((MOTION_KP * error) + p_wheel->integral,
-                           MOTION_TRIM_MAX_PERCENT);
+                           MOTION_TRIM_MAX_PERCENT) +
+           p_wheel->stall_boost;
 }
 
 static float feedforward (float target_rpm, float min_duty,

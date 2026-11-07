@@ -4,4 +4,4 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT/app_program/dashboard"
-G7_DEFAULT_WIFI_SSID=Pookie node tools/setup-wifi.js
+G7_DEFAULT_WIFI_SSID="Wireless@SG" node tools/setup-wifi.js

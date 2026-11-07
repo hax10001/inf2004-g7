@@ -9,6 +9,7 @@
 #include "app/controller.h"
 #include "modules/line_barcode/line_barcode.h"
 #include "modules/motion/motion.h"
+#include "modules/obstacle/obstacle.h"
 #include "modules/terrain/terrain.h"
 #include <tm/tmonitor.h>
 #ifdef B1_ROBOT_APP
@@ -24,6 +25,7 @@ volatile int g7_usermain_error;
 #if APP_TEST
 #include "modules/line_barcode/test_lbar.h"
 #include "modules/terrain/test_ter.h"
+#include "modules/obstacle/test_obs.h"
 #endif
 
 INT usermain (void)
@@ -64,6 +66,11 @@ INT usermain (void)
 #endif
     /* Hardware barcode engine needs encoder ownership initialized first. */
     error = bc_setup_init();
+    if (error < E_OK)
+    {
+        return 1;
+    }
+    error = obstacle_init();
     if (error < E_OK)
     {
         return 1;
@@ -109,7 +116,7 @@ INT usermain (void)
         return 1;
     }
 
-    /* Preserve task creation order: IR, dormant IMU, controller. */
+    /* Sensors must be running before the controller can request movement. */
 #ifdef B1_ROBOT_APP
     g7_usermain_stage = 8U; /* IR task started */
 #endif
@@ -123,6 +130,11 @@ INT usermain (void)
 #ifdef B1_ROBOT_APP
     g7_usermain_stage = 9U; /* IMU task started */
 #endif
+    error = obstacle_start();
+    if (error < E_OK)
+    {
+        return 1;
+    }
     error = controller_start();
 
     if (error < E_OK)
@@ -151,6 +163,7 @@ INT usermain (void)
 #if APP_TEST
     test_lbar_run();
     test_ter_run();
+    test_obs_run();
 #endif
 
     tk_slp_tsk(TMO_FEVR);

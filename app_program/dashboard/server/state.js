@@ -1,7 +1,7 @@
 'use strict';
 const {decodeFrame,interpret}=require('./protocol');
 const sourceNames=['motion','line','terrain','obstacle','mission'];
-const eventNames={1:'Barcode decoded',2:'Junction detected',3:'Hump detected',4:'Obstacle detected',5:'Bypass chosen',6:'Line reacquired',7:'Safety fault',8:'Line lost',9:'Hump finished',10:'Mission state',11:'IMU calibration requested (simulation)',12:'Navigation action queued',13:'Junction confirmed',14:'Turn started',15:'Turn completed',16:'Line reacquired',17:'Line following resumed',18:'Navigation safety stop',19:'Scan not queued'};
+const eventNames={1:'Barcode decoded',2:'Junction detected',3:'Hump detected',4:'Obstacle detected',5:'Bypass chosen',6:'Line reacquired',7:'Safety fault',8:'Line lost',9:'Hump finished',10:'Mission state',11:'IMU calibration requested (simulation)',12:'Navigation action queued',13:'Junction confirmed',14:'Turn started',15:'Turn completed',16:'Line reacquired',17:'Line following resumed',18:'Navigation safety stop',19:'Scan not queued',20:'Stopped at junction: waiting for barcode decode'};
 const scanFailureReasons=['Reason unavailable (firmware reported 0)',
   'Invalid sensor input','Barcode element width mismatch','Capture buffer overflow',
   'Capture timed out','Invalid encoder travel','Scan interrupted',
@@ -11,7 +11,7 @@ const READINESS_REASONS=[
   [1,'MQTT offline'],[2,'controller not in remote hold'],
   [4,'Start/Stop pending'],[8,'IMU not calibrated'],
   [16,'IR reading unavailable'],[32,'IR data stale'],
-  [64,'controller lock or clock unavailable'],
+  [64,'controller unavailable or obstacle sensor fault'],
   [128,'barcode capture still processing']
 ];
 function readinessReasons(mask){
@@ -133,15 +133,32 @@ class RobotState {
       if(origin==='LIVE'){
         const n=v=>v==null?'n/a':String(v);
         const bits=msg.ir;
+        const d=msg.obstacleDiag;
+        const bypass=d?.active?` | side=${d.sideRangeMm<0?'NO ECHO':d.sideRangeMm+' mm'} `+
+          `seen=${d.sideHits}/2 clear=${d.clearHits}/3 travel=${d.travelSinceHitMm} mm `+
+          `returnWait=${d.waitReason}`:'';
         this.log('telemetry',`IR L=${bits==null?'?':bits&1?1:0} R=${bits==null?'?':bits&2?1:0} B=${bits==null?'?':bits&4?1:0} | `+
           `IMU roll=${n(msg.rollDeg)}° pitch=${n(msg.pitchDeg)}° heading=${n(msg.headingDeg)}° `+
           `cal=${msg.imuCalibrated?1:0} hump=${n(msg.humpPhase)} | `+
           `encL=${n(msg.leftEncoder)} encR=${n(msg.rightEncoder)} | `+
-          `sonar=NOT INSTALLED`);
+          `sonar=${n(msg.ultrasonicCm)} cm obstaclePhase=${n(msg.obstaclePhase)}`+bypass);
       }
     } else if(msg.kind==='barcodeDiag'){
       const previous=this.barcodeDiag;
       this.barcodeDiag={...msg,source:origin,received:Date.now()};
+      const sc=msg.scanner,prevSc=previous?.scanner;
+      if(sc && (!prevSc || prevSc.state!==sc.state)){
+        const white=sc.state===2?` (white ${sc.whiteMean} ±${sc.whiteSigma})`:
+          sc.state===6?` (read ${sc.whiteMean}; place the sensor on white or press Recalibrate barcode)`:'';
+        this.log('barcode',`Scanner: ${sc.stateName}${white}`,sc.state===6?'warn':'info');
+      }
+      if(sc && prevSc && sc.lastPass!==prevSc.lastPass){
+        const secs=(sc.lastProcessMs/1000).toFixed(1);
+        this.log('barcode',sc.lastValid?
+          `Pass ${sc.lastPass}: read ${sc.lastLetter} in ${secs} s`:
+          `Pass ${sc.lastPass}: no letter (${sc.lastReasonName}) after ${secs} s`,
+          sc.lastValid?'info':'warn');
+      }
       if(!previous || previous.completed!==msg.completed || previous.rejected!==msg.rejected){
         /* The successful-count packet and actual letter event can arrive
          * in either order. Never invent a success alert without the letter:
@@ -195,7 +212,7 @@ class RobotState {
       this.dropped=msg.dropped;
     } else if(msg.kind==='ack'){
       this.acks.unshift({...msg,received:Date.now()});this.acks=this.acks.slice(0,20);
-      const label=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU'][msg.command]||`COMMAND ${msg.command}`;
+      const label=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU','RECALIBRATE_BARCODE'][msg.command]||`COMMAND ${msg.command}`;
       const reason={1:'Invalid command',2:'BAD STATE: mapping not loaded or robot already running',
         3:'Invalid mapping',4:'Duplicate command',5:'NOT READY: IR/IMU/controller safety gate',
         6:'Command pending',7:'STALE COMMAND: latest robot STATUS token missing or expired'}[msg.result];

@@ -289,11 +289,13 @@ static void match_peaks (void)
     {
         g_level_score[i] = BC_MATCH_BAD_SCORE;
     }
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
     tm_printf((UB *)"[BC MATCH ANCHORS] level=%u percent=%u threshold=%u "
                       "peaks=%u overflow=%u duplicate=%u\n",
               (UINT)g_level, (UINT)g_anchor_percent[g_level],
               (UINT)threshold, (UINT)g_peak_count,
               (UINT)g_peak_overflow, (UINT)g_duplicate_level);
+#endif
 }
 
 static uint8_t match_geometry (uint32_t first, uint32_t const * p_centres,
@@ -592,9 +594,11 @@ static void match_finish (void)
         }
     }
     g_done = 1U;
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
     tm_printf((UB *)"[BC MATCH COST] prefix=%u means=%u cached=%u reads=%u\n",
               (UINT)g_prefix_enabled, (UINT)g_mean_calls,
               (UINT)g_cached_means, (UINT)g_read_calls);
+#endif
 }
 
 void bc_match_begin (uint32_t count, uint32_t noise,

@@ -11,6 +11,7 @@
 #define B1_SRC_MOTION 0x01u
 #define B1_SRC_LINE 0x02u
 #define B1_SRC_TERRAIN 0x04u
+#define B1_SRC_OBSTACLE 0x08u
 #define B1_SRC_MISSION 0x10u
 /* All time stamps are monotonically increasing milliseconds since boot. */
 typedef struct { uint16_t seq; uint32_t ms;
@@ -27,6 +28,11 @@ typedef struct { uint16_t seq; uint32_t ms;
     uint8_t ready_blockers,remote_hold,barcode_hold;
     uint16_t pwm_left,pwm_right;
     uint16_t event_id; uint8_t event_kind; uint16_t event_value; } B1_Mission;
+
+typedef struct { uint16_t seq; uint32_t ms;
+    uint16_t distance_cm;
+    uint8_t side,bypass_count,faults;
+    uint16_t event_id; uint8_t event_kind; uint16_t event_value; } B1_Obstacle;
 typedef struct { uint8_t source,kind; uint16_t id,value; uint32_t ms; }
     B1_Event;
 
@@ -36,7 +42,7 @@ typedef uint8_t (*B1_Coordinator)(uint8_t cmd, void *ctx);
 typedef struct {
     B1_Lock lock,unlock; void *lock_context;
     B1_Motion motion; B1_Line line; B1_Terrain terrain;
-        B1_Mission mission;
+        B1_Mission mission; B1_Obstacle obstacle;
     uint8_t seen, mapping[4], mapping_valid, committed, uncertain;
     B1_Motion motions[B1_MOTION_DEPTH]; uint8_t motion_head,motion_count;
     B1_Event events[B1_EVENT_DEPTH]; uint8_t event_head,event_count;
@@ -59,6 +65,7 @@ void b1_set_coordinator(B1_Store *s, B1_Coordinator fn, void *ctx);
 int b1_ingest_motion(B1_Store *s,const B1_Motion *v);
 int b1_ingest_line(B1_Store *s,const B1_Line *v);
 int b1_ingest_terrain(B1_Store *s,const B1_Terrain *v);
+int b1_ingest_obstacle(B1_Store *s,const B1_Obstacle *v);
 int b1_ingest_mission(B1_Store *s,const B1_Mission *v);
 /* One bounded message per call; prioritize events, then motion, then state. */
 int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out);

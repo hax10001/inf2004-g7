@@ -71,6 +71,8 @@ int b1_ingest_##NAME(B1_Store *s,const TYPE *v) { \
 }
 B1_SOURCE_INGEST(line,B1_Line,line,B1_SRC_LINE,2u,v->barcode)
 B1_SOURCE_INGEST(terrain,B1_Terrain,terrain,B1_SRC_TERRAIN,3u,v->hump_mm)
+B1_SOURCE_INGEST(obstacle,B1_Obstacle,obstacle,B1_SRC_OBSTACLE,4u,
+                 v->event_value)
 /* Unlike the other sources, a confirmed controller hold ends a previous
  * START commitment. Merely ACKing STOP is NOT proof motors have stopped. */
 int b1_ingest_mission(B1_Store *s,const B1_Mission *v) {
@@ -101,6 +103,8 @@ static uint8_t stale(const B1_Store *s,uint32_t now) {
         mask|=B1_SRC_TERRAIN;
     if((s->seen&B1_SRC_MISSION)!=0u && now-s->mission.ms>1500u)
         mask|=B1_SRC_MISSION;
+    if((s->seen&B1_SRC_OBSTACLE)!=0u && now-s->obstacle.ms>1500u)
+        mask|=B1_SRC_OBSTACLE;
     return mask;
 }
 int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
@@ -166,10 +170,10 @@ int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
         x.action=s->line.action&3u;x.action_valid=s->line.action_valid;
         x.hump_mm=(s->seen&B1_SRC_TERRAIN)?s->terrain.hump_mm:1023u;
         x.max_hump_mm=(s->seen&B1_SRC_TERRAIN)?s->terrain.max_hump_mm:1023u;
-        /* V1 wire fields retained for compatibility, but no obstacle owner. */
-        x.obstacle_cm=1023u;
-        x.side=0u;x.bypass_count=0u;
-        x.faults=s->mission.faults;
+        x.obstacle_cm=(s->seen&B1_SRC_OBSTACLE) ?
+            s->obstacle.distance_cm : 1023u;
+        x.side=s->obstacle.side;x.bypass_count=s->obstacle.bypass_count;
+        x.faults=(uint8_t)(s->mission.faults | s->obstacle.faults);
         x.speed_left_mm_s=s->motion.left_speed_mm_s;
         x.speed_right_mm_s=s->motion.right_speed_mm_s;
         out->type=B1_TYPE_SNAPSHOT;
@@ -182,8 +186,11 @@ int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
 }
 int b1_sensor_frame(B1_Store *s,B1_Frame *frame) {
     if(s==NULL || frame==NULL ||
-       (frame->type==B1_TYPE_SENSOR && frame->payload_len!=24u) ||
-       (frame->type==B1_TYPE_BARCODE_DIAG && frame->payload_len!=28u) ||
+       (frame->type==B1_TYPE_SENSOR && frame->payload_len!=24u &&
+        frame->payload_len!=32u) ||
+       (frame->type==B1_TYPE_BARCODE_DIAG &&
+        frame->payload_len!=B1_BARCODE_DIAG_V1 &&
+        frame->payload_len!=B1_BARCODE_DIAG_V2) ||
        (frame->type!=B1_TYPE_SENSOR &&
         frame->type!=B1_TYPE_BARCODE_DIAG))return -1;
     s->lock(s->lock_context);
@@ -240,6 +247,13 @@ int b1_handle_command(B1_Store *s,const B1_Frame *request,B1_Frame *ack) {
          * terrain_calibrate() here with imaginary axes or while moving. */
         if(s->mission.running || (s->mission.mission!=0u &&
                                    s->mission.mission!=6u)) result=B1_BAD_STATE;
+        else if(s->coordinator==NULL)result=B1_NOT_READY;
+        else {need_callback=1u;callback=s->coordinator;
+            context=s->coordinator_context;}
+    } else if(command.command==B1_CMD_RECAL_BARCODE) {
+        /* Learning white needs the sensor still over white: stopped only.
+         * The coordinator forwards it to the barcode task. */
+        if(s->mission.running)result=B1_BAD_STATE;
         else if(s->coordinator==NULL)result=B1_NOT_READY;
         else {need_callback=1u;callback=s->coordinator;
             context=s->coordinator_context;}

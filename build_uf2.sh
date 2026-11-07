@@ -87,6 +87,14 @@ fi
 
 CONSOLE_MODE="${G7_CONSOLE:-uart}"
 LIVE_CONTROL="${G7_LIVE_CONTROL:-0}"
+BARCODE_TEST="${G7_BARCODE_TEST:-0}"
+if [[ "$BARCODE_TEST" != "0" && "$BARCODE_TEST" != "1" ]]; then
+  echo "G7_BARCODE_TEST must be 0 or 1" >&2; exit 2
+fi
+if [[ "$BARCODE_TEST" == "1" ]]; then
+  echo 'BARCODE TEST PROFILE: motors and obstacle detection OFF.'
+  echo 'Push the robot by hand; every pass prints a raw waveform dump.'
+fi
 if [[ "$LIVE_CONTROL" != "0" && "$LIVE_CONTROL" != "1" ]]; then
   echo "G7_LIVE_CONTROL must be 0 or 1" >&2; exit 2
 fi
@@ -119,6 +127,7 @@ make -f makefile \
   SMP=1 CONSOLE="$CONSOLE_MODE" \
   WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 \
   WIFI_MQTT=1 WIFI_TCP=0 B1_LIVE_COMMANDS="$LIVE_CONTROL" \
+  B1_BARCODE_TEST="$BARCODE_TEST" \
   PICO_SDK_PATH="$SDK" -j"$JOBS"
 UF2="$ROOT/build_make/mtk3pico_smp1_${CONSOLE_MODE}_wifi_dhcp.uf2"
 if [[ ! -s "$UF2" ]]; then
@@ -155,15 +164,23 @@ elif command -v arm-none-eabi-nm >/dev/null 2>&1; then
 else
   echo 'WARN: arm-none-eabi-nm not installed; cannot assert MQTT linkage.' >&2
 fi
-cp "$UF2" "$ROOT/out/g7-improve-movement-mqtt.uf2"
-echo "Created: $ROOT/out/g7-improve-movement-mqtt.uf2"
-echo "Console: $CONSOLE_MODE; barcode test ACK enabled for repeated scanning."
+OUT_NAME="g7-improve-movement-mqtt.uf2"
+if [[ "$BARCODE_TEST" == "1" ]]; then OUT_NAME="g7-barcode-test.uf2"; fi
+cp "$UF2" "$ROOT/out/$OUT_NAME"
+echo "Created: $ROOT/out/$OUT_NAME"
+echo "Console: $CONSOLE_MODE; barcode result ACK owned by telemetry."
 echo "WiFi join deadline: 10 seconds; motion/IR starts independently."
-echo "BENCH: Only improve-movement IR, IMU, motion and MQTT; no Buddy 5 obstacle module."
-if [[ "$LIVE_CONTROL" == "1" ]]; then
+if [[ "$BARCODE_TEST" == "1" ]]; then
+  echo "BARCODE TEST IMAGE: motors and obstacle detection compiled OUT."
+  echo "Push the robot by hand; capture with tools/barcode_capture.py."
+elif [[ "$LIVE_CONTROL" == "1" ]]; then
+  echo "Obstacle detection and bypass enabled; ultrasonic GP4/GP5, servo GP15."
+else
+  echo "Obstacle detection and bypass enabled; ultrasonic GP4/GP5, servo GP15."
+  echo "Live MQTT commands OFF: firmware may autonomously move."
+fi
+if [[ "$BARCODE_TEST" != "1" && "$LIVE_CONTROL" == "1" ]]; then
   echo "Live MQTT Start/Stop ON: boots held, requires mapping,"
   echo "fresh IR/IMU and broker. Link loss requests local STOP."
-else
-  echo "Live MQTT commands OFF: firmware may autonomously move."
 fi
 echo "Do not share this UF2: Wi-Fi/MQTT secrets may be embedded in the image."

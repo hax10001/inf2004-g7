@@ -118,6 +118,7 @@ void task_imu_task (INT start_code, void * p_context)
     {
         /* UB preserves string bytes; the API does not modify the string. */
         tm_printf((UB *)"IMU: unable to open I2C0 (er=%d)\n", h_device);
+        tk_slp_tsk(TMO_FEVR); /* never return from a task function */
         return;
     }
 
@@ -137,6 +138,7 @@ void task_imu_task (INT start_code, void * p_context)
         tm_printf((UB *)"IMU: failed to initialize accelerometer or "
                         "magnetometer\n");
         tk_cls_dev(h_device, 0);
+        tk_slp_tsk(TMO_FEVR); /* never return from a task function */
         return;
     }
 
@@ -152,6 +154,9 @@ void task_imu_task (INT start_code, void * p_context)
         /* UB views read-only string bytes. Restart to retry calibration. */
         tm_printf((UB *)"IMU: calibration failed; motors remain stopped\n");
         tk_cls_dev(h_device, 0);
+        /* A task must never return from its function: that jumped to
+         * address 0 and hard-faulted the whole robot. Sleep instead. */
+        tk_slp_tsk(TMO_FEVR);
         return;
     }
 
@@ -165,6 +170,7 @@ void task_imu_task (INT start_code, void * p_context)
         /* UB preserves string bytes; the API does not modify the string. */
         tm_printf((UB *)"IMU: cannot read kernel operating time\n");
         tk_cls_dev(h_device, 0);
+        tk_slp_tsk(TMO_FEVR); /* never return from a task function */
         return;
     }
 
@@ -412,6 +418,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
             log_sample(now_msec, &sample);
             log_tilt(&snapshot);
             /* Tenths keep sub-millimetre detail without float printing. */
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP: on=%u phase=%u tilt_mdeg=%d "
                             "height_x10mm=%d peak_x10mm=%d count=%u "
                             "rejected=%u MAGNETOMETER: DEGREE: %d\n",
@@ -421,6 +428,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                       (INT)(g_hump.peak_mm * 10.0F),
                       (UINT)g_hump.hump_count, (UINT)g_hump.rejected,
                       (INT)(snapshot.heading_deg * 1000.0F));
+#endif
             g_hump.rejected = 0U;
             p_history->last_log_msec = now_msec;
         }
@@ -515,7 +523,9 @@ static void update_hump (terrain_snapshot const * p_snapshot)
             g_hump.level_count = 0U;
             g_hump.peak_mm     = g_hump.height_mm;
             /* UB views read-only string bytes. */
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP STARTED: climbing\n");
+#endif
         }
 
         return;
@@ -529,7 +539,9 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         if (TERRAIN_HUMP_CLIMBING != g_hump.phase)
         {
             /* UB views read-only string bytes. */
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP: climbing\n");
+#endif
         }
 
         g_hump.phase = TERRAIN_HUMP_CLIMBING;
@@ -540,7 +552,9 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         if (TERRAIN_HUMP_DESCENDING != g_hump.phase)
         {
             /* UB views read-only string bytes. */
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP: descending\n");
+#endif
         }
 
         g_hump.phase = TERRAIN_HUMP_DESCENDING;
@@ -584,8 +598,10 @@ static void update_hump (terrain_snapshot const * p_snapshot)
     }
 
     /* UB views read-only string bytes; tenths avoid float printing. */
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
     tm_printf((UB *)"HUMP DONE: peak_x10mm=%d count=%u\n",
               (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count);
+#endif
 }
 
 static uint16_t round_mm (float height_mm)

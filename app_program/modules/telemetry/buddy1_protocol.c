@@ -151,7 +151,7 @@ int b1_decode_snapshot(const uint8_t *src, size_t size, B1_SnapshotPayload *s) {
 size_t b1_encode_command(const B1_Command *c, uint8_t *p, size_t cap) {
     if(c == NULL || p == NULL || cap < (c->command
         == B1_CMD_MAPPING ? 6u : 3u)) return 0;
-    if(c->command < B1_CMD_MAPPING || c->command > B1_CMD_RECAL_IMU) return 0;
+    if(c->command < B1_CMD_MAPPING || c->command > B1_CMD_LAST) return 0;
     p[0]=c->command; b1_put16(p+1,c->transaction);
     if(c->command==B1_CMD_MAPPING) {
         if(b1_pack_mapping(c->mapping,p+3)!=0) return 0;
@@ -161,7 +161,7 @@ size_t b1_encode_command(const B1_Command *c, uint8_t *p, size_t cap) {
 }
 int b1_decode_command(const uint8_t *p,size_t n,B1_Command *c) {
     if(p==NULL || c==NULL || n < 3u || p[0]<B1_CMD_MAPPING
-        || p[0]>B1_CMD_RECAL_IMU ||
+        || p[0]>B1_CMD_LAST ||
        n != (p[0]==B1_CMD_MAPPING ? 6u : 3u)) return -1;
     memset(c,0,sizeof(*c)); c->command=p[0]; c->transaction=b1_get16(p+1);
     if(c->command==B1_CMD_MAPPING && b1_unpack_mapping(p+3,

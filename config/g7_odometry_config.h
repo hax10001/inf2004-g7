@@ -7,10 +7,11 @@
  */
 #ifndef G7_ODOMETRY_CONFIG_H
 #define G7_ODOMETRY_CONFIG_H
+#include "board/board_config.h"
 #define G7_ODOMETRY_MODE 1
-/* Existing board nominal values; NOT independently verified. */
-#define G7_ENCODER_COUNTS_PER_REV 1056U
-#define G7_WHEEL_DIAMETER_MM 65.0f
+/* Share board values with bypass geometry; still a provisional scale. */
+#define G7_ENCODER_COUNTS_PER_REV BOARD_ENC_COUNTS_PER_REV
+#define G7_WHEEL_DIAMETER_MM BOARD_WHEEL_DIAMETER_MM
 #if G7_ODOMETRY_MODE > 2 || G7_ODOMETRY_MODE < 0
 #error "G7_ODOMETRY_MODE must be 0, 1, or 2"
 #endif

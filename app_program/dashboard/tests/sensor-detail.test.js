@@ -17,6 +17,32 @@ test('sensor packet reports valid IMU, three IR and encoders',()=>{
  assert.equal(r.ultrasonicCm,null);assert.equal(r.obstaclePhase,null);
  assert.equal(r.leftEncoder,-456);assert.equal(r.rightEncoder,789);
 });
+
+test('obstacle owner publishes measured ultrasonic range and bypass phase',()=>{
+ const state=new RobotState(),p=packet();
+ p[0]|=4;p.writeUInt16LE(35,8);p[20]=7;
+ state.ingest(frame(TYPES.SENSOR,p,{session:43,seq:1,ms:200}));
+ assert.equal(state.view().sensor.ultrasonicCm,35);
+ assert.equal(state.view().sensor.obstaclePhase,7);
+ assert.ok(state.logs.some(l=>l.message.includes('sonar=35 cm obstaclePhase=7')));
+ p.writeUInt16LE(65535,8);
+ state.ingest(frame(TYPES.SENSOR,p,{session:43,seq:2,ms:300}));
+ assert.equal(state.view().sensor.ultrasonicCm,null);
+ assert.equal(state.view().sensor.obstaclePhase,7);
+});
+
+test('extended sensor packet explains why the bypass has not returned',()=>{
+ const state=new RobotState(),p=Buffer.alloc(32);packet().copy(p);
+ p[0]|=4;p[20]=7;p.writeInt16LE(-1,24);p[26]=2;p[27]=0;
+ p.writeInt16LE(145,28);p[30]=1|2;p[31]=2;
+ state.ingest(frame(TYPES.SENSOR,p,{session:44,seq:1,ms:200}));
+ const d=state.view().sensor.obstacleDiag;
+ assert.equal(d.sideRangeMm,-1);assert.equal(d.objectSeen,true);
+ assert.equal(d.clearHits,0);assert.equal(d.travelSinceHitMm,145);
+ assert.equal(d.waitReason,2);
+ assert.ok(state.logs.some(l=>l.message.includes('side=NO ECHO')&&l.message.includes('clear=0/3')));
+ assert.throws(()=>interpret(decodeFrame(frame(TYPES.SENSOR,Buffer.alloc(31)))),/sensor payload/);
+});
 test('serial sensor mirror populates dashboard without claiming MQTT link',()=>{
  const s=new RobotState();
  s.ingestSerial('[SENS] IR L=1 R=0 B=1 roll_cd=-125 pitch_cd=250 heading_cd=12345 hump=8 sonar=65535 phase=255 encL=-456 encR=789 valid=27');

@@ -1,5 +1,5 @@
 /** @file task_controller.c
- * @brief Preserve controller transitions, freshness checks, and motor actions.
+ * @brief Own line following, barcode routing and obstacle bypass movement.
  */
 #include "task_controller.h"
 #include "app_config.h"
@@ -8,6 +8,7 @@
 #include "modules/line_barcode/ir_shared.h"
 #include "modules/line_barcode/line_follow.h"
 #include "modules/motion/motion.h"
+#include "modules/obstacle/obstacle.h"
 #include "modules/barcode_scanning/bc_wave.h"
 #include "modules/terrain/terrain.h"
 #include <tm/tmonitor.h>
@@ -30,7 +31,8 @@ typedef enum
     ROBOT_STOPPED,
     ROBOT_NAV_SAFETY_STOP, /**< Recoverable ONLY after explicit STOP. */
     ROBOT_ERROR, /**< Hardware/OS error: stays latched until reset. */
-    ROBOT_REMOTE_HOLD
+    ROBOT_REMOTE_HOLD,
+    ROBOT_OBSTACLE
 } robot_state_t;
 
 typedef struct
@@ -47,6 +49,8 @@ typedef struct
 static robot_state_t handle_idle (void);
 /** @brief Follow the line, preserving stop and error behaviour. */
 static robot_state_t handle_following (controller_history_t * p_history);
+/** @brief Advance the supplied bypass before returning to barcode routing. */
+static robot_state_t handle_obstacle (controller_history_t * p_history);
 /** @brief Stay stopped at a junction until placed back on a line.
  *
  * The IR sensors read black when lifted. Both black seen after the hold
@@ -95,18 +99,31 @@ static void nav_report(nav_event_t kind, uint8_t value)
     ++g_nav_report_seq;
     (void)tk_unl_mtx(g_remote_mutex);
 }
-static uint32_t nav_travel_counts(void)
+/* Both wheels' movement added together, in either direction, since boot.
+ * Never decreases, even while a pivot runs one wheel backwards (the old
+ * |count| average shrank then). Forward travel is half of it; a pivot's
+ * angle is its growth over the track. Called once per controller period.
+ */
+static uint32_t g_nav_path_counts = 0U;
+/* Forward travel at the last period a barcode capture was active. */
+static uint32_t g_capture_end_travel = 0U;
+static int32_t g_nav_last_left = 0;
+static int32_t g_nav_last_right = 0;
+static uint32_t nav_path_counts(void)
 {
     encoder_sample_t left = {0};
     encoder_sample_t right = {0};
-    int64_t l, r;
+    int32_t dl, dr;
     encoder_read(ENCODER_LEFT, &left);
     encoder_read(ENCODER_RIGHT, &right);
-    l = left.count;
-    r = right.count;
-    if (l < 0) l = -l;
-    if (r < 0) r = -r;
-    return (uint32_t)(((uint64_t)l + (uint64_t)r) / 2U);
+    /* Last counts start at the boot-time zero, as the old measure did. */
+    dl = left.count - g_nav_last_left;
+    dr = right.count - g_nav_last_right;
+    g_nav_last_left = left.count;
+    g_nav_last_right = right.count;
+    g_nav_path_counts += (uint32_t)((dl < 0) ? -dl : dl) +
+                         (uint32_t)((dr < 0) ? -dr : dr);
+    return g_nav_path_counts;
 }
 
 ER g7_controller_remote_init (void)
@@ -139,6 +156,7 @@ uint8_t g7_controller_mission_state (void)
     switch (state)
     {
         case ROBOT_LINE_FOLLOWING: return 2U;
+        case ROBOT_OBSTACLE: return 3U;
         case ROBOT_AT_JUNCTION: return 6U;
         case ROBOT_STOPPED: return 6U;
         case ROBOT_NAV_SAFETY_STOP: return 5U; /* Navigation safe stop */
@@ -151,7 +169,7 @@ uint8_t g7_controller_mission_state (void)
 /* Readiness bit meanings are mirrored in dashboard/server/protocol.js.
  * 1: MQTT offline; 2: not held; 4: STOP/START pending;
  * 8: IMU uncalibrated; 16: IR invalid; 32: IR stale;
- * 64: controller lock/clock unavailable. Never relax these gates. */
+ * 64: controller unavailable or obstacle sensor fault. */
 uint8_t g7_controller_remote_blockers (void)
 {
     ir_shared_snapshot_t reading = {0};
@@ -200,6 +218,10 @@ uint8_t g7_controller_remote_blockers (void)
     if (!bc_wave_can_rearm())
     {
         reason |= 128U;
+    }
+    if (obstacle_has_fault())
+    {
+        reason |= 64U;
     }
     return reason;
 }
@@ -261,6 +283,13 @@ uint8_t g7_controller_remote_command (uint8_t cmd, void * p_context)
         (void)tk_unl_mtx(g_remote_mutex);
         return B1_OK; /* Queued: controller verifies network on receipt. */
     }
+    if (cmd == B1_CMD_RECAL_BARCODE)
+    {
+        /* Telemetry already refused this while running. The barcode task
+         * drops any capture and relearns white on its next poll. */
+        bc_wave_request_relearn();
+        return B1_OK;
+    }
     /* No live IMU re-baselining API is available in this version. */
     return B1_NOT_READY;
 }
@@ -272,7 +301,9 @@ uint8_t g7_controller_remote_command (uint8_t cmd, void * p_context)
  */
 static robot_state_t remote_reset_after_stop(robot_state_t prior)
 {
-    nav_stop(&g_navigation);
+    obstacle_abort();
+    /* Also forgets a repeat-mode action: each START begins clean. */
+    nav_forget(&g_navigation);
     return (prior == ROBOT_ERROR) ? ROBOT_ERROR : ROBOT_REMOTE_HOLD;
 }
 
@@ -331,8 +362,14 @@ void task_controller_task (INT start_code, void * p_context)
             APP_NAV_MAX_TURN_MSEC,
             APP_NAV_MAX_CROSS_MSEC,
             APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS,
-            APP_NAV_SCAN_CROSS_MAX_MSEC,
-            APP_NAV_SCAN_CROSS_MAX_COUNTS
+            APP_NAV_JUNCTION_CONFIRM_COUNTS,
+            APP_NAV_JUNCTION_CONFIRM_MAX_MSEC,
+            APP_NAV_DECODE_WAIT_MSEC,
+            APP_NAV_DECODE_GRACE_MSEC,
+            APP_NAV_CENTRE_COUNTS,
+            APP_NAV_CENTRE_MAX_MSEC,
+            APP_NAV_TURN90_COUNTS,
+            APP_NAV_REPEAT_ACTION
         };
         nav_init(&g_navigation, &cfg);
     }
@@ -396,6 +433,11 @@ void task_controller_task (INT start_code, void * p_context)
             remote_publish_state(state);
         }
 #endif
+        /* Driving off the track round an obstacle passes floor edges and
+         * marks that are not barcodes; do not start captures then.
+         */
+        bc_wave_set_suppressed((uint8_t)(ROBOT_OBSTACLE == state));
+
         switch (state)
         {
             case ROBOT_IDLE:
@@ -404,6 +446,10 @@ void task_controller_task (INT start_code, void * p_context)
 
             case ROBOT_LINE_FOLLOWING:
                 state = handle_following(&history);
+            break;
+
+            case ROBOT_OBSTACLE:
+                state = handle_obstacle(&history);
             break;
 
             case ROBOT_AT_JUNCTION:
@@ -440,6 +486,12 @@ void task_controller_task (INT start_code, void * p_context)
 
 static robot_state_t handle_idle (void)
 {
+    if (obstacle_has_fault())
+    {
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        return ROBOT_ERROR;
+    }
 #if APP_IMU_ENABLED
     if (!terrain_is_calibrated())
     {
@@ -492,6 +544,8 @@ static robot_state_t handle_following (controller_history_t * p_history)
     if (error < E_OK)
     {
         motion_apply(LINE_UNCERTAIN);
+        tm_printf((UB *)"[CTRL] IR snapshot read error %d -> ERROR\n",
+                  (INT)error);
         return ROBOT_ERROR;
     }
 
@@ -501,6 +555,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
     if (error < E_OK)
     {
         motion_apply(LINE_UNCERTAIN);
+        tm_printf((UB *)"[CTRL] Clock read error %d -> ERROR\n", (INT)error);
         return ROBOT_ERROR;
     }
 
@@ -510,8 +565,30 @@ static robot_state_t handle_following (controller_history_t * p_history)
     {
         motion_apply(LINE_UNCERTAIN);
         /* UB views the same string bytes; tm_printf does not modify them. */
-        tm_printf((UB *)"[CTRL] IR data stale -> STOPPED\n");
+        tm_printf((UB *)"[CTRL] IR data stale (%s, age %u ms) -> STOPPED\n",
+                  reading.b_valid ? "old" : "invalid",
+                  (UINT)(now.lo - reading.timestamp_msec));
         return ROBOT_STOPPED;
+    }
+
+    /* The uploaded obstacle policy takes priority over barcode maneuvers. */
+    if (obstacle_has_fault())
+    {
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        tm_printf((UB *)"[CTRL] Obstacle sensor fault -> ERROR\n");
+        return ROBOT_ERROR;
+    }
+    if (obstacle_is_blocked())
+    {
+        motion_apply(LINE_UNCERTAIN);
+#ifdef B1_LIVE_COMMANDS
+        /* A route queued before leaving the line cannot drive the bypass. */
+        nav_stop(&g_navigation);
+        g7_nav_clear_decoded();
+#endif
+        tm_printf((UB *)"[CTRL] Obstacle confirmed -> OBSTACLE\n");
+        return ROBOT_OBSTACLE;
     }
 
     bool b_junction = false;
@@ -527,6 +604,8 @@ static robot_state_t handle_following (controller_history_t * p_history)
     if (error < E_OK)
     {
         motion_apply(LINE_UNCERTAIN);
+        tm_printf((UB *)"[CTRL] IR latch read error %d -> ERROR\n",
+                  (INT)error);
         return ROBOT_ERROR;
     }
 
@@ -563,16 +642,40 @@ static robot_state_t handle_following (controller_history_t * p_history)
         uint8_t letter = 0U, mapped = 0U;
         uint16_t sequence = 0U;
         int received;
+        bool b_gap = false;
+        /* Was both-black broken by white between these 50 ms reads? A
+         * failed read is not worth stopping the robot for: treat it as a
+         * gap, which only restarts the junction distance measurement. */
+        if (ir_shared_take_both_gap(&b_gap) < E_OK)
+        {
+            b_gap = true;
+        }
+        sample.both_interrupted = (uint8_t)b_gap;
         sample.now_msec = now.lo;
-        sample.travel_counts = nav_travel_counts();
+        sample.turn_counts = nav_path_counts();
+        sample.travel_counts = sample.turn_counts / 2U;
         sample.left_black = (uint8_t)(reading.left != 0U);
         sample.right_black = (uint8_t)(reading.right != 0U);
         sample.barcode_capturing = bc_wave_navigation_guard_active();
+        sample.barcode_decoding = bc_wave_decode_pending();
+        if (sample.barcode_capturing)
+        {
+            /* Where the robot was when the barcode was last under it. */
+            g_capture_end_travel = sample.travel_counts;
+        }
         received = g7_nav_take_decoded(&letter, &mapped, &sequence);
         if (received > 0)
         {
+            /* The letter arrives ~2 s after the barcode (decoding), so
+             * distance to the junction is counted from where the capture
+             * ended, not from now. Logged: F arrived 0.7 s before a junction
+             * ~190 mm past the barcode and was refused as "too close". */
+            uint32_t const at_barcode =
+                ((g_capture_end_travel != 0U) &&
+                 (g_capture_end_travel <= sample.travel_counts)) ?
+                g_capture_end_travel : sample.travel_counts;
             int queued = nav_barcode(&g_navigation, letter, mapped,
-                                     sequence, now.lo, sample.travel_counts);
+                                     sequence, now.lo, at_barcode);
             if (queued == 1)
             {
                 nav_report(NAV_EVENT_QUEUED, mapped);
@@ -589,6 +692,40 @@ static robot_state_t handle_following (controller_history_t * p_history)
             nav_report(NAV_EVENT_SCAN_REJECTED, 2U);
         }
         decision = nav_step(&g_navigation, &sample);
+#if APP_JUNCTION_DEBUG_LOG
+        {
+            /* What the 1 ms sampler saw over this 50 ms period, printed
+             * only while either sensor saw black. run = counts both-black
+             * so far (junction at APP_NAV_JUNCTION_CONFIRM_COUNTS). */
+            ir_shared_diag_t diag = {0U, 0U, 0U, 0U};
+            if ((ir_shared_take_diag(&diag) >= E_OK) &&
+                ((diag.left != 0U) || (diag.right != 0U)))
+            {
+                uint32_t const run = (g_navigation.black_since != 0U) ?
+                    (sample.travel_counts - g_navigation.black_from_counts) :
+                    0U;
+                tm_printf((UB *)"[JCT] n=%u L=%u R=%u both=%u gap=%u "
+                          "now=%u%u run=%u drive=%u nav=%u\n",
+                          (UINT)diag.samples, (UINT)diag.left,
+                          (UINT)diag.right, (UINT)diag.both, (UINT)b_gap,
+                          (UINT)sample.left_black, (UINT)sample.right_black,
+                          (UINT)run, (UINT)decision.drive,
+                          (UINT)g_navigation.state);
+            }
+        }
+#endif
+        if ((decision.event == NAV_EVENT_TURN_COMPLETED) ||
+            ((decision.event == NAV_EVENT_FAULT) && (decision.value == 2U)))
+        {
+            /* For calibrating APP_NAV_TRACK_MM: how far the pivot went. */
+            tm_printf((UB *)"[NAV] Turn %s after %u counts "
+                      "(90 deg = %u, action %u)\n",
+                      (decision.event == NAV_EVENT_FAULT) ?
+                          "FAILED" : "done",
+                      (UINT)(sample.turn_counts - g_navigation.turn_from),
+                      (UINT)APP_NAV_TURN90_COUNTS,
+                      (UINT)g_navigation.action);
+        }
         if (decision.event != NAV_EVENT_NONE)
         {
             nav_report(decision.event, decision.value);
@@ -618,7 +755,9 @@ static robot_state_t handle_following (controller_history_t * p_history)
                 motion_apply_maneuver(NAV_UTURN);
                 break;
             default:
-                motion_apply(LINE_UNCERTAIN);
+                /* Junction stop, decode wait or safety stop: brake so the
+                 * robot halts where it confirmed, instead of coasting. */
+                motion_brake();
                 break;
         }
         /* Navigation geometry/line ambiguity is a recoverable SAFE STOP,
@@ -630,6 +769,70 @@ static robot_state_t handle_following (controller_history_t * p_history)
 #else
     return apply_action(&reading, p_history);
 #endif
+}
+
+static robot_state_t handle_obstacle (controller_history_t * p_history)
+{
+    ir_shared_snapshot_t reading = {0};
+    SYSTIM now = {0};
+    bool b_left = false, b_right = false, b_both = false;
+    ER error = ir_shared_get_latest(&reading);
+    if (error >= E_OK) error = tk_get_otm(&now);
+    if (error >= E_OK) error = ir_shared_take_sides(&b_left, &b_right);
+    if (error >= E_OK) error = ir_shared_take_junction(&b_both);
+    if (error < E_OK || !reading.b_valid ||
+        (UW)(now.lo - reading.timestamp_msec) > APP_IR_MAX_AGE_MSEC)
+    {
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        tm_printf((UB *)"[CTRL] IR unavailable during bypass -> STOPPED\n");
+        return ROBOT_STOPPED;
+    }
+    if (obstacle_has_fault())
+    {
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        return ROBOT_ERROR;
+    }
+    obstacle_drive_t const drive = obstacle_bypass_step(
+        (b_left || b_both) ? 1U : reading.left,
+        (b_right || b_both) ? 1U : reading.right, now.lo);
+    if (drive.b_fault)
+    {
+        motion_apply(LINE_UNCERTAIN);
+        obstacle_abort();
+        tm_printf((UB *)"[CTRL] Obstacle bypass fault -> ERROR\n");
+        return ROBOT_ERROR;
+    }
+    if (drive.b_done)
+    {
+        /* Stop before handing ownership back; discard bypass line touches. */
+        motion_apply(LINE_UNCERTAIN);
+        (void)ir_shared_take_junction(&b_both);
+        (void)ir_shared_take_sides(&b_left, &b_right);
+        p_history->b_have_previous_action = false;
+#ifdef B1_LIVE_COMMANDS
+        g7_nav_clear_decoded();
+        nav_start(&g_navigation, now.lo);
+#endif
+        tm_printf((UB *)"[CTRL] Bypass done -> LINE_FOLLOWING\n");
+        return ROBOT_LINE_FOLLOWING;
+    }
+    if (drive.b_stop)
+    {
+        motion_apply(LINE_UNCERTAIN);
+    }
+    else if (drive.b_line_follow)
+    {
+        line_follow_action_t action =
+            line_follow_decide(reading.left, reading.right);
+        motion_apply((action == LINE_UNCERTAIN) ? LINE_FORWARD : action);
+    }
+    else
+    {
+        motion_drive((float)drive.left_rpm, (float)drive.right_rpm);
+    }
+    return ROBOT_OBSTACLE;
 }
 
 static robot_state_t handle_junction (controller_history_t * p_history)

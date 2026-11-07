@@ -12,6 +12,7 @@
 #include "app/app_config.h"
 #include "board/board_config.h"
 #include <bsp/libbsp.h>
+#include <tm/tmonitor.h>
 
 static bc_fast_adc_stats_t g_adc_stats;
 
@@ -240,10 +241,40 @@ ER bc_fast_error (void)
     return g_fast_error;
 }
 
+/* No sample for this long while armed: the self-rearming alarm chain has
+ * stopped (seen after a long test-mode raw dump: samples=0, no error).
+ * 25 sample periods; restart the alarm rather than lose scanning. */
+#define BC_FAST_STALL_USEC (25U * BC_FAST_PERIOD_USEC)
+
+/** Restart a stalled sampler from task context. */
+static void bc_fast_watchdog (uint8_t b_got_sample)
+{
+    static uint32_t last_sample_usec = 0U;
+    static uint32_t restarts = 0U;
+    uint32_t const now = encoder_now_usec();
+    if ((0U != b_got_sample) || (0U == last_sample_usec))
+    {
+        last_sample_usec = now;
+        return;
+    }
+    if ((0U != gb_fast_armed) && (g_fast_error >= E_OK) &&
+        ((uint32_t)(now - last_sample_usec) >= BC_FAST_STALL_USEC))
+    {
+        ER error;
+        bc_fast_stop();
+        error = bc_fast_arm();
+        ++restarts;
+        last_sample_usec = now;
+        tm_printf((UB *)"[BC FAST] sampler stalled; restarted (%u) -> %d\n",
+                  (UINT)restarts, (INT)error);
+    }
+}
+
 ER bc_fast_drain (void)
 {
     bc_fastq_sample_t sample = {0};
     ER first_error = E_OK;
+    uint8_t b_got_sample = 0U;
 
     /* Queue is bounded: at most 64 samples per diagnostic cycle. */
     for (uint32_t i = 0U; i < BC_FASTQ_CAPACITY; ++i)
@@ -254,6 +285,7 @@ ER bc_fast_drain (void)
         {
             break;
         }
+        b_got_sample = 1U;
 #if APP_BARCODE_ANALOG_ENABLED && APP_BARCODE_TRACE_ENABLED
         bc_trace_record(&sample);
 #endif
@@ -327,6 +359,7 @@ ER bc_fast_drain (void)
             }
         }
     }
+    bc_fast_watchdog(b_got_sample);
     return first_error;
 }
 

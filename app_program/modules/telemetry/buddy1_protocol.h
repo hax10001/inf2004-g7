@@ -26,6 +26,11 @@
 #define B1_CMD_STOP 3u
 #define B1_CMD_SNAPSHOT 4u
 #define B1_CMD_RECAL_IMU 5u
+#define B1_CMD_RECAL_BARCODE 6u   /* stopped only: relearn barcode white */
+#define B1_CMD_LAST B1_CMD_RECAL_BARCODE
+/* Barcode diagnostics: 28 bytes (V7.5), 42 with scanner state/white. */
+#define B1_BARCODE_DIAG_V1 28u
+#define B1_BARCODE_DIAG_V2 42u
 #define B1_OK 0u
 #define B1_BAD_COMMAND 1u
 #define B1_BAD_STATE 2u

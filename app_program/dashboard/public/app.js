@@ -4,16 +4,16 @@ const safe=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':
 window.lastAckTime=0;window.lastCommandIssue=0;
 let telemetryUpdated=0,ledgerUpdated='',routeUpdated='';
 let view=null,connected=false,zoom=1,drag=null,offset={x:0,y:0},activeView='overview',logPaused=false,pausedLogs=[],logUpdated=0,lastClearedLogId=0;
-const missionNames=['IDLE','SELF-CHECK','RUNNING','SCANNING','LEGACY/UNUSED','NAV SAFETY STOP','STOPPED','FAULT'];
+const missionNames=['IDLE','SELF-CHECK','RUNNING','OBSTACLE BYPASS','LEGACY/UNUSED','NAV SAFETY STOP','STOPPED','FAULT'];
 const actions=['STRAIGHT','LEFT','RIGHT','U-TURN'];
 const scanFailureNames=['Reason unavailable (firmware reported 0)','Invalid sensor input','Barcode width mismatch',
   'Capture buffer overflow','Capture timed out','Invalid encoder travel',
   'Scan interrupted','Code 39 pattern mismatch','Scanner/result queue busy'];
 const colors={1:'#7866BA',2:'#C49B3B',3:'#E7B750',4:'#B44C42',5:'#5A91B9',6:'#258971',7:'#B53F42',8:'#A9742C',9:'#D7A24A',10:'#536879'};
 const lineNames=['UNKNOWN','FOLLOWING','LEFT BIAS','RIGHT BIAS','SEARCHING','JUNCTION','LOST','FAULT'];
-const commandLabels=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU'];
+const commandLabels=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU','RECALIBRATE_BARCODE'];
 const readyBits=[[1,'MQTT offline'],[2,'not in safe hold'],[4,'command pending'],
- [8,'IMU uncalibrated'],[16,'IR unavailable'],[32,'IR stale'],[64,'controller busy'],[128,'barcode capture processing']];
+ [8,'IMU uncalibrated'],[16,'IR unavailable'],[32,'IR stale'],[64,'controller unavailable or obstacle sensor fault'],[128,'barcode capture processing']];
 function readyDetail(status){
  if(status?.mission===5)return 'Navigation safety stop — press STOP, wait for HOLD, then START';
  if(status?.mission===7)return 'Controller fault — inspect robot; power-cycle only after resolving fault';
@@ -23,9 +23,9 @@ function readyDetail(status){
    'Awaiting controller readiness';
 }
 
-function changeView(name){if(!['overview','three','telemetry','console'].includes(name))return;activeView=name;
- for(const v of ['overview','three','telemetry','console']){el('view-'+v).classList.toggle('hidden',v!==name);const b=document.querySelector(`[data-view="${v}"]`);b.classList.toggle('active',v===name);b.setAttribute('aria-pressed',String(v===name));}
- if(name==='three')requestAnimationFrame(()=>{updateRouteMap();draw();});if(name==='console')renderLogs(true);if(name==='telemetry')renderTelemetry(true);
+function changeView(name){if(!['overview','three','telemetry','console','robotlog'].includes(name))return;activeView=name;
+ for(const v of ['overview','three','telemetry','console','robotlog']){el('view-'+v).classList.toggle('hidden',v!==name);const b=document.querySelector(`[data-view="${v}"]`);b.classList.toggle('active',v===name);b.setAttribute('aria-pressed',String(v===name));}
+ if(name==='three')requestAnimationFrame(()=>{updateRouteMap();draw();});if(name==='console')renderLogs(true);if(name==='telemetry')renderTelemetry(true);if(name==='robotlog'){robotLogUnseen=0;renderRobotLog(true);}
 }
 for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('click',()=>changeView(b.dataset.view));
 for(const b of document.querySelectorAll('[data-goto]'))b.addEventListener('click',()=>changeView(b.dataset.goto));
@@ -76,8 +76,22 @@ el('mission').textContent=(s.sourceMask&16)?missionNames[s.mission]||'UNKNOWN':'
  const phaseNames=['LEVEL','CLIMBING','DESCENDING'];
  el('sensorPhase').textContent=detail?.humpPhase==null?'UNAVAILABLE':
    phaseNames[detail.humpPhase]||'UNKNOWN';
- el('sensorSonar').textContent='NOT INSTALLED';
- el('sensorObstacle').textContent=view.robotStatus?.mappingLoaded?'LOADED':'NOT LOADED';
+ el('sensorSonar').textContent=detail?.ultrasonicCm==null?'UNAVAILABLE':
+   `${detail.ultrasonicCm} cm`;
+ const obstaclePhases=['IDLE','CONFIRMING','STOPPING','SCANNING','TURNING OUT',
+   'MOVING OUT','TURNING PARALLEL','PASSING SIDE','PASSING END','TURNING BACK',
+   'FINDING LINE','ALIGNING','VERIFYING','FAULT'];
+ el('sensorObstacle').textContent=detail?.obstaclePhase==null?'UNAVAILABLE':
+   obstaclePhases[detail.obstaclePhase]||'UNKNOWN';
+ const bypass=detail?.obstacleDiag;
+ if(bypass?.active){
+   const waits=['','waiting to see obstacle at side','waiting for clear side readings',
+     'waiting to travel past rear','checking return point'];
+   const reason=waits[bypass.waitReason]||'';
+   el('sensorObstacle').textContent+=reason?` - ${reason}`:'';
+   el('sensorObstacle').title=`Side ${bypass.sideRangeMm<0?'NO ECHO':bypass.sideRangeMm+' mm'}, `+
+     `seen ${bypass.sideHits}/2, clear ${bypass.clearHits}/3, rear travel ${bypass.travelSinceHitMm} mm`;
+ }else el('sensorObstacle').title='';
  el('sensorEncoders').textContent=detail?.leftEncoder==null?'UNAVAILABLE':
    `${detail.leftEncoder} / ${detail.rightEncoder}`;
  el('sensorAge').textContent=detail?`${netSensor?'MQTT':'USB'} · ${num(ageSensor/1000)} s`:
@@ -195,6 +209,7 @@ el('configure').onclick=()=>{mappingFeedback();updateMappingMode();updateRouteMa
 el('overviewMappingButton').onclick=()=>el('configure').click();
 async function command(kind){const letters=['straight','left','right','uturn'].map(id=>el(id).value);
  if(kind==='RECALIBRATE_IMU'&&!confirm('IMU recalibration requires the robot to be completely stationary. Continue?'))return;
+ if(kind==='RECALIBRATE_BARCODE'&&!confirm('Barcode recalibration: robot stopped, barcode sensor (front left) over plain white — not the line or a barcode. It relearns white in about half a second. Continue?'))return;
  el('cmdStatus').textContent=`${kind}: submitting request…`;
  try{const res=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':el('token').value},body:JSON.stringify({kind,letters:kind==='SET_MAPPING'?letters:[]})});
  const text=await res.text();let data;try{data=JSON.parse(text);}catch{data=null;}
@@ -210,7 +225,7 @@ el('start').onclick=()=>{
     updateMappingMode();mappingFeedback('Choose the four physical track letters first.');dialog.showModal();return;
   }
   command('START');
-};el('stop').onclick=()=>command('STOP');el('recalibrate').onclick=()=>command('RECALIBRATE_IMU');el('snapshot').onclick=()=>command('SNAPSHOT');
+};el('stop').onclick=()=>command('STOP');el('recalibrate').onclick=()=>command('RECALIBRATE_IMU');el('recalibrateBarcode').onclick=()=>command('RECALIBRATE_BARCODE');el('snapshot').onclick=()=>command('SNAPSHOT');
 el('setMapping').onclick=()=>command('SET_MAPPING');
 el('mapThenStart').onclick=async()=>{
   const letters=['straight','left','right','uturn'].map(id=>el(id).value);
@@ -235,14 +250,27 @@ function updateScannerPanels(){
  const spot=el('telemetryScanSpotlight'),title=el('telemetryScanTitle'),detail=el('telemetryScanDetail');
  const monitor=el('monitorScanSpotlight');
  const age=last?Math.max(0,Math.round((Date.now()-last.at)/1000)):null;
- spot.className='scanSpotlight '+(last?`scanSpotlight-${last.status}`:'scanSpotlight-idle');
- monitor.className='monitorScanNote '+(last?`monitorScanNote-${last.status}`:'');
- const heading=!last?'No scan result received':last.status==='failed'?'SCAN FAILED':
+ const bcDiag=view.barcodeDiag,sc=bcDiag?.scanner;
+ const scLive=sc&&bcDiag.received&&Date.now()-bcDiag.received<5000;
+ const recent=last&&age<=10;
+ /* Live scanner state leads; the last result is history once it is old. */
+ const scannerHeading=!scLive?null:{
+   1:'RE-ARMING · learning white',2:'SCANNER READY · waiting for next barcode',
+   3:'READING BARCODE…',4:'DECODING BARCODE…',5:'RE-ARMING · waiting for white after the barcode',
+   6:`NOT ARMED · sensor not on white (reads ${sc.whiteMean}) · move it over white or press Recalibrate barcode`
+ }[sc.state]||`Scanner: ${sc.stateName}`;
+ const showResult=last&&(recent||!scannerHeading);
+ spot.className='scanSpotlight '+(showResult?`scanSpotlight-${last.status}`:'scanSpotlight-idle');
+ monitor.className='monitorScanNote '+(showResult?`monitorScanNote-${last.status}`:'');
+ const resultHeading=!last?'No scan result received':last.status==='failed'?'SCAN FAILED':
    last.letter?`LETTER ${last.letter} DECODED`:'SCAN COMPLETED · LETTER NOT RECEIVED';
- const explanation=!last?'Waiting for a completed or rejected scan from the robot.':
-   `${last.detail} · ${age}s ago · ${last.source==='LIVE'?'Live MQTT':'Simulation'}${age>10?' · historical result':''}`;
+ const heading=showResult?resultHeading:(scannerHeading||resultHeading);
+ const lastText=!last?'No barcode read yet this session.':
+   `${showResult?'':'Last: '}${last.detail} · ${age}s ago · ${last.source==='LIVE'?'Live MQTT':'Simulation'}`;
+ const explanation=(showResult&&scannerHeading?`${lastText} · now ${scannerHeading.toLowerCase()}`:lastText)+
+   (scLive&&sc.state===2?` · white ${sc.whiteMean} ±${sc.whiteSigma}`:'');
  title.textContent=heading;detail.textContent=explanation;
- el('monitorScanTitle').textContent=!last?'Scanner results: none yet':heading;
+ el('monitorScanTitle').textContent=(!last&&!scannerHeading)?'Scanner results: none yet':heading;
  el('monitorScanDetail').textContent=explanation;
  el('telemetryScanHistory').innerHTML=scans.length?scans.slice(0,8).map(x=>
    `<div class="scanHistoryRow ${safe(x.status)}"><span>${x.status==='failed'?'✕':'✓'}</span><strong>${safe(x.detail)}</strong><time>${new Date(x.at).toLocaleTimeString()}</time></div>`).join(''):
@@ -265,8 +293,18 @@ function renderTelemetry(force=false){
  el('telemetryMotor').textContent=motor;
  const bc=view.barcodeDiag,bcLive=bc?.received&&Date.now()-bc.received<5000;
  if(bcLive){
-   el('verifyBarcode').textContent=['Disabled','Calibration required','Scanner armed'][bc.mode]||`Mode ${bc.mode}`;
-   el('verifyBarcodeDetail').textContent=`Digital sensor=${bc.raw}, black/white edges=${bc.rawTransitions}, capture state=${bc.scanState}, runs=${bc.runCount}, last width=${bc.lastRunUnits} counts. The edge counter must rise during a scan.`;
+   const sc=bc.scanner;
+   if(sc){
+     el('verifyBarcode').textContent=`Scanner: ${sc.stateName}`+
+       (sc.state===6?' — place the sensor on white or press Recalibrate barcode':'');
+     el('verifyBarcodeDetail').textContent=`Learned white ${sc.whiteMean} ±${sc.whiteSigma} ADC (white is ~150–250; black ~1000+). `+
+       (sc.whiteRejects?`Refused a dark "white" ${sc.whiteRejects}× since boot. `:'')+
+       (sc.lastPass?(sc.lastValid?`Last pass ${sc.lastPass}: read ${sc.lastLetter} in ${(sc.lastProcessMs/1000).toFixed(1)} s.`:
+         `Last pass ${sc.lastPass}: no letter (${sc.lastReasonName}).`):'No pass yet.');
+   }else{
+     el('verifyBarcode').textContent=['Disabled','Calibration required','Scanner armed'][bc.mode]||`Mode ${bc.mode}`;
+     el('verifyBarcodeDetail').textContent=`Digital sensor=${bc.raw}, black/white edges=${bc.rawTransitions}, capture state=${bc.scanState}, runs=${bc.runCount}, last width=${bc.lastRunUnits} counts. The edge counter must rise during a scan.`;
+   }
    el('verifyBarcodeCounters').textContent=`Completed ${bc.completed} · Rejected ${bc.rejected} · Last failure code ${bc.failureStatus}`;
  }else{
    el('verifyBarcode').textContent=bc?.received?'Scanner diagnostics paused':'No scanner diagnostic packets yet';
@@ -333,5 +371,33 @@ async function downloadRecording(ext){
 }
 el('downloadJsonl').onclick=()=>downloadRecording('jsonl');el('downloadCsv').onclick=()=>downloadRecording('csv');
 el('copyConsole').onclick=async()=>{const text=filteredLogs().map(l=>`${new Date(l.time).toISOString()} [${l.level.toUpperCase()}] ${l.category}: ${l.message}`).join('\n');try{await navigator.clipboard.writeText(text);el('copyConsole').textContent='Copied ✓';setTimeout(()=>el('copyConsole').textContent='Copy log',1600);}catch{el('copyConsole').textContent='Copy unavailable';}};
-const stream=new EventSource('/api/events');stream.addEventListener('open',()=>{connected=true;show();});stream.addEventListener('error',()=>{connected=false;show();});stream.addEventListener('state',e=>{try{view=JSON.parse(e.data);show();draw();}catch(err){console.error('bad dashboard stream',err);}});
+/* Robot Log: the firmware console streamed over MQTT. */
+const ROBOT_LOG_MAX=3000;let robotLog=[],robotLogUnseen=0,robotLogDirty=false;
+const robotLogImportant=/fault|error|stale|lost|stall|STOP|->|reject|fail|warn|\[NAV\]|\[CTRL\]/i;
+function robotLogClass(t){return /fault|error|fail|lost|stall/i.test(t)?'error':(/stale|STOP|reject|warn|unmapped/i.test(t)?'warn':'');}
+function robotLogVisible(){const q=el('robotLogSearch').value.trim().toLowerCase(),imp=el('robotLogImportant').checked;
+ return robotLog.filter(l=>(!q||l.text.toLowerCase().includes(q))&&(!imp||robotLogImportant.test(l.text)));}
+function renderRobotLog(force){
+ el('robotLogBadge').textContent=robotLogUnseen>999?'999+':String(robotLogUnseen);
+ if(activeView!=='robotlog'||(!force&&!robotLogDirty))return;robotLogDirty=false;
+ const box=el('robotLogOutput'),lines=robotLogVisible().slice(-1500);
+ el('robotLogCount').textContent=lines.length+' of '+robotLog.length+' lines';
+ if(!robotLog.length)return;
+ const frag=document.createDocumentFragment();
+ for(const l of lines){const d=document.createElement('div');d.className='robotLogLine '+robotLogClass(l.text);
+  const t=document.createElement('time');t.textContent=new Date(l.t).toLocaleTimeString([],{hour12:false})+'.'+String(l.t%1000).padStart(3,'0');
+  const m=document.createElement('span');m.textContent=l.text;d.append(t,m);frag.append(d);}
+ box.replaceChildren(frag);if(el('robotLogFollow').checked)box.scrollTop=box.scrollHeight;
+}
+let robotLogTimer=null;function scheduleRobotLog(){robotLogDirty=true;el('robotLogBadge').textContent=robotLogUnseen>999?'999+':String(robotLogUnseen);
+ if(!robotLogTimer)robotLogTimer=setTimeout(()=>{robotLogTimer=null;renderRobotLog(false);},150);}
+el('robotLogSearch').addEventListener('input',()=>renderRobotLog(true));
+el('robotLogImportant').addEventListener('change',()=>renderRobotLog(true));
+el('robotLogClear').addEventListener('click',()=>{robotLog=[];robotLogUnseen=0;el('robotLogOutput').replaceChildren();renderRobotLog(true);});
+el('robotLogCopy').addEventListener('click',()=>{navigator.clipboard?.writeText(robotLogVisible().map(l=>l.text).join(String.fromCharCode(10))).catch(()=>{});});
+el('robotLogDownload').addEventListener('click',()=>{location.href='/api/robotlog.txt';});
+const stream=new EventSource('/api/events');stream.addEventListener('open',()=>{connected=true;show();});stream.addEventListener('error',()=>{connected=false;show();});stream.addEventListener('log',e=>{try{const d=JSON.parse(e.data);if(d.reset){robotLog=[];if(d.file)el('robotLogFile').textContent=d.file;}
+ robotLog.push(...(d.lines||[]));if(robotLog.length>ROBOT_LOG_MAX)robotLog.splice(0,robotLog.length-ROBOT_LOG_MAX);
+ if(activeView!=='robotlog'&&!d.reset)robotLogUnseen+=(d.lines||[]).length;scheduleRobotLog();}catch(err){console.error('bad robot log',err);}});
+stream.addEventListener('state',e=>{try{view=JSON.parse(e.data);show();draw();}catch(err){console.error('bad dashboard stream',err);}});
 setInterval(()=>{el('time').textContent=new Date().toLocaleString();show();if(activeView==='console')updateScannerPanels();},1000);window.addEventListener('resize',draw);draw();

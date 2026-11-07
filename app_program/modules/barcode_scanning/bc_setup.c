@@ -114,6 +114,7 @@ static void bc_setup_adc_report (void)
 {
     bc_fast_adc_stats_t adc = {0};
     bc_fast_adc_report(&adc);
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
     tm_printf((UB *)"[BC ADC] raw=%u min=%u max=%u n=%u errors=%u "
                       "filtered=%u threshold=%u hysteresis=%u black_high=%u\n",
               (UINT)adc.latest, (UINT)adc.minimum, (UINT)adc.maximum,
@@ -122,6 +123,7 @@ static void bc_setup_adc_report (void)
               (UINT)APP_BARCODE_ADC_THRESHOLD,
               (UINT)APP_BARCODE_ADC_HYSTERESIS,
               (UINT)APP_BARCODE_ADC_BLACK_HIGH);
+#endif
 }
 #endif
 

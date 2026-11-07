@@ -14,11 +14,8 @@ APP_DIRS := ../app_program ../app_program/app ../app_program/board \
 APP_SRCS := $(foreach directory,$(APP_DIRS),$(wildcard $(directory)/*.c))
 APP_TEST_SRCS := $(foreach directory,$(APP_DIRS),$(wildcard $(directory)/test_*.c))
 APP_SRCS := $(filter-out $(APP_TEST_SRCS),$(APP_SRCS))
-# The imported Buddy 5 library must not be pulled into a normal build.
-B1_BUDDY5_MODULE ?= 0
-ifneq ($(B1_BUDDY5_MODULE),1)
-endif
-# The fallback build compiles exactly its original application sources.
+# Obstacle sources are included by APP_DIRS; APP_OBSTACLE_ENABLED gates use.
+# The fallback build excludes the optional MQTT telemetry adapter.
 ifneq ($(WIFI_MQTT),1)
 APP_SRCS := $(filter-out ../app_program/modules/telemetry/%.c,$(APP_SRCS))
 endif

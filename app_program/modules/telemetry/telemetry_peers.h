@@ -1,5 +1,5 @@
 /** @file telemetry_peers.h
- * @brief Snapshot bridge; optional bench-only barcode mailbox ACK.
+ * @brief Bridge subsystem snapshots and consume validated barcode results.
  * Never owns motors, I2C, GPIO or the Mission Coordinator.
  */
 #ifndef TELEMETRY_PEERS_H
@@ -9,6 +9,9 @@
 typedef struct {
     uint8_t have_motion,have_ir,have_imu;
     uint8_t barcode_valid, barcode_letter, last_ir_bits;
+    uint8_t have_obstacle;
+    uint16_t obstacle_seq,obstacle_event_seq;
+    uint32_t obstacle_last_status;
     uint32_t barcode_last_seq;
     uint32_t last_sensor_report_ms;
     uint32_t last_barcode_report_ms;

@@ -8,7 +8,8 @@
 
 typedef enum {
     NAV_WAIT = 0, NAV_FOLLOW, NAV_APPROACH, NAV_CROSS,
-    NAV_TURN, NAV_REACQUIRE, NAV_RESUME, NAV_FAULT
+    NAV_TURN, NAV_REACQUIRE, NAV_RESUME, NAV_FAULT,
+    NAV_CENTRE /* turn queued: driving on until the axle is over the cross */
 } nav_state_t;
 typedef enum {
     NAV_STRAIGHT = 0, NAV_LEFT = 1, NAV_RIGHT = 2, NAV_UTURN = 3
@@ -23,7 +24,8 @@ typedef enum {
     NAV_EVENT_JUNCTION = 13, NAV_EVENT_TURN_STARTED = 14,
     NAV_EVENT_TURN_COMPLETED = 15, NAV_EVENT_LINE_REACQUIRED = 16,
     NAV_EVENT_FOLLOWING = 17, NAV_EVENT_FAULT = 18,
-    NAV_EVENT_SCAN_REJECTED = 19
+    NAV_EVENT_SCAN_REJECTED = 19,
+    NAV_EVENT_DECODE_WAIT = 20 /* stopped at junction, letter decoding */
 } nav_event_t;
 typedef struct {
     uint32_t confirm_msec;
@@ -31,8 +33,37 @@ typedef struct {
     uint32_t max_turn_msec;
     uint32_t max_cross_msec;
     uint32_t min_after_barcode_counts;
-    uint32_t scan_cross_max_msec; /**< Maximum barcode-cross clearance. */
-    uint32_t scan_cross_max_counts; /**< Encoder bound; no blind motion. */
+    /** Both line sensors must stay black over this much forward travel
+     *  (encoder counts) before it counts as a junction. Shorter both-black
+     *  runs, such as a curve's line passing diagonally under both sensors
+     *  or a barcode bar, are driven straight over. */
+    uint32_t junction_confirm_counts;
+    /** Bounds that confirmation in time if the robot is barely moving:
+     *  this long continuously both-black also counts as a junction. */
+    uint32_t junction_confirm_max_msec;
+    /** Junction reached while a barcode is still decoding: stop and wait
+     *  this long for the letter (0 disables: fault at once, as before). */
+    uint32_t decode_wait_msec;
+    /** After decoding ends, how long the letter may take to arrive. */
+    uint32_t decode_grace_msec;
+    /** Left/right/U-turn: forward travel from where the crossing bar was
+     *  first seen (both black) until the wheel axle is over the junction
+     *  centre, so a pivot there leaves the sensors on the new arm.
+     *  0: turn at once where the junction was confirmed (old behaviour). */
+    uint32_t centre_counts;
+    /** Time bound on that drive to the centre. */
+    uint32_t centre_max_msec;
+    /** Both wheels' travel added together (turn_counts) for a 90 degree
+     *  pivot. The turn ignores the line until 60 degrees (150 for a
+     *  U-turn), ends on the first black reading after that, and faults
+     *  past 135 degrees (225). 0: old timed, edge-confirmed turn. */
+    uint32_t turn90_counts;
+    /** 0: a letter's action is used at the next junction only, after
+     *  which a junction with no new letter is a safety stop.
+     *  1: the action repeats at every junction until another barcode
+     *  replaces it (a new letter overrides the queued one). Survives an
+     *  obstacle bypass; cleared by STOP (nav_forget). */
+    uint32_t repeat_action;
 } nav_config_t;
 typedef struct {
     uint32_t now_msec;
@@ -40,6 +71,13 @@ typedef struct {
     uint8_t left_black;
     uint8_t right_black;
     uint8_t barcode_capturing;
+    uint8_t barcode_decoding; /**< Recorded pass decoding, no result yet. */
+    /** The 1 ms sampler saw both-black broken by white since the previous
+     *  step, so a both-black run must restart its distance measurement. */
+    uint8_t both_interrupted;
+    /** Both wheels' movement added together, either direction, never
+     *  decreasing. A pivot's angle is its growth divided by the track. */
+    uint32_t turn_counts;
 } nav_sample_t;
 typedef struct {
     nav_state_t state;
@@ -49,7 +87,14 @@ typedef struct {
     uint8_t edge_seen;
     uint8_t turn_announced;
     uint8_t resume_announced;
-    uint8_t fault_reason; /* 1 unmapped; 2 turn; 3 cross timeout. */
+    uint8_t fault_reason; /* 1 unmapped; 2 turn; 3 cross; 5 no letter. */
+    uint8_t decode_hold;  /* stopped at a junction waiting for a letter */
+    uint8_t hold_letter;  /* a letter arrived during that wait */
+    uint8_t held;         /* repeat mode: an action is remembered */
+    uint8_t held_letter;
+    uint8_t held_action;
+    uint32_t hold_since;
+    uint32_t decode_idle_since; /* 0 while the scanner is still decoding */
     uint32_t state_since;
     uint32_t black_since;
     uint32_t black_from_counts;
@@ -57,6 +102,8 @@ typedef struct {
     uint32_t barcode_counts;
     uint32_t last_barcode_counts;
     uint32_t last_barcode_ms;
+    uint32_t centre_from; /* travel where the crossing bar was first seen */
+    uint32_t turn_from;   /* turn_counts when the pivot started */
     uint16_t last_barcode_seq;
     nav_config_t cfg;
 } nav_controller_t;
@@ -67,8 +114,11 @@ typedef struct {
 } nav_result_t;
 void nav_init(nav_controller_t *nav, const nav_config_t *cfg);
 void nav_stop(nav_controller_t *nav);
+/* STOP: also drop the remembered repeat action (a new run starts clean). */
+void nav_forget(nav_controller_t *nav);
 void nav_start(nav_controller_t *nav, uint32_t now_msec);
-/* 1 queued, 0 duplicate, -1 already queued, -2 not running. */
+/* 1 queued (repeat mode: also replaced), 0 duplicate, -1 already queued
+ * (single mode only), -2 not running. */
 int nav_barcode(nav_controller_t *nav, uint8_t letter, uint8_t action,
                 uint16_t seq, uint32_t ms, uint32_t traveled);
 nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *sample);

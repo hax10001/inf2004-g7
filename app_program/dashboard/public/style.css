@@ -500,3 +500,11 @@ footer {align-items:flex-start;}
 .statusChevron{font-size:14px;color:#75808A;}
 @media(max-width:680px){.navactions{margin-left:auto;order:1;}
  .navactions .mappingAction{min-height:38px;padding:8px 12px;font-size:12px;}}
+
+/* Robot Log (serial console over MQTT) */
+.robotLogOutput { padding:8px 12px; }
+.robotLogLine { display:flex; gap:12px; align-items:baseline; padding:1px 2px; border-bottom:1px solid #ffffff0d; }
+.robotLogLine time { color:#8fa6bd; font-size:11px; white-space:nowrap; flex:0 0 auto; }
+.robotLogLine span { white-space:pre-wrap; overflow-wrap:anywhere; min-width:0; }
+.robotLogLine.warn span { color:#f8c987; }
+.robotLogLine.error span { color:#f58ca2; font-weight:700; }

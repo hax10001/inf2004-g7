@@ -42,10 +42,16 @@ static void aggregation(void) {
   diag.payload_len=28u;
   assert(b1_sensor_frame(&s,&diag)==0);
   assert(diag.seq!=0 && diag.session==77);
+  diag.payload_len=B1_BARCODE_DIAG_V2; /* adds scanner state and white */
+  assert(b1_sensor_frame(&s,&diag)==0);
   diag.payload_len=24u;
   assert(b1_sensor_frame(&s,&diag)==-1);
   diag.type=B1_TYPE_SENSOR;
   assert(b1_sensor_frame(&s,&diag)==0);
+  diag.payload_len=32u;
+  assert(b1_sensor_frame(&s,&diag)==0);
+  diag.payload_len=31u;
+  assert(b1_sensor_frame(&s,&diag)==-1);
   motion.seq=1;motion.ms=30;motion.left_delta_mm=12;motion.right_delta_mm=13;
   assert(b1_ingest_motion(&s,&motion)==0);
   assert(b1_ingest_motion(&s,&motion)==-1);
@@ -120,4 +126,60 @@ static void recalibrate_guard(void){
  cmd.transaction=2;req.payload_len=(uint8_t)b1_encode_command(&cmd,req.payload,sizeof(req.payload));
  assert(b1_handle_command(&s,&req,&ack)==B1_OK);
 }
-int main(void){protocol();aggregation();start_requires_mapping();recalibrate_guard();puts("C codec + aggregation + IMU guard tests PASS");return 0;}
+static void barcode_recalibrate_guard(void){
+ B1_Store s;B1_Mission mission={0};B1_Command cmd={0},back={0};
+ B1_Frame req={0},ack={0};
+ assert(b1_store_init(&s,lock,unlock,&mutex,98)==0);
+ b1_set_coordinator(&s,coord,NULL);mission.seq=1;mission.mission=2;mission.running=1;
+ assert(b1_ingest_mission(&s,&mission)==0);
+ cmd.command=B1_CMD_RECAL_BARCODE;cmd.transaction=1;
+ req.type=B1_TYPE_COMMAND;req.session=98;
+ req.payload_len=(uint8_t)b1_encode_command(&cmd,req.payload,sizeof(req.payload));
+ assert(req.payload_len==3u);
+ assert(b1_decode_command(req.payload,req.payload_len,&back)==0);
+ assert(back.command==B1_CMD_RECAL_BARCODE);
+ /* Moving: the white baseline would be learned off the line. */
+ assert(b1_handle_command(&s,&req,&ack)==B1_BAD_STATE);
+ assert(ack.payload[0]==B1_CMD_RECAL_BARCODE);
+ mission.seq=2;mission.mission=0;mission.running=0;
+ assert(b1_ingest_mission(&s,&mission)==0);
+ cmd.transaction=2;req.payload_len=(uint8_t)b1_encode_command(&cmd,req.payload,sizeof(req.payload));
+ assert(b1_handle_command(&s,&req,&ack)==B1_OK);
+ /* Unknown command codes past the last one stay rejected. */
+ req.payload[0]=(uint8_t)(B1_CMD_LAST+1u);
+ assert(b1_decode_command(req.payload,3u,&back)==-1);
+}
+static void obstacle_telemetry(void) {
+ B1_Store s;B1_Frame f={0};B1_SnapshotPayload snapshot={0};
+ B1_Obstacle obstacle={0};
+ assert(b1_store_init(&s,lock,unlock,&mutex,100)==0);
+ obstacle.seq=1;obstacle.ms=100;obstacle.distance_cm=35;
+ obstacle.side=2;obstacle.bypass_count=3;obstacle.faults=1;
+ obstacle.event_kind=4;obstacle.event_id=1;obstacle.event_value=35;
+ assert(b1_ingest_obstacle(&s,&obstacle)==0);
+ assert(b1_ingest_obstacle(&s,&obstacle)==-1);
+ assert(b1_next_frame(&s,300,&f)==1 && f.type==B1_TYPE_EVENT);
+ assert(f.payload[0]==4 && f.payload[1]==4);
+ assert(b1_get16(f.payload+4)==35);
+ assert(b1_next_frame(&s,300,&f)==1 && f.type==B1_TYPE_SNAPSHOT);
+ assert(b1_decode_snapshot(f.payload,f.payload_len,&snapshot)==0);
+ assert(snapshot.source_mask & B1_SRC_OBSTACLE);
+ assert(!(snapshot.stale_mask & B1_SRC_OBSTACLE));
+ assert(snapshot.obstacle_cm==35 && snapshot.side==2);
+ assert(snapshot.bypass_count==3 && snapshot.faults==1);
+ for(int i=0;i<5;i++) {
+  assert(b1_next_frame(&s,2000,&f)==1);
+  if(f.type==B1_TYPE_SNAPSHOT)break;
+ }
+ assert(f.type==B1_TYPE_SNAPSHOT);
+ assert(b1_decode_snapshot(f.payload,f.payload_len,&snapshot)==0);
+ assert(snapshot.stale_mask & B1_SRC_OBSTACLE);
+ obstacle.seq=2;obstacle.ms=2001;obstacle.distance_cm=1023;
+ obstacle.event_kind=0;
+ assert(b1_ingest_obstacle(&s,&obstacle)==0);
+ assert(b1_next_frame(&s,2300,&f)==1 && f.type==B1_TYPE_SNAPSHOT);
+ assert(b1_decode_snapshot(f.payload,f.payload_len,&snapshot)==0);
+ assert(snapshot.obstacle_cm==1023);
+ puts("Obstacle telemetry: event, range, route, faults and staleness PASS");
+}
+int main(void){protocol();aggregation();start_requires_mapping();recalibrate_guard();barcode_recalibrate_guard();obstacle_telemetry();puts("C codec + aggregation + IMU guard tests PASS");return 0;}

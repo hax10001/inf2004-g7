@@ -51,7 +51,12 @@ IMPORT void	tm_tusb_discard_input(void);
  * If this arrives but normal [MAIN]/[NET] lines do not, USB itself works
  * and the failure lies in firmware startup or its normal log pipeline.
  * It is intentionally low-rate and only emitted after CDC enumeration. */
+#ifdef B1_BARCODE_TEST
+/* Quiet barcode test log: once every 10 minutes. */
+#define USB_SELFTEST_INTERVAL_US 600000000U
+#else
 #define USB_SELFTEST_INTERVAL_US 5000000U
+#endif
 static const char usb_selftest[] =
     "\r\n[USB SELFTEST G7DIAG-V7-9-RECONNECT-20261102] CDC alive; BOOTNET below\r\n";
 
@@ -234,6 +239,52 @@ LOCAL void tx_lock_leave(UINT intsts)
 /* Bytes discarded because the ring was full.  Exposed so a test can assert
    that a run produced no loss rather than assuming it. */
 EXPORT volatile UW	tm_usb_dropped;
+
+#ifdef B1_ENABLE_MQTT
+/*
+ * Copy of the console output for the MQTT log topic, so the robot can be
+ * debugged without a USB cable.  Filled under the same lock as the USB ring
+ * and drained by the network owner through tm_netlog_take().  When the link
+ * is slower than the output the newest bytes are dropped and counted, as for
+ * USB; console output itself is never delayed by the network.
+ */
+#define NETLOG_SIZE		4096U
+#define NETLOG_MASK		(NETLOG_SIZE - 1U)
+LOCAL UB		netlog_buffer[NETLOG_SIZE];
+LOCAL UW		netlog_head;
+LOCAL UW		netlog_tail;
+LOCAL UW		netlog_dropped;
+
+/* Copy up to max queued bytes to out; *p_dropped receives (and clears) the
+   bytes lost since the previous call.  Returns the number copied. */
+EXPORT INT tm_netlog_take(UB *out, INT max, UW *p_dropped)
+{
+	UINT	intsts;
+	INT	n = 0;
+
+	tx_lock_enter(&intsts);
+	while((n < max) && (netlog_tail != netlog_head)) {
+		out[n++] = netlog_buffer[netlog_tail];
+		netlog_tail = (netlog_tail + 1U) & NETLOG_MASK;
+	}
+	*p_dropped = netlog_dropped;
+	netlog_dropped = 0U;
+	tx_lock_leave(intsts);
+	return n;
+}
+
+/* Queued bytes, without taking them. */
+EXPORT INT tm_netlog_pending(void)
+{
+	UINT	intsts;
+	UW	pending;
+
+	tx_lock_enter(&intsts);
+	pending = (netlog_head - netlog_tail) & NETLOG_MASK;
+	tx_lock_leave(intsts);
+	return (INT)pending;
+}
+#endif
 
 /*
  * Link state, for diagnostics that cannot rely on the console itself:
@@ -457,6 +508,21 @@ EXPORT void tm_usb_console_put(const UB *buf, INT size)
 	UINT	intsts;
 
 	tx_lock_enter(&intsts);
+#ifdef B1_ENABLE_MQTT
+	{
+		INT	i;
+
+		for(i = 0; i < size; i++) {
+			next = (netlog_head + 1U) & NETLOG_MASK;
+			if(next == netlog_tail) {
+				netlog_dropped++;
+				continue;
+			}
+			netlog_buffer[netlog_head] = buf[i];
+			netlog_head = next;
+		}
+	}
+#endif
 	while(size-- > 0) {
 		next = (tx_head + 1U) & USB_TX_MASK;
 		if(next == tx_tail) {		/* full: drop, and count it */

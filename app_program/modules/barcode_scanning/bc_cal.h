@@ -22,7 +22,12 @@
 /* Standalone console consumer releases results after reporting them.
  * Set to 0 when a mission task owns bc_port_peek()/bc_port_ack().
  */
+#ifdef B1_BARCODE_TEST
+/* Bench test image: acknowledge locally so each pass can publish. */
+#define BC_CAL_AUTO_ACK 1
+#else
 #define BC_CAL_AUTO_ACK 0 /* MQTT bridge owns ACK on successful publish. */
+#endif
 
 /* Temporary testing: accept samples despite capture, timing or encoder
  * validity failures. Diagnostics still count failures. Set to 0 to restore

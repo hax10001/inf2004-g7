@@ -10,7 +10,7 @@ async function poll(fn,timeout=5000){const start=Date.now();while(Date.now()-sta
 test('live mapping ACK is required before dashboard sends START; no USB serial needed',async()=>{
  const [webPort,brokerPort]=await Promise.all([freePort(),freePort()]);
  const session=4567,commands=[],sentTokens=[];
- const env={...process.env,WEB_PORT:String(webPort),BROKER_PORT:String(brokerPort),WEB_BIND:'127.0.0.1',BROKER_BIND:'127.0.0.1',LIVE_COMMANDS_ENABLED:'1',DASHBOARD_SOURCE:'robot'};
+ const env={...process.env,MQTT_USER:'',MQTT_PASSWORD:'',ADMIN_TOKEN:'',WEB_PORT:String(webPort),BROKER_PORT:String(brokerPort),WEB_BIND:'127.0.0.1',BROKER_BIND:'127.0.0.1',LIVE_COMMANDS_ENABLED:'1',DASHBOARD_SOURCE:'robot'};
  const server=spawn(process.execPath,['server/index.js'],{cwd:__dirname+'/..',env,stdio:'ignore'});
  let robot,seq=0,uptime=5000;
  try{

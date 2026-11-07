@@ -1,6 +1,6 @@
 'use strict';
 /* Host-side command lifecycle. MQTT QoS-0 publish is not an execution proof. */
-const COMMAND_NAME=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU'];
+const COMMAND_NAME=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU','RECALIBRATE_BARCODE'];
 class CommandTracker {
   constructor(now=()=>Date.now()) {this.now=now;this.pending=[];this.completed=[];}
   sent({transaction,kind,target,session,published}) {

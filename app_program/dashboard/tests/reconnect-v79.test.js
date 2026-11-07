@@ -13,7 +13,7 @@ async function poll(fn,timeout=7000){const start=Date.now();let result;
  await delay(35);}throw Error('v7.9 reconnect condition not reached: '+JSON.stringify(result));}
 test('after host restart transaction resumes at firmware counter; Pico reboot restores map but NEVER auto-START',async()=>{
  const [port,brokerPort]=await Promise.all([freePort(),freePort()]);
- const env={...process.env,WEB_PORT:String(port),BROKER_PORT:String(brokerPort),WEB_BIND:'127.0.0.1',BROKER_BIND:'127.0.0.1',LIVE_COMMANDS_ENABLED:'1',DASHBOARD_SOURCE:'robot'};
+ const env={...process.env,MQTT_USER:'',MQTT_PASSWORD:'',ADMIN_TOKEN:'',WEB_PORT:String(port),BROKER_PORT:String(brokerPort),WEB_BIND:'127.0.0.1',BROKER_BIND:'127.0.0.1',LIVE_COMMANDS_ENABLED:'1',DASHBOARD_SOURCE:'robot'};
  const server=spawn(process.execPath,['server/index.js'],{cwd:__dirname+'/..',env,stdio:'ignore'});
  const url=`http://127.0.0.1:${port}`;
  let robot;let session=8123,seq=0;
@@ -54,7 +54,7 @@ test('after host restart transaction resumes at firmware counter; Pico reboot re
 });
 test('STOP can be sent with fresh MQTT link even before first STATUS token arrives',async()=>{
  const [port,brokerPort]=await Promise.all([freePort(),freePort()]);
- const env={...process.env,WEB_PORT:String(port),BROKER_PORT:String(brokerPort),WEB_BIND:'127.0.0.1',BROKER_BIND:'127.0.0.1',LIVE_COMMANDS_ENABLED:'1',DASHBOARD_SOURCE:'robot'};
+ const env={...process.env,MQTT_USER:'',MQTT_PASSWORD:'',ADMIN_TOKEN:'',WEB_PORT:String(port),BROKER_PORT:String(brokerPort),WEB_BIND:'127.0.0.1',BROKER_BIND:'127.0.0.1',LIVE_COMMANDS_ENABLED:'1',DASHBOARD_SOURCE:'robot'};
  const server=spawn(process.execPath,['server/index.js'],{cwd:__dirname+'/..',env,stdio:'ignore'});
  let robot,received;
  const url=`http://127.0.0.1:${port}`;

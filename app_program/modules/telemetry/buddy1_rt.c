@@ -119,6 +119,7 @@ static void network_application_task(INT stacd,void *exinf){
                now-last_net_log_ms>=5000u) {
                 T_CYW43_UTK_STATUS wifi={0};
                 cyw43_utk_get_status(&wifi);
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
                 tm_printf((UB *)
                     "[NET] wifi=%u mqtt=%u init=%d scan=%u "
                     "join_req=%d join=%d link=%d dhcp=%u "
@@ -133,6 +134,7 @@ static void network_application_task(INT stacd,void *exinf){
                     (UINT)wifi.dhcp_address[2],
                     (UINT)wifi.dhcp_address[3],
                     (UINT)(!wifi.link_up));
+#endif
                 previous_connected=is_connected;
                 last_net_log_ms=now;
             }

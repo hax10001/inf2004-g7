@@ -1,7 +1,11 @@
 'use strict';
 const MAGIC = 0xb1, VERSION = 1;
 const TYPES = {SNAPSHOT:1,ODOM:2,EVENT:3,CHECKPOINT:4,HEARTBEAT:5,SENSOR:6,STATUS:7,BARCODE_DIAG:8,COMMAND:32,ACK:33};
-const COMMANDS = {SET_MAPPING:1,START:2,STOP:3,SNAPSHOT:4,RECALIBRATE_IMU:5};
+const COMMANDS = {SET_MAPPING:1,START:2,STOP:3,SNAPSHOT:4,RECALIBRATE_IMU:5,RECALIBRATE_BARCODE:6};
+/* Barcode scanner state and last-pass reason (42-byte diagnostic, V2). */
+const SCANNER_STATES = ['off','learning white','ready','capturing','decoding','clearing','NOT ON WHITE'];
+const SCAN_REASONS = ['read','too few bars','no letter layout fits','ambiguous letters',
+  'model fit failed','centre/sensor distances disagree','too many dark marks','not barcode-like'];
 function crc8(a) { let crc=0; for(const byte of a) { let b=byte; for(let i=0;i<8;i++) { const carry=(crc^b)&128; crc=(crc<<1)&255; if(carry)crc^=7;b=(b<<1)&255; } } return crc; }
 function frame(type,payload,opts={}) {
   if(payload.length>48)throw Error('payload too large');
@@ -48,7 +52,7 @@ function interpret(f) {
   if(f.type===TYPES.CHECKPOINT){if(p.length!==4)throw Error('bad checkpoint');return {kind:'checkpoint',cumulativeMm:p.readUInt32LE(0)};}
   if(f.type===TYPES.HEARTBEAT){if(p.length!==4)throw Error('bad heartbeat');return {kind:'heartbeat',dropped:p.readUInt32LE(0)};}
   if(f.type===TYPES.SENSOR){
-    if(p.length!==24)throw Error('bad sensor payload');
+    if(p.length!==24 && p.length!==32)throw Error('bad sensor payload');
     const valid=p[0];
     return {kind:'sensor',valid,ir:(valid&1)?p[1]:null,
       rollDeg:(valid&2)?p.readInt16LE(2)/100:null,
@@ -59,15 +63,25 @@ function interpret(f) {
       leftEncoder:(valid&8)?p.readInt32LE(12):null,
       rightEncoder:(valid&8)?p.readInt32LE(16):null,
       obstaclePhase:(valid&4)?p[20]:null,onHump:!!p[21],
-      heightValid:!!p[22],odometryConfidence:p[23]<=2?p[23]:0};
+      heightValid:!!p[22],odometryConfidence:p[23]<=2?p[23]:0,
+      obstacleDiag:p.length===32?{sideRangeMm:p.readInt16LE(24),sideHits:p[26],
+        clearHits:p[27],travelSinceHitMm:p.readInt16LE(28),active:!!(p[30]&1),
+        objectSeen:!!(p[30]&2),returnProbeArmed:!!(p[30]&4),waitReason:p[31]}:null};
   }
   if(f.type===TYPES.BARCODE_DIAG){
-    if(p.length!==28)throw Error('bad barcode diagnostic payload');
+    if(p.length!==28 && p.length!==42)throw Error('bad barcode diagnostic payload');
+    const scanner=p.length===42?{state:p[28],
+      stateName:SCANNER_STATES[p[28]]||`state ${p[28]}`,
+      whiteRejects:p[29],whiteMean:p.readUInt16LE(30),whiteSigma:p.readUInt16LE(32),
+      lastPass:p.readUInt16LE(34),lastValid:!!p[36],
+      lastLetter:p[36]&&p[37]<26?String.fromCharCode(65+p[37]):null,
+      lastReason:p[38],lastReasonName:SCAN_REASONS[p[38]]||`reason ${p[38]}`,
+      lastProcessMs:p.readUInt16LE(40)}:null;
     return {kind:'barcodeDiag',mode:p[0],scanState:p[1],status:p[2],
       raw:p[3],rejected:p.readUInt32LE(4),completed:p.readUInt32LE(8),
       lastRunUnits:p.readUInt16LE(12),runCount:p[14],failureStatus:p[15],
       leftCount:p.readInt32LE(16),rightCount:p.readInt32LE(20),
-      rawTransitions:p.readUInt32LE(24)};
+      rawTransitions:p.readUInt32LE(24),scanner};
   }
   if(f.type===TYPES.STATUS){
     if(p.length!==5 && p.length!==7 && p.length!==9 && p.length!==14)throw Error('bad status payload');
@@ -83,4 +97,4 @@ function interpret(f) {
   if(f.type===TYPES.ACK){if(p.length!==4)throw Error('bad ack');return {kind:'ack',command:p[0],transaction:p.readUInt16LE(1),result:p[3]};}
   throw Error('unsupported telemetry type '+f.type);
 }
-module.exports={TYPES,COMMANDS,crc8,frame,decodeFrame,snapshot,packMapping,command,interpret};
+module.exports={TYPES,COMMANDS,SCANNER_STATES,SCAN_REASONS,crc8,frame,decodeFrame,snapshot,packMapping,command,interpret};

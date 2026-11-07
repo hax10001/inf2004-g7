@@ -102,6 +102,18 @@ static void publish_link_status(uint8_t ready) {
 #define B1_TOPIC_COMMAND B1_MQTT_TOPIC_ROOT "/command"
 #define B1_TOPIC_ACK B1_MQTT_TOPIC_ROOT "/ack"
 #define B1_TOPIC_STATUS B1_MQTT_TOPIC_ROOT "/availability"
+/* Plain-text copy of the serial console (USB-console builds only). */
+#define B1_TOPIC_LOG B1_MQTT_TOPIC_ROOT "/log"
+/* Log chunks: whole lines where possible, at most this many bytes. */
+#define B1_LOG_CHUNK 240u
+/* Send a partial chunk after this long, so a quiet log still arrives. */
+#define B1_LOG_FLUSH_MS 100u
+/* Average and burst log rate. Normal runs print well under 1 KB/s; this
+ * only stops a dump (e.g. raw barcode samples) from flooding the link. */
+#define B1_LOG_BYTES_PER_SEC 8000u
+#define B1_LOG_BURST 2048u
+/* TCP send buffer kept free for ACKs and telemetry: logs never fill it. */
+#define B1_LOG_TCP_RESERVE 1024u
 
 #define B1_TXBUF_CAP 320u
 #define B1_RXBUF_CAP 256u
@@ -109,7 +121,7 @@ static void publish_link_status(uint8_t ready) {
 static struct tcp_pcb *pcb;
 static uint8_t connected,subscribed,tcp_ready,awaiting_ping;
 static uint8_t rx[B1_RXBUF_CAP];static uint16_t rxlen;
-static uint32_t next_connect_ms,last_tx_ms,last_rx_ms;
+static uint32_t next_connect_ms,last_tx_ms,last_rx_ms,last_ping_ms;
 static uint16_t packet_id=1u;
 static uint8_t backoff=1u;
 
@@ -182,6 +194,54 @@ static int mqtt_publish(const Queued *q) {
     memcpy(p+n,q->bytes,q->len);n+=q->len;
     return mqtt_write(0x30u,p,n);
 }
+/* Console copy kept by the USB console (lib/libtm); absent in UART-console
+ * builds, where the log topic stays silent. */
+extern int tm_netlog_take(unsigned char *out,int max,unsigned int *p_dropped)
+    __attribute__((weak));
+extern int tm_netlog_pending(void) __attribute__((weak));
+static uint8_t log_buf[B1_LOG_CHUNK];static uint16_t log_len;
+static uint32_t log_last_ms,log_tokens=B1_LOG_BURST,log_token_ms;
+static uint32_t log_lost;
+/* Lowest priority: called only when no ACK is waiting. Sends whole lines,
+ * keeping a partial line for the next chunk unless it fills the chunk or
+ * has waited B1_LOG_FLUSH_MS. Bytes lost (ring full, or a refused write)
+ * are reported in-band as one "[netlog] lost" line. */
+static void log_poll(uint32_t now) {
+    uint8_t p[B1_LOG_CHUNK+40u];size_t n=0,send,i;unsigned int dropped=0u;
+    char note[48];int note_len=0;
+    if(tm_netlog_take==NULL||tm_netlog_pending==NULL)return;
+    log_tokens+=(now-log_token_ms)*B1_LOG_BYTES_PER_SEC/1000u;
+    log_token_ms=now;
+    if(log_tokens>B1_LOG_BURST)log_tokens=B1_LOG_BURST;
+    if(log_len<B1_LOG_CHUNK){
+        log_len=(uint16_t)(log_len+tm_netlog_take(log_buf+log_len,
+            (int)(B1_LOG_CHUNK-log_len),&dropped));
+        log_lost+=dropped;
+    }
+    if(log_len==0u&&log_lost==0u){log_last_ms=now;return;}
+    if(log_len<B1_LOG_CHUNK&&now-log_last_ms<B1_LOG_FLUSH_MS)return;
+    if(log_tokens<log_len||pcb==NULL||
+       tcp_sndbuf(pcb)<B1_LOG_CHUNK+40u+B1_LOG_TCP_RESERVE||
+       tcp_sndqueuelen(pcb)>=TCP_SND_QUEUELEN/2u)return;
+    /* Up to the last newline; a chunk with none goes out whole. */
+    send=log_len;
+    for(i=log_len;i>0u;i--)if(log_buf[i-1u]=='\n'){send=i;break;}
+    if(log_lost!=0u){
+        unsigned int v=(unsigned int)log_lost;char d[12];int k=0;
+        do{d[k++]=(char)('0'+v%10u);v/=10u;}while(v!=0u&&k<11);
+        memcpy(note,"[netlog] lost ",14u);note_len=14;
+        while(k>0)note[note_len++]=d[--k];
+        memcpy(note+note_len," bytes\n",7u);note_len+=7;
+    }
+    n+=mqtt_string(p+n,B1_TOPIC_LOG);
+    memcpy(p+n,note,(size_t)note_len);n+=(size_t)note_len;
+    memcpy(p+n,log_buf,send);n+=send;
+    if(mqtt_write(0x30u,p,n)==0){
+        log_lost=0u;log_tokens-=(uint32_t)send;
+    } else log_lost+=(uint32_t)send;
+    memmove(log_buf,log_buf+send,log_len-send);
+    log_len=(uint16_t)(log_len-send);log_last_ms=now;
+}
 static void process_packet(uint8_t head,const uint8_t *p,uint16_t n) {
     uint8_t type=(uint8_t)(head>>4);
     if(type==2u && n==2u) {
@@ -251,7 +311,7 @@ static err_t tcp_recv_cb(void *arg,struct tcp_pcb *c,struct pbuf *p,err_t err) {
 static err_t tcp_connected_cb(void *arg,struct tcp_pcb *c,err_t err) {
     (void)arg;(void)c;
     if(err!=ERR_OK){discard();return ERR_OK;}
-    tcp_ready=1u;last_rx_ms=sys_now();
+    tcp_ready=1u;last_rx_ms=sys_now();last_ping_ms=last_rx_ms;
     if(connect_mqtt()!=0)discard();return ERR_OK;
 }
 void mqtt_utk_poll(struct netif *netif) {
@@ -273,9 +333,15 @@ void mqtt_utk_poll(struct netif *netif) {
     if(!tcp_ready){if(now-last_rx_ms>10000u)discard();return;}
     if(!connected){if(now-last_rx_ms>10000u)discard();return;}
     if(now-last_rx_ms>45000u){discard();return;}
-    if(now-last_tx_ms>15000u){
-        if(awaiting_ping && now-last_rx_ms>30000u){discard();return;}
-        if(mqtt_write(0xc0u,(const uint8_t *)"",0u)==0)awaiting_ping=1u;
+    /* Ping every 15 s even while telemetry and logs keep sending: the
+     * broker then answers with PINGRESP, which is what keeps last_rx_ms
+     * fresh. Pinging only after 15 s of *no transmit* meant a busy robot
+     * never pinged, heard nothing back while the dashboard was silent, and
+     * dropped the link every ~45 s ("MQTT lost -> motors STOPPED"). */
+    if(now-last_ping_ms>15000u){
+        if(mqtt_write(0xc0u,(const uint8_t *)"",0u)==0){
+            awaiting_ping=1u;last_ping_ms=now;
+        }
     }
     if(subscribed && ack_head!=ack_tail) {
         q=ackq[ack_tail];
@@ -288,7 +354,8 @@ void mqtt_utk_poll(struct netif *netif) {
         if(mqtt_publish(&q)==0){
             B1_BARRIER();tx_tail=(uint8_t)((tx_tail+1u)%B1_QUEUE_SIZE);
         }
-    }
+        /* Telemetry is one frame per 50 ms; the 2 ms poll leaves room. */
+    } else if(subscribed) log_poll(now);
 }
 #else
 void mqtt_utk_poll(struct netif *netif) {(void)netif;}

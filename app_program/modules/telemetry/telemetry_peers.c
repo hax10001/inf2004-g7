@@ -1,5 +1,5 @@
 /** @file telemetry_peers.c
- * @brief Read team-owned snapshots and optionally ACK bench barcode results.
+ * @brief Copy subsystem snapshots and hand off validated barcode results.
  */
 #include "telemetry_peers.h"
 #include "modules/motion/motion.h"
@@ -8,9 +8,12 @@
 #include "modules/line_barcode/ir_shared.h"
 #include "modules/barcode_scanning/bc_cal.h"
 #include "modules/barcode_scanning/bc_port.h"
+#include "modules/barcode_scanning/bc_wave.h"
 #include "drivers/encoder.h"
 #include <tm/tmonitor.h>
 #include "modules/terrain/terrain.h"
+#include "modules/obstacle/obs_state.h"
+#include "app/app_config.h"
 #include <limits.h>
 #include <stddef.h>
 
@@ -93,10 +96,10 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
         if(b1_ingest_line(store,&line)==0)updated|=B1_SRC_LINE;
         peers->ir_last_ms=ir.timestamp_msec;peers->have_ir=1u;
     }
-    /* Observe Buddy 3's validated Code 39 mailbox, not raw IR guesses.
-     * A-Z is transmitted as 0..25. No mission/turn action is triggered.
-     * The bench-only ACK switch allows repeated cards to be scanned when
-     * no Mission Coordinator has been assigned mailbox ownership. */
+    /* Copy validated Code 39 letters (A-Z encoded as 0..25) to telemetry
+     * and the controller's route mailbox. The controller decides when a
+     * route may execute; obstacle handling takes priority over that route.
+     * ACK only after a successful telemetry-store handoff. */
     {
         bc_port_result_t decoded={0};
         if(bc_port_peek(&decoded)>=E_OK &&
@@ -141,9 +144,49 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
         if(b1_ingest_terrain(store,&terrain)==0)updated|=B1_SRC_TERRAIN;
         peers->imu_last_ms=imu.timestamp_msec;peers->have_imu=1u;
     }
+    /* Observe the uploaded obstacle owner's packed state without hardware. */
+#if APP_OBSTACLE_ENABLED
+    {
+        uint32_t now=peers->have_ir ? peers->ir_last_ms : peers->imu_last_ms;
+        uint32_t word=obs_state_status_get();
+        uint32_t previous=peers->obstacle_last_status;
+        B1_Obstacle obstacle={0};
+        obstacle.seq=++peers->obstacle_seq;obstacle.ms=now;
+        obstacle.distance_cm=(uint16_t)obs_state_status_distance_cm(word);
+        obstacle.faults=(uint8_t)obs_state_status_faults(word);
+        if(obstacle.distance_cm==OBS_DIST_INVALID_CM ||
+           (obstacle.faults & OBS_FAULT_NO_ECHO)!=0u)
+            obstacle.distance_cm=1023u;
+        obstacle.side=(uint8_t)obs_state_status_route(word);
+        obstacle.bypass_count=(uint8_t)obs_state_status_count(word);
+        if(obs_state_status_faults(word)!=0u &&
+           (!peers->have_obstacle || obs_state_status_faults(previous)!=
+            obs_state_status_faults(word))) {
+            obstacle.event_kind=7u;obstacle.event_value=obstacle.faults;
+        } else if(obs_state_status_phase(word)==OBS_PHASE_CONFIRM &&
+                  (!peers->have_obstacle ||
+                   obs_state_status_phase(previous)!=OBS_PHASE_CONFIRM)) {
+            obstacle.event_kind=4u;
+            obstacle.event_value=obstacle.distance_cm;
+        } else if(obstacle.side!=OBS_ROUTE_NONE &&
+                  obs_state_status_route(previous)!=obstacle.side) {
+            obstacle.event_kind=5u;obstacle.event_value=obstacle.side;
+        } else if(peers->have_obstacle &&
+                  obs_state_status_count(previous)!=obstacle.bypass_count) {
+            obstacle.event_kind=6u;
+        }
+        if(obstacle.event_kind)++peers->obstacle_event_seq;
+        obstacle.event_id=peers->obstacle_event_seq;
+        if(now!=0u && b1_ingest_obstacle(store,&obstacle)==0) {
+            updated|=B1_SRC_OBSTACLE;
+            peers->have_obstacle=1u;
+            peers->obstacle_last_status=word;
+        }
+    }
+#endif
     /* A compact extended sensor frame carries actual copied measurements.
      * It is separate from the existing bit-packed 13-byte mission snapshot.
-     * Never claim an uninitialised ultrasonic module is measuring distance.
+     * Obstacle hardware remains owned by its dedicated task.
      * This code performs no hardware reads, GPIO writes, or motor calls. */
     {
         uint32_t now=peers->have_ir ? peers->ir_last_ms :
@@ -151,8 +194,18 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
         if(now!=0u && now-peers->last_sensor_report_ms>=1000u) {
             B1_Frame f={0};
             uint8_t valid=0u;
-            uint16_t distance=65535u; /* No obstacle hardware in this build. */
-            uint8_t obstacle_phase=255u; /* Not initialized. */
+            uint16_t distance=65535u;
+            uint8_t obstacle_phase=255u;
+#if APP_OBSTACLE_ENABLED
+            uint32_t obstacle_word=obs_state_status_get();
+            uint32_t obstacle_cm=obs_state_status_distance_cm(obstacle_word);
+            obstacle_phase=(uint8_t)obs_state_status_phase(obstacle_word);
+            valid|=4u;
+            if(obstacle_cm!=OBS_DIST_INVALID_CM &&
+               (obs_state_status_faults(obstacle_word) &
+                OBS_FAULT_NO_ECHO)==0u)
+                distance=(uint16_t)obstacle_cm;
+#endif
             f.type=B1_TYPE_SENSOR;
             f.time_ms=now;
             f.payload_len=24u;
@@ -180,6 +233,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
             if(b1_sensor_frame(store,&f)==0) {
                 (void)b1_mqtt_submit(&f);
             }
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)
                 "[SENS] IR L=%u R=%u B=%u "
                 "roll_cd=%d pitch_cd=%d heading_cd=%u "
@@ -195,6 +249,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                 (UINT)obstacle_phase,
                 (INT)motion.left_count,(INT)motion.right_count,
                 (UINT)valid);
+#endif
             peers->last_sensor_report_ms=now;
         }
     }
@@ -213,7 +268,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                 encoder_read(ENCODER_RIGHT,&right);
                 f.type=B1_TYPE_BARCODE_DIAG;
                 f.time_ms=now;
-                f.payload_len=28u;
+                f.payload_len=B1_BARCODE_DIAG_V2;
                 f.payload[0]=(uint8_t)(BC_CAL_READY ? 2u : 1u);
                 f.payload[1]=(uint8_t)d.state;
                 f.payload[2]=(uint8_t)d.last_error;
@@ -228,6 +283,21 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                 b1_put32(&f.payload[16],(uint32_t)left.count);
                 b1_put32(&f.payload[20],(uint32_t)right.count);
                 b1_put32(&f.payload[24],d.edges);
+                {
+                    /* V2: scanner state, learned white, last pass. */
+                    bc_wave_status_t w={0};
+                    bc_wave_status(&w);
+                    f.payload[28]=w.state;
+                    f.payload[29]=w.white_rejects;
+                    b1_put16(&f.payload[30],w.white_mean);
+                    b1_put16(&f.payload[32],w.white_sigma);
+                    b1_put16(&f.payload[34],w.sequence);
+                    f.payload[36]=w.last_valid;
+                    f.payload[37]=w.last_letter;
+                    f.payload[38]=w.last_reason;
+                    f.payload[39]=0u;
+                    b1_put16(&f.payload[40],w.last_process_ms);
+                }
                 if(b1_sensor_frame(store,&f)==0) {
                     (void)b1_mqtt_submit(&f);
                 }

@@ -5,12 +5,28 @@
 #define APP_CONFIG_H
 
 #define APP_TASK_STACK_BYTES 4096
+/* Barcode data-collection build (G7_BARCODE_TEST=1): no motor output and
+ * no obstacle task, so the robot is pushed by hand; every capture dumps
+ * its raw waveform (with the left wheel's travel) and re-arms itself.
+ */
+#ifdef B1_BARCODE_TEST
+#define APP_OBSTACLE_ENABLED 0
+#define APP_MOTOR_MOVEMENT_ENABLED 0
+#define APP_BARCODE_WAVE_DUMP_ENABLED 1
+#endif
 #define APP_IR_PRIORITY 5
 #define APP_CONTROLLER_PRIORITY 6
 #define APP_IMU_PRIORITY 7
+#ifndef APP_OBSTACLE_ENABLED
+#define APP_OBSTACLE_ENABLED 1
+#endif
+#define APP_OBSTACLE_PRIORITY 6
 #define APP_STARTUP_DELAY_MSEC 2000
 #define APP_CONTROLLER_PERIOD_MSEC 50U
 #define APP_IR_MAX_AGE_MSEC 200U
+/* The IR task prints "[IR] Task stalled N ms" when its 1 ms loop goes this
+ * long without running: tells CPU starvation apart from other stale causes. */
+#define APP_IR_STALL_REPORT_MSEC 100U
 /* Faster than the controller, so each decision sees a recent reading and a
  * brief touch of the line edge is caught for the controller's latches.
  */
@@ -42,11 +58,23 @@
 #define APP_BARCODE_SCAN_RPM 15.0f
 #define APP_BARCODE_WAVE_MIN_VOTES 3U
 #define APP_BARCODE_WAVE_MAX_FIT_PERCENT 30U
+/* Wide-bar layout + blurred-model decoder (bc_layout.c) decides. Tuned on
+ * saved passes: replay tools/barcode_data with tools/barcode_replay.py.
+ * The older segmentation and template decoders then do not run: together
+ * they took ~5 s per pass and read small prints poorly.
+ */
+#ifndef APP_BARCODE_LAYOUT_ENABLED
+#define APP_BARCODE_LAYOUT_ENABLED 1
+#endif
 /* Experimental analog templates, all A-Z and both orientations. Scores
  * use white-noise units; the margin is a heuristic, not a probability.
  */
 #ifndef APP_BARCODE_TEMPLATE_ENABLED
+#if APP_BARCODE_LAYOUT_ENABLED
+#define APP_BARCODE_TEMPLATE_ENABLED 0
+#else
 #define APP_BARCODE_TEMPLATE_ENABLED 1
+#endif
 #endif
 #define APP_BARCODE_TEMPLATE_MIN_MARGIN_Z100 300
 #define APP_BARCODE_TEMPLATE_MIN_SCORE_Z100 450
@@ -77,7 +105,9 @@
 #define APP_BARCODE_TRACE_ENABLED 0
 #endif
 /* Preserve active movement from the incoming drive-test profile. */
+#ifndef APP_MOTOR_MOVEMENT_ENABLED
 #define APP_MOTOR_MOVEMENT_ENABLED 1
+#endif
 
 /* At a junction: readings ignored while coasting, then how long a line must
  * be seen after being placed back before following resumes. A lift during
@@ -95,13 +125,72 @@
  * cases; require confirmed black plus a pending mapped barcode action. */
 #define APP_NAV_JUNCTION_CONFIRM_MSEC 150U
 #define APP_NAV_MIN_TURN_MSEC 250U
-#define APP_NAV_MAX_TURN_MSEC 2500U
+/* Time bound on a pivot; a U-turn takes ~2.6 s at MOTION_PIVOT_COUNTS. */
+#define APP_NAV_MAX_TURN_MSEC 6000U
 #define APP_NAV_MAX_CROSS_MSEC 1800U
 #define APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS 120U
-/* Short, bounded barcode-stripe crossing: do not treat an incomplete scan
- * as a confirmed junction, but NEVER drive blindly beyond these limits. */
-#define APP_NAV_SCAN_CROSS_MAX_MSEC 400U
-#define APP_NAV_SCAN_CROSS_MAX_COUNTS 180U
+/* Junction = both line sensors black over this much forward travel, with
+ * no white gap seen by the IR sampler. The crossing bar is tape: logged
+ * crossings were both-black for only ~15 mm (~73 counts), so this must
+ * stay well below that. 5 mm needs at least two consecutive both-black
+ * controller reads (~3 mm each at 15 RPM): a single diagonal brush on a
+ * curve does not count. Raise only if curves still stop the robot.
+ * Counts: 1056 per rev over a 219.8 mm circumference (70 mm wheel), about
+ * 4.8 counts per mm; 5 mm = 24 counts. */
+#define APP_NAV_JUNCTION_CONFIRM_MM 5U
+#define APP_NAV_JUNCTION_CONFIRM_COUNTS \
+    ((APP_NAV_JUNCTION_CONFIRM_MM * 1056U * 10U) / 2198U)
+/* If the robot barely moves (stall, lifted), this long continuously
+ * both-black also counts; ~20 mm takes ~360 ms at 15 RPM. */
+#define APP_NAV_JUNCTION_CONFIRM_MAX_MSEC 1500U
+/* IR samples that must be not-both-black before the run counts as broken.
+ * The IR task logs ~3 samples per 50 ms (~16 ms apart, not 1 ms), so 2
+ * samples is ~30 ms, ~2 mm: one stray sample is ignored as flicker. */
+#define APP_IR_BOTH_GAP_SAMPLES 2U
+/* Print a [JCT] line per 50 ms period in which either line sensor saw
+ * black: sample counts, gap flag, run length and navigation decision.
+ * Tuning only: ~20 lines/s of USB output, and heavy console output is
+ * when the SMP port's spurious E_CTX on the IR mutex has been seen. */
+#define APP_JUNCTION_DEBUG_LOG 0
+/* Short-brake the motors (both H-bridge inputs high) for this long when
+ * navigation stops at a junction, then release to coast. 0 = coast only. */
+#define APP_JUNCTION_BRAKE_MSEC 200U
+/* Junction reached while the barcode before it is still decoding (decodes
+ * take ~2-3 s): stop and wait up to this long for the letter, then do its
+ * mapped action. No letter (failed decode) still ends in a safety stop. */
+/* JUNCTION ACTION MODE
+ *   0 = single action: a barcode's action is done at the next junction
+ *       only; a later junction with no new barcode is a safety stop.
+ *   1 = repeat action: the action is done at EVERY junction until another
+ *       barcode replaces it. It survives an obstacle bypass; STOP (or MQTT
+ *       loss) clears it, so each START begins with no action queued.
+ * In both modes a junction reached while a barcode is still decoding waits
+ * for that letter; in repeat mode a failed decode falls back to the
+ * remembered action instead of a safety stop. */
+#define APP_NAV_REPEAT_ACTION 1U
+#define APP_NAV_DECODE_WAIT_MSEC 8000U
+#define APP_NAV_DECODE_GRACE_MSEC 1500U
+/* Junction turns (left, right, U-turn) pivot on the spot with the wheel
+ * axle over the junction centre, so the line sensors, which sit ahead of
+ * the axle, swing round onto the new arm. MEASURE: axle to line sensors
+ * (same as OBS_IR_TO_AXLE_MM). Centre = that plus half the 18 mm tape,
+ * measured from where the crossing bar was first seen. If turns end with
+ * the sensors short of the new line, raise it; past it, lower it. */
+#define APP_NAV_IR_TO_AXLE_MM 125U
+#define APP_NAV_CENTRE_MM (APP_NAV_IR_TO_AXLE_MM + 9U)
+#define APP_NAV_CENTRE_COUNTS ((APP_NAV_CENTRE_MM * 1056U * 10U) / 2198U)
+/* ~2.4 s at 15 RPM; slower than that means something is wrong. */
+#define APP_NAV_CENTRE_MAX_MSEC 5000U
+/* 90 degree pivot: each wheel rolls a quarter circle of the track's
+ * radius, so both together roll (pi/2) x track. Only gates when the line
+ * may end the turn, so some slip is tolerated. EFFECTIVE track, not the
+ * 110 mm measured one: pivoting scrubs the wheels, and a logged U-turn
+ * took 2107 counts for ~185-200 degrees by the compass (~20 % more than
+ * 110 mm predicts). Calibrate from "[NAV] Turn ... counts" log lines:
+ * track = 130 x (counts for 180 degrees / 1960). */
+#define APP_NAV_TRACK_MM 130U
+#define APP_NAV_TURN90_COUNTS \
+    ((((APP_NAV_TRACK_MM * 1571U) / 1000U) * 1056U * 10U) / 2198U)
 #define APP_USB_WAIT_ATTEMPTS 200
 #define APP_USB_WAIT_PERIOD_MSEC 100
 #define APP_USB_SETTLE_MSEC 500

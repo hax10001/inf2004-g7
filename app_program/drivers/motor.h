@@ -8,8 +8,13 @@
 
 /** @brief Configure the tested PWM settings and zero all outputs. */
 void motor_init (void);
-/** @brief Zero all motor outputs. */
+/** @brief Zero all motor outputs (wheels coast). */
 void motor_stop (void);
+/** @brief Drive both inputs of each H-bridge high: short brake.
+ * @note Robo Pico's driver brakes with both inputs high; hold it briefly,
+ * then call motor_stop() to release.
+ */
+void motor_brake (void);
 /** @brief Apply forward duty counts, preserving the left motor inversion.
  * @param left_pwm Left compare count, between zero and MOTOR_PWM_WRAP.
  * @param right_pwm Right compare count, between zero and MOTOR_PWM_WRAP.

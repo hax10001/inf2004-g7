@@ -122,6 +122,12 @@ endif
 B1_PROVISIONAL_ODOMETRY ?= 0
 B1_BARCODE_BENCH_ACK ?= 0
 B1_LIVE_COMMANDS ?= 0
+# 1 builds the barcode data-collection image: motors and obstacle off,
+# a raw waveform dump after every pass and automatic re-arm.
+B1_BARCODE_TEST ?= 0
+ifneq ($(filter $(B1_BARCODE_TEST),0 1),$(B1_BARCODE_TEST))
+$(error B1_BARCODE_TEST must be 0 or 1)
+endif
 ifneq ($(filter $(B1_LIVE_COMMANDS),0 1),$(B1_LIVE_COMMANDS))
 $(error B1_LIVE_COMMANDS must be 0 or 1)
 endif
@@ -309,7 +315,7 @@ endif
 # before any recipe executes.
 ################################################################################
 
-PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-mqtt$(WIFI_MQTT)-commands$(B1_LIVE_COMMANDS)-barcode$(B1_BARCODE_BENCH_ACK)-bulk$(WIFI_TCPBULK)
+PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-mqtt$(WIFI_MQTT)-commands$(B1_LIVE_COMMANDS)-barcode$(B1_BARCODE_BENCH_ACK)-bctest$(B1_BARCODE_TEST)-bulk$(WIFI_TCPBULK)
 # Wi-Fi source files come from the selected external SDK. If the SDK path
 # changes, recompile all objects: otherwise the shared object tree can reuse
 # incompatible CYW43 objects from a different SDK. cksum is POSIX on macOS.
@@ -512,6 +518,9 @@ ifeq ($(WIFI_MQTT),1)
 CFLAGS += -DB1_ROBOT_APP=1 -DB1_ENABLE_MQTT=1 -I"../app_program" -DPROHIBIT_DEF_SIZE_T -include stddef.h
 ifeq ($(B1_LIVE_COMMANDS),1)
 CFLAGS += -DB1_LIVE_COMMANDS=1
+endif
+ifeq ($(B1_BARCODE_TEST),1)
+CFLAGS += -DB1_BARCODE_TEST=1
 endif
 ifeq ($(B1_BARCODE_BENCH_ACK),1)
 CFLAGS += -DB1_BARCODE_BENCH_ACK=1

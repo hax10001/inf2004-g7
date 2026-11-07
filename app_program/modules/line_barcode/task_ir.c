@@ -43,11 +43,30 @@ void task_ir_task (INT start_code, void * p_context)
     /* UB views the same string bytes; tm_printf does not modify them. */
     tm_printf((UB *)"IR sensors initialized.\n");
 
+    SYSTIM last_loop = {0};
+
+    (void)tk_get_otm(&last_loop);
+
     for (;;)
     {
         uint32_t left_raw    = 0U;
         uint32_t right_raw   = 0U;
         uint32_t barcode_raw = 0U;
+        SYSTIM   loop_now    = {0};
+
+        /* Diagnostic: the loop asks for 1 ms; a long gap means this task
+         * was not given the CPU (a higher-priority task or interrupts),
+         * which is what makes the controller see "IR data stale". */
+        if (tk_get_otm(&loop_now) >= E_OK)
+        {
+            uint32_t const gap = (uint32_t)(loop_now.lo - last_loop.lo);
+
+            if (gap >= APP_IR_STALL_REPORT_MSEC)
+            {
+                tm_printf((UB *)"[IR] Task stalled %u ms\n", (UINT)gap);
+            }
+            last_loop = loop_now;
+        }
 
         ir_read(&left_raw, &right_raw, &barcode_raw);
         error = ir_shared_publish(left_raw, right_raw, barcode_raw);

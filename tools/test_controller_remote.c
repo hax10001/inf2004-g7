@@ -14,6 +14,44 @@ static bool g_lock_held = false;
 static bool g_force_busy = false;
 static uint8_t g_connected = 1U;
 static uint8_t g_barcode_can_rearm = 1U;
+static bool g_obstacle_fault = false;
+static unsigned int g_obstacle_aborts = 0U;
+static bool g_obstacle_blocked = false;
+static uint32_t g_ir_timestamp = 99U;
+static unsigned int g_decoded_clears = 0U;
+static unsigned int g_bypass_steps = 0U;
+static line_follow_action_t g_last_action = LINE_FORWARD;
+static float g_left_rpm, g_right_rpm;
+static obstacle_drive_t g_bypass_drive;
+bool obstacle_has_fault(void) {return g_obstacle_fault;}
+bool obstacle_is_blocked(void) {return g_obstacle_blocked;}
+void obstacle_abort(void) {++g_obstacle_aborts;}
+obstacle_drive_t obstacle_bypass_step(uint32_t l,uint32_t r,uint32_t ms)
+{
+    (void)l;(void)r;(void)ms;
+    ++g_bypass_steps;
+    return g_bypass_drive;
+}
+void motion_apply(line_follow_action_t action) {g_last_action=action;}
+void motion_brake(void) {g_last_action=LINE_UNCERTAIN;}
+void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
+void motion_apply_maneuver(uint8_t action) {(void)action;}
+void g7_nav_clear_decoded(void) {++g_decoded_clears;}
+int g7_nav_take_decoded(uint8_t *l,uint8_t *a,uint16_t *s)
+{(void)l;(void)a;(void)s;return 0;}
+void encoder_read(encoder_wheel_t wheel,encoder_sample_t *out)
+{(void)wheel;*out=(encoder_sample_t){0};}
+uint8_t bc_wave_navigation_guard_active(void) {return 0U;}
+void bc_wave_set_suppressed(uint8_t b) {(void)b;}
+static int g_relearn_calls = 0;
+void bc_wave_request_relearn(void) {++g_relearn_calls;}
+uint8_t bc_wave_decode_pending(void) {return 0U;}
+ER ir_shared_take_sides(bool *l,bool *r) {*l=false;*r=false;return E_OK;}
+ER ir_shared_take_junction(bool *both) {*both=false;return E_OK;}
+ER ir_shared_take_both_gap(bool *gap) {*gap=false;return E_OK;}
+ER ir_shared_take_diag(ir_shared_diag_t *d) {*d=(ir_shared_diag_t){0};return E_OK;}
+ER tk_dly_tsk(UINT ms) {(void)ms;return E_OK;}
+INT tm_printf(UB const *format,...) {(void)format;return 0;}
 uint8_t bc_wave_can_rearm(void) {return g_barcode_can_rearm;}
 static unsigned int g_unlock_count = 0U;
 
@@ -49,8 +87,53 @@ ER ir_shared_get_latest(ir_shared_snapshot_t * out)
 {
     assert(!g_lock_held);
     out->b_valid = true;
-    out->timestamp_msec = 99U;
+    out->timestamp_msec = g_ir_timestamp;
     return E_OK;
+}
+
+static void obstacle_handoff(void)
+{
+    controller_history_t history={0};
+    nav_init(&g_navigation,
+        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U});
+    nav_start(&g_navigation,1U);
+    assert(nav_barcode(&g_navigation,0U,NAV_LEFT,1U,1U,0U)==1);
+    g_obstacle_blocked=true;
+    assert(handle_following(&history)==ROBOT_OBSTACLE);
+    assert(g_last_action==LINE_UNCERTAIN);
+    assert(g_navigation.pending==0U && g_navigation.state==NAV_WAIT);
+    assert(g_decoded_clears>0U);
+
+    g_bypass_drive=(obstacle_drive_t){0,25,false,false,false,false};
+    assert(handle_obstacle(&history)==ROBOT_OBSTACLE);
+    assert(g_left_rpm==0.0f && g_right_rpm==25.0f);
+    g_bypass_drive.b_stop=true;
+    assert(handle_obstacle(&history)==ROBOT_OBSTACLE);
+    assert(g_last_action==LINE_UNCERTAIN);
+
+    g_bypass_drive=(obstacle_drive_t){0,0,false,true,false,false};
+    assert(handle_obstacle(&history)==ROBOT_OBSTACLE);
+    assert(g_last_action==LINE_FORWARD);
+    g_bypass_drive=(obstacle_drive_t){0,0,false,false,true,false};
+    assert(handle_obstacle(&history)==ROBOT_LINE_FOLLOWING);
+    assert(g_navigation.state==NAV_FOLLOW && !g_navigation.pending);
+    assert(g_last_action==LINE_UNCERTAIN);
+
+    g_bypass_drive=(obstacle_drive_t){0,0,false,false,false,true};
+    assert(handle_obstacle(&history)==ROBOT_ERROR);
+    assert(g_last_action==LINE_UNCERTAIN);
+    unsigned int steps=g_bypass_steps;
+    g_ir_timestamp=UINT32_MAX-500U;
+    assert(handle_obstacle(&history)==ROBOT_STOPPED);
+    assert(g_bypass_steps==steps && g_last_action==LINE_UNCERTAIN);
+    g_ir_timestamp=99U;
+    g_obstacle_fault=true;
+    assert(handle_following(&history)==ROBOT_ERROR);
+    assert(g_last_action==LINE_UNCERTAIN);
+    g_obstacle_fault=false;
+    g_obstacle_blocked=false;
+    puts("Obstacle handoff: preemption, RPM, stop, reacquisition, "
+         "fault and stale IR PASS");
 }
 ER tk_get_otm(SYSTIM *out)
 {
@@ -64,6 +147,15 @@ int main(void)
     uint8_t stop=0U, start=0U;
     assert(g7_controller_remote_init() == E_OK);
     assert(g7_controller_remote_ready() == 1U);
+    /* Barcode recalibration is forwarded to the barcode task only. */
+    assert(g7_controller_remote_command(B1_CMD_RECAL_BARCODE,NULL) == B1_OK);
+    assert(g_relearn_calls == 1);
+    remote_take_requests(&stop,&start,ROBOT_REMOTE_HOLD);
+    assert(stop == 0U && start == 0U); /* no motion request queued */
+    g_obstacle_fault = true;
+    assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_NOT_READY);
+    assert(g7_controller_remote_blockers() & 64U);
+    g_obstacle_fault = false;
     g_barcode_can_rearm = 0U;
     assert(g7_controller_remote_ready() == 0U);
     assert(g7_controller_remote_blockers() & 128U);
@@ -91,7 +183,7 @@ int main(void)
     assert(g7_controller_mission_state() == 2U);
     /* A confirmed navigation failure is a safe, recoverable STOP state.
      * No START can pass until operator STOP clears the navigation fault. */
-    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,400U,180U});
+    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U});
     g_navigation.state = NAV_FAULT;
     remote_publish_state(ROBOT_NAV_SAFETY_STOP);
     assert(g7_controller_remote_ready() == 0U);
@@ -102,6 +194,13 @@ int main(void)
     assert(stop == 1U && start == 0U);
     assert(remote_reset_after_stop(ROBOT_NAV_SAFETY_STOP) == ROBOT_REMOTE_HOLD);
     assert(g_navigation.state == NAV_WAIT && g_navigation.pending == 0U);
+    assert(g_obstacle_aborts != 0U);
+    remote_publish_state(ROBOT_OBSTACLE);
+    assert(g7_controller_mission_state() == 3U);
+    assert(g7_controller_remote_command(B1_CMD_STOP,NULL) == B1_OK);
+    remote_take_requests(&stop,&start,ROBOT_OBSTACLE);
+    assert(stop == 1U && start == 0U);
+    assert(remote_reset_after_stop(ROBOT_OBSTACLE) == ROBOT_REMOTE_HOLD);
     remote_publish_state(ROBOT_REMOTE_HOLD);
     assert(g7_controller_remote_ready() == 1U);
     /* A genuine controller error must never be cleared over MQTT. */
@@ -111,6 +210,7 @@ int main(void)
     assert(g7_controller_remote_ready() == 0U);
     assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_NOT_READY);
     assert(g_unlock_count > 0U);
+    obstacle_handoff();
     puts("Controller handoff: STOP priority, no missed STOP, "
          "START gating and mutex-busy fail-safe PASS");
     return 0;

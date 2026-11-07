@@ -18,13 +18,17 @@ const sim=mqttClient({host,port,clientId:'b1-sim',user:process.env.MQTT_USER||la
       if(running)outcome=2;
       else {simCalibrated=true;event(3,11,0);}
     }
+    if(command===COMMANDS.RECALIBRATE_BARCODE){
+      if(running)outcome=2;
+      else simScannerState=1; /* learning white, then ready */
+    }
     const p=Buffer.alloc(4);p[0]=command;p.writeUInt16LE(id,1);p[3]=outcome;
     send(TYPES.ACK,p,'ack');
   }catch(e){console.warn('bad command:',e.message);}
 }});
 const autoStart=process.argv.includes('--auto-start');
 const intervalMs=process.argv.includes('--fast')?80:150;
-let session=42,seq=0,mseq=0,tick=0,cycle=0,subscribed=false,running=autoStart,mappingReady=true,simCalibrated=true;
+let session=42,seq=0,mseq=0,tick=0,cycle=0,subscribed=false,running=autoStart,mappingReady=true,simCalibrated=true,simScannerState=2;
 /* npm run demo starts paused; ./demo.sh opts into simulated autoplay only. */
 let left=0,right=0;
 function send(type,p,topic='telemetry',flags=0){const payload=frame(type,p,{session,seq:++seq,ms:cycle*intervalMs,flags});
@@ -59,6 +63,12 @@ function loop(){if(!sim.ready)return;
    sensor.writeInt32LE(left,12);sensor.writeInt32LE(right,16);
    sensor[20]=255;send(TYPES.SENSOR,sensor);
    send(TYPES.STATUS,Buffer.from([mappingReady?1:0,1,running?1:0,23,running?2:6]));
+   /* Simulated scanner status (42-byte barcode diagnostic). */
+   const d=Buffer.alloc(42);d[0]=2;d[28]=simScannerState;
+   d.writeUInt16LE(195,30);d.writeUInt16LE(17,32);d.writeUInt16LE(1,34);
+   d[36]=1;d[37]=2;d[38]=0;d.writeUInt16LE(1800,40);
+   send(TYPES.BARCODE_DIAG,d);
+   if(simScannerState===1)simScannerState=2;
  }
  if(cycle%20===0){const h=Buffer.alloc(4);h.writeUInt32LE(0);send(TYPES.HEARTBEAT,h);}
  if(cycle%65===0){const checkpoint=Buffer.alloc(4);checkpoint.writeUInt32LE(Math.round((left+right)/2),0);send(TYPES.CHECKPOINT,checkpoint);}

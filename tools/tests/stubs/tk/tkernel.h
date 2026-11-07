@@ -34,7 +34,11 @@ typedef struct { UW mtxatr; } T_CMTX;
 #define FALSE 0
 #define E_OK 0
 #define E_PAR (-17)
+#define E_CTX (-25)
+#define E_ILUSE (-28)
 #define E_OBJ (-41)
+#define E_TMOUT (-50)
+#define TMO_POL 0
 #define TMO_FEVR (-1)
 #define TD_UPDATE 3U
 #define BOARD_LED_PIN 16U
