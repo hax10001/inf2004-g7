@@ -272,6 +272,31 @@ int32_t terrain_jerk (int32_t magnitude, int32_t previous,
     return ((magnitude - previous) * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
 }
 
+terrain_jerk_vector terrain_vector_jerk (
+    int16_t current_x, int16_t current_y, int16_t current_z,
+    int16_t previous_x, int16_t previous_y, int16_t previous_z,
+    uint32_t elapsed_msec)
+{
+    terrain_jerk_vector jerk = {0};
+
+    /* Very long intervals round every int16_t axis change to zero mg/s. */
+    if ((0U == elapsed_msec) || (elapsed_msec > TERRAIN_SIGNED_TIME_MAX))
+    {
+        return jerk;
+    }
+
+    int32_t elapsed_signed = (int32_t)elapsed_msec;
+    int32_t change_x = (int32_t)current_x - previous_x;
+    int32_t change_y = (int32_t)current_y - previous_y;
+    int32_t change_z = (int32_t)current_z - previous_z;
+
+    /* Each difference is at most +/-65535; multiplying by 1000 fits int32_t. */
+    jerk.x = (change_x * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
+    jerk.y = (change_y * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
+    jerk.z = (change_z * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
+    return jerk;
+}
+
 static float angle_difference (float current_deg, float reference_deg)
 {
     float difference = current_deg - reference_deg;

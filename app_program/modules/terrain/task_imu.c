@@ -17,6 +17,9 @@
 #define IMU_CALIBRATION_MIN_MG 800
 #define IMU_CALIBRATION_MAX_MG 1200
 #define IMU_CALIBRATION_CHANGE_MG 50
+#define IMU_CALIBRATION_RETRY_MSEC 500U
+/* Trial limit from turn/flick logs; validate normal braking and humps too. */
+#define IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC 5000
 
 /* Fraction of each new reading kept by the smoothing filter. Lower is
  * smoother but lags more and trims the peak; motor vibration needs some.
@@ -67,9 +70,13 @@ static hump_state_t g_hump = {0};
 typedef struct
 {
     int32_t  previous_magnitude;
+    int16_t previous_x;
+    int16_t previous_y;
+    int16_t previous_z;
     bool     b_have_previous;
     uint32_t previous_time_msec;
     uint32_t last_log_msec;
+    bool b_collision_latched;
 } imu_history_t;
 
 typedef struct
@@ -81,7 +88,12 @@ typedef struct
     int16_t mag_y;
     int16_t mag_z;
     int32_t magnitude;
+    /* Signed rate of change of acceleration magnitude, mg/s. */
     int32_t jerk;
+    /* Signed sensor-axis vector jerk components, mg/s. */
+    int32_t jerk_x;
+    int32_t jerk_y;
+    int32_t jerk_z;
     bool    b_mag_ok;
 } imu_sample_t;
 
@@ -149,21 +161,25 @@ void task_imu_task (INT start_code, void * p_context)
     tm_printf((UB *)"IMU: keep robot still and level for calibration\n");
     tk_dly_tsk(IMU_SENSOR_SETTLE_MSEC);
 
-    if (!calibrate_sensor(h_device))
+    while (!terrain_is_calibrated())
     {
-        /* UB views read-only string bytes. Restart to retry calibration. */
-        tm_printf((UB *)"IMU: calibration failed; motors remain stopped\n");
-        tk_cls_dev(h_device, 0);
-        /* A task must never return from its function: that jumped to
-         * address 0 and hard-faulted the whole robot. Sleep instead. */
-        tk_slp_tsk(TMO_FEVR);
-        return;
+        if (calibrate_sensor(h_device))
+        {
+            break;
+        }
+
+        /* Each attempt starts a fresh calibration sample window. */
+        tm_printf((UB *)"IMU: calibration failed; retrying in %u ms. "
+                        "Keep robot still and level.\n",
+                (UINT)IMU_CALIBRATION_RETRY_MSEC);
+
+        tk_dly_tsk(IMU_CALIBRATION_RETRY_MSEC);
     }
 
     /* UB views read-only string bytes; the monitor does not modify them. */
     tm_printf((UB *)"IMU: level reference saved in RAM\n");
 
-    imu_history_t history = {0, false, 0U, 0U};
+    imu_history_t history = {0};
 
     if (!operating_time(&history.previous_time_msec))
     {
@@ -196,6 +212,8 @@ static bool calibrate_sensor (ID h_device)
 
         if (!lsm303_read_accel(h_device, &axes[0], &axes[1], &axes[2]))
         {
+            tm_printf((UB *)"IMU: calibration I2C read failed at sample %d\n",
+                      sample + 1);
             return false;
         }
         // This is a for loop of 3 iterations, one for each axis (X, Y, Z).
@@ -214,6 +232,10 @@ static bool calibrate_sensor (ID h_device)
 
         if (!calibration_sample_valid(axes, first_axes))
         {
+            tm_printf((UB *)"IMU: calibration rejected sample %d "
+                            "XYZ=(%d,%d,%d) magnitude=%d\n",
+                      sample + 1, (INT)axes[0], (INT)axes[1], (INT)axes[2],
+                      (INT)terrain_magnitude(axes[0], axes[1], axes[2]));
             return false;
         }
 
@@ -371,9 +393,35 @@ static void process_sample (ID h_device, imu_history_t * p_history)
 
         if (p_history->b_have_previous)
         {
+            uint32_t elapsed_msec =
+                now_msec - p_history->previous_time_msec;
+            /* Rate of change of the total acceleration magnitude. */
             sample.jerk = terrain_jerk(sample.magnitude,
                 p_history->previous_magnitude,
-                now_msec - p_history->previous_time_msec);
+                elapsed_msec);
+
+            /* Rate of change of each acceleration axis. */
+            terrain_jerk_vector vector = terrain_vector_jerk(
+                sample.axis_x, sample.axis_y, sample.axis_z,
+                p_history->previous_x, p_history->previous_y,
+                p_history->previous_z, elapsed_msec);
+            sample.jerk_x = vector.x;
+            sample.jerk_y = vector.y;
+            sample.jerk_z = vector.z;
+        }
+        /* Sensor X/Y are sideways/forward. Keep Z in the diagnostic log;
+         * vertical jerk alone does not trigger this horizontal-impact rule.
+         */
+        if (sample.jerk_x > IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
+            sample.jerk_x < -IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
+            sample.jerk_y > IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
+            sample.jerk_y < -IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC)
+        {
+            tm_printf((UB *)"[IMU] Collision detected! "
+                            "XYZ jerk=(%d,%d,%d) mg/s\n",
+                      (INT)sample.jerk_x, (INT)sample.jerk_y,
+                      (INT)sample.jerk_z);
+            p_history->b_collision_latched = true;
         }
         // Compute the tilt from smoothed readings: raw ones swing by
         // several degrees with motor vibration.
@@ -410,6 +458,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         snapshot.last_hump_height_mm = g_hump.last_peak_mm;
         snapshot.max_hump_height_mm = g_hump.max_peak_mm;
         snapshot.hump_count = g_hump.hump_count;
+        snapshot.b_collision = p_history->b_collision_latched;
 
         // This is for logging (printfs) the readings to the console every 100ms
         if ((0 != APP_IMU_DEBUG_LOG) &&
@@ -434,6 +483,9 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         }
 
         p_history->previous_magnitude = sample.magnitude;
+        p_history->previous_x = sample.axis_x;
+        p_history->previous_y = sample.axis_y;
+        p_history->previous_z = sample.axis_z;
         p_history->previous_time_msec = now_msec;
         p_history->b_have_previous    = true;
     }
@@ -632,19 +684,24 @@ static void log_sample (uint32_t now_msec, imu_sample_t const * p_sample)
     if (p_sample->b_mag_ok)
     {
         tm_printf((UB *)"t=%u ms ACCEL_mg=(%d,%d,%d) MAGNITUDE_mg=%d "
-                        "JERK_mg_s=%d MAG=(%d,%d,%d)\n",
+                        "JERK_mg_s=%d JERK_XYZ_mg_s=(%d,%d,%d) "
+                        "MAG=(%d,%d,%d)\n",
                   (UINT)now_msec, (INT)p_sample->axis_x, (INT)p_sample->axis_y,
                   (INT)p_sample->axis_z, (INT)p_sample->magnitude,
-                  (INT)p_sample->jerk, (INT)p_sample->mag_x,
+                  (INT)p_sample->jerk, (INT)p_sample->jerk_x,
+                  (INT)p_sample->jerk_y, (INT)p_sample->jerk_z,
+                  (INT)p_sample->mag_x,
                   (INT)p_sample->mag_y, (INT)p_sample->mag_z);
     }
     else
     {
         tm_printf((UB *)"t=%u ms ACCEL_mg=(%d,%d,%d) MAGNITUDE_mg=%d "
-                        "JERK_mg_s=%d MAG=I2C_ERROR\n",
+                        "JERK_mg_s=%d JERK_XYZ_mg_s=(%d,%d,%d) "
+                        "MAG=I2C_ERROR\n",
                   (UINT)now_msec, (INT)p_sample->axis_x, (INT)p_sample->axis_y,
                   (INT)p_sample->axis_z, (INT)p_sample->magnitude,
-                  (INT)p_sample->jerk);
+                  (INT)p_sample->jerk, (INT)p_sample->jerk_x,
+                  (INT)p_sample->jerk_y, (INT)p_sample->jerk_z);
     }
 }
 

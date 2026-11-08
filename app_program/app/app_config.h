@@ -94,7 +94,7 @@
  * They can block a captured scan for tens of seconds and spam CDC. */
 #define APP_BARCODE_WAVE_DUMP_ENABLED 0
 #else
-#define APP_BARCODE_WAVE_DUMP_ENABLED 1
+#define APP_BARCODE_WAVE_DUMP_ENABLED 0
 #endif
 #endif
 /* One buffered diagnostic pass per boot; 64 KiB of static sample storage.
@@ -204,7 +204,7 @@
  * and with both cores printing the encoders lose pulses, so wheel speed
  * reads wrong. Hump start, descent and end are always printed.
  */
-#define APP_IMU_DEBUG_LOG 0
+#define APP_IMU_DEBUG_LOG 1
 
 /* Zero drives open loop, still logging RPM; use it to calibrate the target. */
 #define APP_SPEED_CONTROL_ENABLED 1

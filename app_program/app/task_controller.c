@@ -438,6 +438,13 @@ void task_controller_task (INT start_code, void * p_context)
          */
         bc_wave_set_suppressed((uint8_t)(ROBOT_OBSTACLE == state));
 
+        terrain_snapshot snapshot = {0};
+        terrain_get_snapshot(&snapshot);
+        if (snapshot.b_collision && state != ROBOT_STOPPED)
+        {
+            tm_printf((UB *)"[CTRL] Collision detected -> STOPPED\n");
+            state = ROBOT_STOPPED;
+        }
         switch (state)
         {
             case ROBOT_IDLE:
