@@ -30,7 +30,7 @@
 
 ```bash
 cd ~/Downloads/inf2004-g7-v14-recovery
-bash tools/run_v14_tests_mac.sh
+bash tools/run_host_tests.sh  # replaces the version-named runner used at the time
 ```
 
 The suite runs the production terrain collision event/ACK test, pure/production motion governor tests with nose-down signs -1, 0 and +1, the controller STOP/START handoff tests, network ownership, 144 navigation assertions, obstacle/telemetry integration, data-width tests, style check, and Node dashboard suite.

@@ -45,7 +45,7 @@ are excluded from the release ZIP.
    the route mapping through the acknowledged mapping workflow, wait for READY,
    then issue START explicitly.
 
-The portable host suite is `bash tools/run_v15_tests.sh`. It retains the V14
+The portable host suite is `bash tools/run_host_tests.sh` (named `run_v15_tests.sh` at release). It retains the V14
 runner's historical `_mac` filenames but selects GNU versus Apple linker flags.
 Windows itself was not available for an execution trial; the documented Bash
 workflow still needs Windows acceptance. Native PowerShell C compiler support
@@ -54,7 +54,7 @@ was not invented for Bash-based firmware make rules.
 ## macOS / Linux
 
 ```bash
-bash tools/run_v15_tests.sh
+bash tools/run_host_tests.sh  # replaces the version-named runner used at the time
 G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 \
   PICO_SDK_PATH="$HOME/pico/pico-sdk-2.2.0" bash build_uf2.sh
 ```

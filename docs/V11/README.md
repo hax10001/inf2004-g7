@@ -60,7 +60,7 @@ Extract this ZIP into `~/Downloads/inf2004-g7-v11` without overwriting V10.
 
 ```bash
 cd ~/Downloads/inf2004-g7-v11
-bash tools/run_v11_tests_mac.sh
+bash tools/run_host_tests.sh  # replaces the version-named runner used at the time
 # Configure Wi-Fi/private MQTT settings again in this new folder if needed.
 # Use private setup files locally only; never put them in shared ZIPs.
 G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 \

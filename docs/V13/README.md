@@ -60,7 +60,7 @@ full-course physical tests were possible here. V12 is preserved as rollback.
 From the V13 root on macOS:
 
 ```bash
-bash tools/run_v13_tests_mac.sh
+bash tools/run_host_tests.sh  # replaces the version-named runner used at the time
 ```
 
 Tests compile the pure governor for signs 0/+1/-1 and the actual motion

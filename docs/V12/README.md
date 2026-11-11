@@ -23,7 +23,7 @@ Extract the full ZIP under `~/Downloads/inf2004-g7-v12-scanner-collision`, then:
 ```bash
 cd ~/Downloads/inf2004-g7-v12-scanner-collision
 bash tools/test_precision_ranges.sh
-bash tools/run_v11_tests_mac.sh
+bash tools/run_host_tests.sh  # replaces the version-named runner used at the time
 G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 \
   PICO_SDK_PATH="$HOME/pico/pico-sdk-2.2.0" bash build_uf2.sh
 ```

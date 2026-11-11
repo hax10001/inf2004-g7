@@ -48,7 +48,7 @@ Private/generated inputs are excluded from this comparison.
 | [docs/V15/evidence/v14-host-tests.txt](../../docs/V15/evidence/v14-host-tests.txt) | new |
 | [tools/audit_v15_fields.py](../../tools/audit_v15_fields.py) | new |
 | [tools/package_v15.py](../../tools/package_v15.py) | new |
-| [tools/run_v15_tests.sh](../../tools/run_v15_tests.sh) | new |
+| [tools/run_v15_tests.sh](../../tools/run_host_tests.sh) | new (since renamed `tools/run_host_tests.sh`) |
 | [tools/test_autonav.c](../../tools/test_autonav.c) | changed |
 | [tools/test_controller_remote.c](../../tools/test_controller_remote.c) | changed |
 | [tools/test_ramp_motion.c](../../tools/test_ramp_motion.c) | new |

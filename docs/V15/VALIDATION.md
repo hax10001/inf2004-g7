@@ -3,7 +3,7 @@
 ## Authoritative baseline
 
 The original adjacent V14 source was copied without modifying it. Its
-`tools/run_v14_tests_mac.sh` passed on this machine: **74 dashboard tests**,
+`tools/run_v14_tests_mac.sh` (now part of `tools/run_host_tests.sh`) passed on this machine: **74 dashboard tests**,
 **144 navigation assertions**, collision latch/ACK, both slope signs plus
 disabled-sign behavior, production motion, obstacle/controller integration,
 packed fields/precision, C-to-JavaScript vectors and network ownership.
