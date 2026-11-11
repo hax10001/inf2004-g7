@@ -148,6 +148,71 @@ int main(void)
     }
     assert(sizeof(scan_plan_point_t)==4U && sizeof(scan_plan_bypass_t)==8U);
     puts("PASS extreme-left/right blockages select the opposite clear side");
+
+    /* Side choice by where the object sits, with the reported needs. */
+    {
+        scan_plan_sides_t sides={0U,0U,0U,0U,0U,0U};
+        int32_t const diff_limit=OBS_SIDE_PREFERENCE_THRESHOLD_MM;
+
+        /* Object offset to the left of the path: go round the right. */
+        fill(points,1500);
+        points[zero].range_mm=300;points[zero+1].range_mm=304;
+        points[zero+2].range_mm=310;
+        scan_plan_build_side_report(points,OBS_SCAN_POINTS,0,0,&plan,&sides);
+        assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+        assert(!scan_plan_side_is_left(&plan) && !sides.b_tie);
+        assert(sides.b_object && sides.b_left_ok && sides.b_right_ok);
+        assert((int32_t)sides.left_need_mm-(int32_t)sides.right_need_mm >
+               diff_limit);
+        puts("PASS obstacle offset left: bypass right, the side it blocks less");
+
+        /* Mirror: object offset to the right, go round the left. */
+        fill(points,1500);
+        points[zero].range_mm=300;points[zero-1].range_mm=304;
+        points[zero-2].range_mm=310;
+        scan_plan_build_side_report(points,OBS_SCAN_POINTS,0,0,&plan,&sides);
+        assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+        assert(scan_plan_side_is_left(&plan) && !sides.b_tie);
+        assert((int32_t)sides.right_need_mm-(int32_t)sides.left_need_mm >
+               diff_limit);
+        puts("PASS obstacle offset right: bypass left, the side it blocks less");
+
+        /* Centred object: equal needs, so the configured default side. */
+        fill(points,1500);
+        points[zero-1].range_mm=354;points[zero].range_mm=350;
+        points[zero+1].range_mm=354;
+        scan_plan_build_side_report(points,OBS_SCAN_POINTS,0,0,&plan,&sides);
+        assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+        assert(sides.b_tie && sides.left_need_mm==sides.right_need_mm);
+        assert(scan_plan_side_is_left(&plan)==(OBS_SIDE_DEFAULT>0));
+        puts("PASS centred obstacle takes OBS_SIDE_DEFAULT");
+
+        /* Slightly off centre (a few mm of edge noise): still a tie. */
+        fill(points,1500);
+        points[zero-1].range_mm=360;points[zero].range_mm=350;
+        points[zero+1].range_mm=354;
+        scan_plan_build_side_report(points,OBS_SCAN_POINTS,0,0,&plan,&sides);
+        assert(sides.left_need_mm!=sides.right_need_mm);
+        assert(sides.b_tie);
+        assert(scan_plan_side_is_left(&plan)==(OBS_SIDE_DEFAULT>0));
+        puts("PASS near-equal sides within the threshold use the default side");
+
+        /* A blocked corridor is reported and never treated as a tie. */
+        fill(points,1500);
+        points[zero].range_mm=250;
+        points[OBS_SCAN_POINTS-1].range_mm=250;
+        scan_plan_build_side_report(points,OBS_SCAN_POINTS,0,0,&plan,&sides);
+        assert(!sides.b_left_ok && sides.b_right_ok && !sides.b_tie);
+        assert(!scan_plan_side_is_left(&plan));
+        puts("PASS blocked side is reported and the clear side is taken");
+
+        /* No object: the report says so and the plan is clear. */
+        fill(points,1500);
+        scan_plan_build_side_report(points,OBS_SCAN_POINTS,0,0,&plan,&sides);
+        assert(scan_plan_result(&plan)==SCAN_PLAN_CLEAR && !sides.b_object);
+        assert(sizeof(scan_plan_sides_t)==4U);
+        puts("PASS side report is empty when nothing is ahead");
+    }
     puts("All planner scenarios passed.");
     return 0;
 }

@@ -64,8 +64,10 @@
 #define OBS_FRONT_WINDOW_DEG 20
 #define OBS_LOOKAHEAD_MM 500
 
-/* Choose the clear corridor needing the smaller sideways move. A blocked
- * corridor cannot be made safe by assuming unseen space beyond the sweep. */
+/* 0: choose the clear corridor needing the smaller sideways move (see
+ * OBS_SIDE_PREFERENCE_THRESHOLD_MM below). 1 or -1: always take left or
+ * right while it is clear. A blocked corridor cannot be made safe by
+ * assuming unseen space beyond the sweep. */
 #define OBS_PREFERRED_SIDE 0
 /* Never pass closer than this sideways offset from the line, whatever the
  * scan says. A flat face stops echoing once the scan looks more than about
@@ -144,15 +146,48 @@
 #define OBS_OFFSET_GAIN_DDEG_PER_MM 1
 #define OBS_OFFSET_OUT_MAX_DDEG 150
 #define OBS_OFFSET_IN_MAX_DDEG 50
-/* Fault if the object still has not ended this far past its front face. */
-#define OBS_PASS_MAX_MM 1200
-/* If the side watch never gets an echo from the object (a smooth face seen
- * at an angle can reflect the sound away), assume it is this deep and turn
- * back once the body has cleared that, as for a seen object. If the object
- * is really longer, the front guard on the way back sees it and the robot
- * runs parallel again. Measure: set it to the deepest obstacle expected.
+
+/* ---- Bypass side choice and straight-leg length -------------------------
+ * All distances are millimetres. Travel is measured by encoder odometry
+ * along the line from where the obstacle was confirmed.
+ *
+ * OBS_SIDE_PREFERENCE_THRESHOLD_MM: the scan works out how far sideways
+ * each side needs the robot to move to clear the object (the object's edge
+ * plus half the robot width plus OBS_SAFETY_MARGIN_MM). The side needing
+ * less wins. When both sides are clear and differ by no more than this, the
+ * object is treated as centred and OBS_SIDE_DEFAULT is used. 0..255 mm.
+ * At the 10 degree scan step each edge is only known to about half a step
+ * (~22 mm at 250 mm range), so two edges can differ by ~40 mm from noise.
+ *
+ * OBS_SIDE_DEFAULT: side taken for a centred object, 1 left or -1 right.
+ * If neither edge was seen, the farther outermost echo decides instead, and
+ * this is used only when those are equal. OBS_PREFERRED_SIDE, if not 0,
+ * overrides both.
  */
-#define OBS_UNSEEN_DEPTH_MM 300
+#define OBS_SIDE_PREFERENCE_THRESHOLD_MM 40
+#define OBS_SIDE_DEFAULT 1
+/* OBS_PASS_DEFAULT_MM: fallback length of the straight leg, as sensor travel
+ * past the object's front face. If the side watch has not confirmed the end
+ * (OBS_SIDE_CLEAR_HITS absent pings in a row) and has not seen the object in
+ * the last OBS_SIDE_CLEAR_HITS pings, the object is assumed to end here and
+ * the robot turns back once its body has cleared that point. A confirmed
+ * end still finishes the leg earlier; an object still being seen keeps it
+ * going. If the object is really longer, the front guard on the way back
+ * sees it and the robot runs parallel again. Measure: set it to the deepest
+ * obstacle expected. 1..OBS_PASS_MAX_MM - 1 mm.
+ *
+ * OBS_PASS_MAX_MM: hard limit. Stop with a NO_ROUTE fault if the axle gets
+ * this far past the front face while still passing, whatever the side watch
+ * says. Must exceed OBS_PASS_DEFAULT_MM. 0..32767 mm.
+ */
+#define OBS_PASS_DEFAULT_MM 40
+#define OBS_PASS_MAX_MM 600
+/* 1 prints the side clearances and choice, and how and where the straight
+ * leg ended; 0 turns those lines off.
+ */
+#define OBS_DEBUG_LOG 1
+/* ------------------------------------------------------------------------ */
+
 /* Side-watch summary in the log every this many mm of travel; 0 = off. */
 #define OBS_SIDE_LOG_MM 50
 /* Return clearance uses the measured side gap and swept body geometry,

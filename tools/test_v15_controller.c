@@ -66,8 +66,15 @@ void motion_brake(void) {motion_apply(LINE_UNCERTAIN);}
 void motion_stop_now(void) {motion_apply(LINE_UNCERTAIN);}
 void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
 void motion_apply_maneuver(uint8_t action) {g_maneuver=action;}
-void g7_nav_clear_decoded(void) {++g_decoded_clears;}
-int g7_nav_begin_run(void) {return 1;}
+/* With g_model_cancel set, model the real coupling: clearing decoded
+ * results cancels the scanner, which is then not ready until its worker
+ * rearms it (g_cancel_pending cleared by the test). */
+static bool g_model_cancel = false;
+static bool g_cancel_pending = false;
+void g7_nav_clear_decoded(void)
+{++g_decoded_clears;if(g_model_cancel)g_cancel_pending=true;}
+int g7_nav_begin_run(void)
+{return (g_model_cancel&&(g_cancel_pending||!g_barcode_ready))?0:1;}
 int g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
                      uint32_t *ms,uint32_t *done,uint8_t *pending)
 {
@@ -174,6 +181,27 @@ static void obstacle_handoff(void)
     assert(g_last_action==LINE_UNCERTAIN);
     g_obstacle_fault=false;
     g_obstacle_blocked=false;
+
+    /* Regression: the hand-back used to cancel the scanner and then ask
+     * whether it was armed, so every bypass ended STOPPED instead of
+     * resuming line following. */
+    g_model_cancel=true;g_cancel_pending=false;g_barcode_ready=1U;
+    nav_start(&g_navigation,1U);
+    g_obstacle_blocked=true;
+    assert(handle_following(&history)==ROBOT_OBSTACLE);
+    assert(g_cancel_pending); /* Entry cancel is intended. */
+    g_obstacle_blocked=false;
+    g_cancel_pending=false;   /* Worker rearms during the bypass. */
+    g_bypass_drive=(obstacle_drive_t){0,0,false,false,true,false};
+    assert(handle_obstacle(&history)==ROBOT_LINE_FOLLOWING);
+    assert(!g_cancel_pending && g_navigation.state==NAV_FOLLOW);
+    /* A scanner that is genuinely not armed still stops safely. */
+    g_barcode_ready=0U;
+    assert(handle_obstacle(&history)==ROBOT_STOPPED);
+    assert(g_last_action==LINE_UNCERTAIN);
+    g_barcode_ready=1U;g_model_cancel=false;
+    puts("Obstacle handoff: armed scanner resumes line following after a "
+         "bypass");
     puts("Obstacle handoff: preemption, RPM, stop, reacquisition, "
          "fault and stale IR PASS");
 }

@@ -47,7 +47,7 @@ static void passing(int32_t side)
     g_seq.b_planned=true;
     g_seq.side=side;g_seq.look_deg=-side*OBS_SIDE_LOOK_DEG;
     g_seq.pose.y_mm=(float)side*300.0F;g_seq.lateral_mm=300;
-    g_seq.face_x_mm=300.0F;g_seq.rear_x_mm=450.0F;
+    g_seq.face_x_mm=300.0F;g_seq.rear_x_mm=300.0F; /* As handle_plan. */
     g_seq.search_side=side;
 }
 
@@ -97,15 +97,15 @@ int main(void)
     pose_update(&geometry,-1056,1056);
     assert(geometry.pose.x_mm>219.90F && geometry.pose.x_mm<219.93F);
     passing(1);
-    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_UNSEEN_DEPTH_MM-OBS_SENSOR_TO_AXLE_MM-1.0F;
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-OBS_SENSOR_TO_AXLE_MM-1.0F;
     (void)step(-1,false,100);
     assert(g_seq.phase==OBS_PHASE_PASS_SIDE && !g_seq.b_seen);
     g_seq.pose.x_mm+=2.0F;
     (void)step(-1,false,150);
     assert(g_seq.phase==OBS_PHASE_PASS_END);
-    assert(g_seq.end_x_mm>=g_seq.face_x_mm+OBS_UNSEEN_DEPTH_MM);
+    assert(g_seq.end_x_mm>=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM);
     /* No longer waits for the whole rear body plus margin. */
-    assert(g_seq.end_x_mm<g_seq.face_x_mm+OBS_UNSEEN_DEPTH_MM+
+    assert(g_seq.end_x_mm<g_seq.face_x_mm+OBS_PASS_DEFAULT_MM+
            OBS_ROBOT_REAR_MM+OBS_SAFETY_MARGIN_MM);
     g_seq.pose.x_mm=g_seq.end_x_mm-1.0F;
     (void)step(-1,false,200);
@@ -116,7 +116,7 @@ int main(void)
     puts("PASS never-seen object returns after the assumed depth and body");
 
     passing(1);
-    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_UNSEEN_DEPTH_MM;
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM;
     (void)step(-1,false,100);
     assert(g_seq.phase==OBS_PHASE_PASS_END);
     (void)step(240,false,150);
@@ -168,14 +168,16 @@ int main(void)
     assert(g_seq.phase==OBS_PHASE_STOPPING && drive.b_stop);
     puts("PASS confirmed front obstruction stops the passing leg");
 
+    /* Seen all the way, staying just short of the hard travel limit. */
     passing(1);
-    for(unsigned i=0;i<20U;++i)
+    for(unsigned i=0;
+        400.0F+(float)i*40.0F<g_seq.face_x_mm+OBS_PASS_MAX_MM;++i)
     {
-        g_seq.pose.x_mm=400.0F+i*40.0F;
+        g_seq.pose.x_mm=400.0F+(float)i*40.0F;
         drive=step(240,false,100U+i*50U);
         assert(g_seq.phase==OBS_PHASE_PASS_SIDE && !drive.b_fault);
     }
-    assert(g_seq.rear_x_mm>1000.0F);
+    assert(g_seq.rear_x_mm>g_seq.face_x_mm+OBS_PASS_DEFAULT_MM);
     puts("PASS long obstacle stays under side watch beyond the former depth estimate");
 
     (void)finish_side(1);
@@ -320,5 +322,114 @@ int main(void)
     (void)step(-1,false,100);
     assert(g_seq.phase==OBS_PHASE_TURN_PARALLEL);
     puts("PASS drive out reaches the full offset before the pivot");
+
+    /* Overshoot root cause 1: one unconfirmed echo used to disable the
+     * unseen fallback, so the leg ran on to the OBS_PASS_MAX_MM fault.
+     */
+    {
+        float const default_axle_x=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-
+                                   OBS_SENSOR_TO_AXLE_MM;
+        passing(1);g_seq.pose.x_mm=default_axle_x-50.0F;
+        (void)step(240,false,100);
+        assert(g_seq.side_hits==1U && !g_seq.b_seen);
+        for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS;++i)
+            (void)step(-1,false,150U+i*50U);
+        assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
+        g_seq.pose.x_mm=default_axle_x-1.0F;
+        (void)step(-1,false,450);
+        assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
+        g_seq.pose.x_mm=default_axle_x+1.0F;
+        (void)step(-1,false,500);
+        assert(g_seq.phase==OBS_PHASE_PASS_END && g_seq.b_default_end);
+        assert(g_seq.end_x_mm>=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM);
+        assert(g_seq.end_x_mm<g_seq.face_x_mm+OBS_PASS_MAX_MM);
+        g_seq.pose.x_mm=g_seq.end_x_mm+1.0F;
+        drive=step(-1,false,550);
+        assert(g_seq.phase==OBS_PHASE_TURN_BACK && !drive.b_fault);
+        assert(g_seq.turn_target_ddeg==-OBS_RETURN_DEG*DDEG_PER_DEG);
+        assert(drive.left_rpm==OBS_DRIVE_RPM && drive.right_rpm==0);
+        puts("PASS single unconfirmed echo: default distance ends the leg");
+    }
+
+    /* Overshoot root cause 2: a seen object whose end is never confirmed
+     * because self echoes keep breaking the absence run. It used to bounce
+     * between PASS_END and PASS_SIDE until the travel-limit fault.
+     */
+    passing(1);
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-
+                    OBS_SENSOR_TO_AXLE_MM-50.0F;
+    (void)step(240,false,100);(void)step(240,false,150);
+    assert(g_seq.b_seen);
+    for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS;++i)
+    {
+        (void)step(-1,false,200U+i*100U);
+        (void)step(30,false,250U+i*100U);
+    }
+    assert(g_seq.clear_hits<OBS_SIDE_CLEAR_HITS);
+    assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-
+                    OBS_SENSOR_TO_AXLE_MM+1.0F;
+    (void)step(-1,false,800);
+    assert(g_seq.phase==OBS_PHASE_PASS_END && g_seq.b_default_end);
+    (void)step(30,false,850);
+    assert(g_seq.phase==OBS_PHASE_PASS_END);
+    g_seq.pose.x_mm=g_seq.end_x_mm+1.0F;
+    (void)step(-1,false,900);
+    assert(g_seq.phase==OBS_PHASE_TURN_BACK);
+    puts("PASS seen object with noisy end: default distance ends the leg");
+
+    /* Sensor never detects the pass on a right bypass: same default, and
+     * the return turn mirrors to the left.
+     */
+    passing(-1);
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-
+                    OBS_SENSOR_TO_AXLE_MM;
+    (void)step(-1,false,100);
+    assert(g_seq.phase==OBS_PHASE_PASS_END && g_seq.b_default_end);
+    g_seq.pose.x_mm=g_seq.end_x_mm+1.0F;
+    drive=step(-1,false,150);
+    assert(g_seq.phase==OBS_PHASE_TURN_BACK);
+    assert(g_seq.turn_target_ddeg==OBS_RETURN_DEG*DDEG_PER_DEG);
+    assert(drive.left_rpm==0 && drive.right_rpm==OBS_DRIVE_RPM);
+    puts("PASS sensor never detects the pass: default applies, right mirrors");
+
+    /* A confirmed end still finishes the leg before the default distance. */
+    passing(1);
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-
+                    OBS_SENSOR_TO_AXLE_MM-100.0F;
+    (void)step(240,false,100);(void)step(240,false,150);
+    for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS;++i)
+        (void)step(-1,false,200U+i*50U);
+    /* Ended by the side watch while the sensor was short of the default. */
+    assert(g_seq.phase==OBS_PHASE_PASS_END && !g_seq.b_default_end);
+    assert(g_seq.pose.x_mm+OBS_SENSOR_TO_AXLE_MM<
+           g_seq.face_x_mm+OBS_PASS_DEFAULT_MM);
+    g_seq.pose.x_mm=g_seq.end_x_mm+1.0F;
+    (void)step(-1,false,500);
+    assert(g_seq.phase==OBS_PHASE_TURN_BACK);
+    puts("PASS confirmed end stops the leg before the default distance");
+
+    /* An object still being seen at the default point keeps the leg going;
+     * only the hard limit stops it.
+     */
+    passing(1);
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM;
+    (void)step(240,false,100);(void)step(240,false,150);
+    assert(g_seq.phase==OBS_PHASE_PASS_SIDE && !g_seq.b_default_end);
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_MAX_MM;
+    drive=step(240,false,200);
+    assert(g_seq.phase==OBS_PHASE_FAULT && drive.b_fault);
+    puts("PASS object still seen at the default point runs to the hard limit");
+
+    /* A real echo after a default end means the object goes on. */
+    passing(1);
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM;
+    (void)step(-1,false,100);
+    assert(g_seq.phase==OBS_PHASE_PASS_END && g_seq.b_default_end);
+    (void)step(240,false,150);
+    assert(g_seq.phase==OBS_PHASE_PASS_SIDE && !g_seq.b_default_end);
+    (void)step(-1,false,200);
+    assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
+    puts("PASS echo after a default end resumes passing without flapping");
     return 0;
 }

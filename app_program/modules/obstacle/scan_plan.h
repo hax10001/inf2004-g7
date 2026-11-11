@@ -30,6 +30,20 @@ typedef struct
     uint32_t word_b;
 } scan_plan_bypass_t;
 
+/** @brief How the bypass side was chosen, for the scanner task's log. */
+typedef struct
+{
+    /* Sideways move each side needs, 0..4095 mm (12 bits); larger values
+     * are clamped to 4095 before assignment. Flags are single bits. Only
+     * the scanner task writes and reads this local record. */
+    unsigned int left_need_mm:12;
+    unsigned int right_need_mm:12;
+    unsigned int b_left_ok:1;  /**< Left corridor is clear. */
+    unsigned int b_right_ok:1; /**< Right corridor is clear. */
+    unsigned int b_tie:1;      /**< Within OBS_SIDE_PREFERENCE_THRESHOLD_MM. */
+    unsigned int b_object:1;   /**< An object was found ahead. */
+} scan_plan_sides_t;
+
 /** @brief Bypass heading change for an angle index.
  *  @param angle_index Index from scan_plan_angle_index().
  *  @return The angle in degrees.
@@ -61,6 +75,15 @@ void scan_plan_build_confirmed (scan_plan_point_t * p_points, int32_t count,
 void scan_plan_build_side (scan_plan_point_t * p_points, int32_t count,
                            int32_t confirmed_front_mm, int32_t required_side,
                            scan_plan_bypass_t * p_plan);
+
+/** @brief As scan_plan_build_side(), also reporting both sides' needs.
+ *  @param[out] p_sides Receives the side comparison; may be NULL.
+ */
+void scan_plan_build_side_report (scan_plan_point_t * p_points, int32_t count,
+                                  int32_t confirmed_front_mm,
+                                  int32_t required_side,
+                                  scan_plan_bypass_t * p_plan,
+                                  scan_plan_sides_t * p_sides);
 
 /** @brief SCAN_PLAN_CLEAR, SCAN_PLAN_ROUTE or SCAN_PLAN_NO_ROUTE. */
 uint32_t scan_plan_result (scan_plan_bypass_t const * p_plan);

@@ -239,8 +239,29 @@ static void run_scan (void)
             : (OBS_ROUTE_RIGHT == route) ? -1
                                          : 0;
 
-        scan_plan_build_side(points, count, last_mm, required_side, &plan);
+        scan_plan_sides_t sides = {0U, 0U, 0U, 0U, 0U, 0U};
+
+        scan_plan_build_side_report(points, count, last_mm, required_side,
+                                    &plan, &sides);
         obs_state_plan_store(&plan);
+
+        if ((0 != OBS_DEBUG_LOG) && (0U != sides.b_object))
+        {
+            /* Fields are at most 12 bits, so INT holds them exactly; UB
+             * preserves the string bytes. */
+            tm_printf((UB *)"[OBS] Side need L=%d R=%d mm, clear L=%d R=%d, "
+                            "%s -> %s\n",
+                      (INT)sides.left_need_mm, (INT)sides.right_need_mm,
+                      (INT)sides.b_left_ok, (INT)sides.b_right_ok,
+                      (0 != required_side)        ? (UB *)"side kept"
+                      : (0 != OBS_PREFERRED_SIDE) ? (UB *)"preferred side"
+                      : (0U != sides.b_tie)       ? (UB *)"centred (tie)"
+                                                  : (UB *)"smaller move",
+                      (SCAN_PLAN_ROUTE != scan_plan_result(&plan))
+                          ? (UB *)"no route"
+                      : scan_plan_side_is_left(&plan) ? (UB *)"left"
+                                                      : (UB *)"right");
+        }
         obs_state_flags_set(OBS_EVT_SCAN_DONE);
         obs_state_flags_clear(OBS_EVT_SCAN_REQ);
         /* Values are non-negative cm; UINT matches %u on the target. */

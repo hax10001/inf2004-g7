@@ -57,6 +57,10 @@
 #define OBS_BODY_PAST_WHEEL_MM                                                 \
     ((OBS_ROBOT_WIDTH_MM / HALF) - (OBS_TRACK_WIDTH_MM / HALF))
 #define OBS_HALF_PATH_MM ((OBS_ROBOT_WIDTH_MM / HALF) + OBS_SAFETY_MARGIN_MM)
+/* Straight-leg log events for pass_end_log(). */
+#define PASS_LOG_END_FOUND 0U
+#define PASS_LOG_TURN_BACK 1U
+#define PASS_LOG_LINE 2U
 
 /** @brief Dead-reckoned pose: x along the line, y to its left, both from
  *  where the obstacle was confirmed; heading positive to the left.
@@ -79,6 +83,8 @@ typedef struct
     unsigned int b_seen:1;
     unsigned int side_hits:2;   /**< Saturates at two. */
     unsigned int clear_hits:3;  /**< Saturates at five. */
+    unsigned int miss_hits:3;   /**< Side pings since a hit; saturates at 5. */
+    unsigned int b_default_end:1; /**< Pass ended on OBS_PASS_DEFAULT_MM. */
     unsigned int side_skip:1;
     unsigned int resume_phase:4;
     signed int turn_dir:2;
@@ -118,6 +124,11 @@ typedef struct
 #error Obstacle counter configuration exceeds its minimum-bit storage
 #endif
 
+#if (OBS_PASS_DEFAULT_MM <= 0) || (OBS_PASS_DEFAULT_MM >= OBS_PASS_MAX_MM) || \
+    (OBS_PASS_MAX_MM > 32767)
+#error "Need 0 < OBS_PASS_DEFAULT_MM < OBS_PASS_MAX_MM <= 32767 mm."
+#endif
+
 static obstacle_seq_t g_seq;
 
 /** @brief Read the signed wheel counts; false until motion has data. */
@@ -151,6 +162,15 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                            uint32_t now_msec);
 /** @brief Extra axle travel required by the swept body on the return arc. */
 static float return_clearance_mm (obstacle_seq_t const * p_seq);
+/** @brief The side watch cannot confirm the end and the sensor is
+ *  OBS_PASS_DEFAULT_MM past the front face: take the default end there.
+ *  @param b_confirmed The side watch has confirmed the end.
+ */
+static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed);
+/** @brief Log how the straight leg ended and how far past the face.
+ *  @param event PASS_LOG_END_FOUND, PASS_LOG_TURN_BACK or PASS_LOG_LINE.
+ */
+static void pass_end_log (obstacle_seq_t const * p_seq, uint8_t event);
 /** @brief Handle a new side ping, if any; true if it saw the object. */
 static bool side_ping_update (obstacle_seq_t * p_seq);
 /** @brief Point the servo at the object for the side watch. */
@@ -449,6 +469,10 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                 if (b_fresh && !b_hit && p_seq->b_seen &&
                     p_seq->clear_hits >= OBS_SIDE_CLEAR_HITS)
                 {
+                    /* Confirmed by the side watch, even after a default
+                     * end: the measured rear bound now decides.
+                     */
+                    p_seq->b_default_end = false;
                     p_seq->rear_x_mm =
                         p_seq->clear_rear_mm > p_seq->hit_rear_mm ?
                         p_seq->clear_rear_mm : p_seq->hit_rear_mm;
@@ -465,9 +489,12 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                 {
                     raise_fault(p_seq, p_out, OBS_FAULT_TIMEOUT);
                 }
-                else if (b_hit || (p_seq->b_seen &&
-                                   (p_seq->clear_hits < OBS_SIDE_CLEAR_HITS)))
+                else if (b_hit ||
+                         ((!p_seq->b_default_end) && p_seq->b_seen &&
+                          (p_seq->clear_hits < OBS_SIDE_CLEAR_HITS)))
                 {
+                    /* A default end is only undone by a real echo. */
+                    p_seq->b_default_end = false;
                     /* UB views the same bytes; tm_printf does not modify. */
                     tm_printf((UB *)"[OBS] Object goes on; still passing\n");
                     enter_phase(p_seq, OBS_PHASE_PASS_SIDE, now_msec);
@@ -486,10 +513,12 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                     /* A fresh absent ping must still agree at the turn. */
                     if (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES)
                     {
+                        pass_end_log(p_seq, PASS_LOG_LINE);
                         line_found(p_seq, now_msec);
                     }
                     else
                     {
+                        pass_end_log(p_seq, PASS_LOG_TURN_BACK);
                         enter_turn(p_seq, OBS_PHASE_TURN_BACK,
                             -p_seq->side * OBS_RETURN_DEG * DDEG_PER_DEG,
                             now_msec);
@@ -639,6 +668,41 @@ static float return_clearance_mm (obstacle_seq_t const * p_seq)
     return past_mm > 0.0F ? past_mm : 0.0F;
 }
 
+static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed)
+{
+    float const sensor_x = p_seq->pose.x_mm + (float)OBS_SENSOR_TO_AXLE_MM;
+    /* Still being seen: an echo within the last OBS_SIDE_CLEAR_HITS pings.
+     * A single unconfirmed echo, or a run broken only by self or invalid
+     * echoes, does not count once OBS_SIDE_CLEAR_HITS pings pass unhit.
+     */
+    bool const  b_tracking =
+        (p_seq->side_hits > 0U) && (p_seq->miss_hits < OBS_SIDE_CLEAR_HITS);
+
+    return (!b_confirmed) && (!b_tracking) &&
+           (sensor_x >= (p_seq->face_x_mm + (float)OBS_PASS_DEFAULT_MM));
+}
+
+static void pass_end_log (obstacle_seq_t const * p_seq, uint8_t event)
+{
+    if (0 != OBS_DEBUG_LOG)
+    {
+        float const sensor_x = p_seq->pose.x_mm + (float)OBS_SENSOR_TO_AXLE_MM;
+
+        /* Distances fit INT on the 32-bit target; UB views the same string
+         * bytes and tm_printf does not modify them. */
+        tm_printf((UB *)"[OBS] Pass %s by %s: sensor %d mm past face, "
+                        "axle x=%d, turn at x=%d (default %d, max %d)\n",
+                  (PASS_LOG_END_FOUND == event) ? (UB *)"end set"
+                  : (PASS_LOG_TURN_BACK == event) ? (UB *)"turning back"
+                                                  : (UB *)"line found",
+                  p_seq->b_default_end ? (UB *)"default distance"
+                                       : (UB *)"side watch",
+                  (INT)(sensor_x - p_seq->face_x_mm), (INT)p_seq->pose.x_mm,
+                  (INT)p_seq->end_x_mm, (INT)OBS_PASS_DEFAULT_MM,
+                  (INT)OBS_PASS_MAX_MM);
+    }
+}
+
 static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                            uint32_t now_msec)
 {
@@ -650,35 +714,49 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
     side_log_report(p_seq);
     set_straight(p_out, heading_ddeg(&p_seq->pose), offset_heading(p_seq));
 
-    /* Normally the side watch sees the object and then its end. If it never
-     * sees it at all, the sensor passing an assumed depth stands in for the
-     * end; the front guard on the return still catches a longer object.
+    /* Normally the side watch sees the object and then its end. If it
+     * cannot confirm the end (never saw the object, saw it only once, or
+     * noise keeps breaking the absence run), the sensor passing
+     * OBS_PASS_DEFAULT_MM beyond the front face stands in for the end; the
+     * front guard on the return still catches a longer object.
      */
-    float const sensor_x =
-        p_seq->pose.x_mm + (float)OBS_SENSOR_TO_AXLE_MM;
-    bool const b_unseen_end =
-        (!p_seq->b_seen) && (p_seq->side_hits == 0U) &&
-        (sensor_x >= (p_seq->face_x_mm + (float)OBS_UNSEEN_DEPTH_MM));
-    bool const b_passed =
-        (p_seq->b_seen && (p_seq->clear_hits >= OBS_SIDE_CLEAR_HITS)) ||
-        b_unseen_end;
+    bool const b_confirmed =
+        p_seq->b_seen && (p_seq->clear_hits >= OBS_SIDE_CLEAR_HITS);
+    bool const b_default_end = default_end_due(p_seq, b_confirmed);
+    bool const b_passed      = b_confirmed || b_default_end;
 
-    if (b_unseen_end)
+    if (b_default_end)
     {
-        /* No side hit at all: use the assumed rear and conservative gap.
-         * A first real echo must get its second confirmation rather than
-         * being overwritten by the unseen-object fallback.
-         * Treat it as seen for the clearance maths: the assumed rear, and
-         * the gap the scan plan guaranteed beside it.
+        /* Assume the object ends at the default depth, or at the furthest
+         * point an echo actually came from if that is further. Keep a rear
+         * already pushed back by a guard on the way back. Without any hit,
+         * use the gap the scan plan guaranteed beside it.
          */
-        p_seq->rear_x_mm =
-            p_seq->face_x_mm + (float)OBS_UNSEEN_DEPTH_MM;
-        p_seq->beside_mm        = (float)OBS_HALF_PATH_MM;
-        /* Value fits INT on the target; UB preserves the string bytes. */
-        tm_printf((UB *)"[OBS] Side watch never saw the object; assuming "
-                        "%d mm deep\n",
-                  (INT)OBS_UNSEEN_DEPTH_MM);
+        float rear_mm = p_seq->face_x_mm + (float)OBS_PASS_DEFAULT_MM;
+
+        if (p_seq->rear_x_mm > rear_mm)
+        {
+            rear_mm = p_seq->rear_x_mm;
+        }
+
+        if ((p_seq->side_hits > 0U) && (p_seq->hit_rear_mm > rear_mm))
+        {
+            rear_mm = p_seq->hit_rear_mm;
+        }
+
+        if (0U == p_seq->side_hits)
+        {
+            p_seq->beside_mm = (float)OBS_HALF_PATH_MM;
+        }
+
+        p_seq->rear_x_mm = rear_mm;
+        /* Values fit INT on the target; UB preserves the string bytes. */
+        tm_printf((UB *)"[OBS] Side watch could not confirm the end "
+                        "(hits=%d); using default %d mm past the face\n",
+                  (INT)p_seq->side_hits, (INT)OBS_PASS_DEFAULT_MM);
     }
+
+    p_seq->b_default_end = b_default_end;
 
     if ((now_msec - p_seq->side_sample_msec) > OBS_SIDE_MAX_AGE_MSEC)
     {
@@ -701,7 +779,7 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
          */
         float const past_mm = return_clearance_mm(p_seq);
 
-        if (!b_unseen_end)
+        if (!b_default_end)
         {
             /* Use actual heading/sensor position at each empty ray,
              * retaining the tightest bound and every confirmed hit. */
@@ -714,6 +792,7 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         /* Values fit INT on the 32-bit target; UB preserves string bytes. */
         tm_printf((UB *)"[OBS] Side end candidate x=%d; body clear at %d mm\n",
                   (INT)p_seq->rear_x_mm, (INT)p_seq->end_x_mm);
+        pass_end_log(p_seq, PASS_LOG_END_FOUND);
         enter_phase(p_seq, OBS_PHASE_PASS_END, now_msec);
     }
     else
@@ -765,6 +844,22 @@ static bool side_ping_update (obstacle_seq_t * p_seq)
         p_seq->side_seq = seq;
 
         side_log_count(p_seq, range_mm, b_hit, b_absent, b_valid);
+
+        /* Any ping that is not a hit counts, so noise cannot hold off the
+         * default end; saturating keeps it within its three bits.
+         */
+        if (b_hit)
+        {
+            p_seq->miss_hits = 0U;
+        }
+        else if (p_seq->miss_hits < OBS_SIDE_CLEAR_HITS)
+        {
+            p_seq->miss_hits++;
+        }
+        else
+        {
+            /* Saturated. */
+        }
 
         if (b_hit)
         {
@@ -870,9 +965,11 @@ static void pass_further (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
          */
         p_seq->rear_x_mm = (ahead_x > p_seq->rear_x_mm) ? ahead_x
                                                         : p_seq->rear_x_mm;
-        p_seq->b_seen    = false;
-        p_seq->side_hits = 0U;
-        p_seq->b_seeking = false;
+        p_seq->b_seen        = false;
+        p_seq->side_hits     = 0U;
+        p_seq->miss_hits     = 0U;
+        p_seq->b_default_end = false;
+        p_seq->b_seeking     = false;
         /* Values fit INT on the target; UB preserves the string bytes. */
         tm_printf((UB *)"[OBS] Still in the way at x=%d mm on the way back; "
                         "passing further\n",
@@ -890,10 +987,12 @@ static void aim_side_watch (obstacle_seq_t * p_seq, uint32_t now_msec)
     int32_t const look =
         (reach < OBS_SIDE_LOOK_DEG) ? reach : OBS_SIDE_LOOK_DEG;
 
-    p_seq->look_deg   = object_side * look;
-    p_seq->aim_deg    = p_seq->look_deg;
-    p_seq->side_skip  = 1U;
-    p_seq->clear_hits = 0U;
+    p_seq->look_deg      = object_side * look;
+    p_seq->aim_deg       = p_seq->look_deg;
+    p_seq->side_skip     = 1U;
+    p_seq->clear_hits    = 0U;
+    p_seq->miss_hits     = 0U;
+    p_seq->b_default_end = false;
     p_seq->side_seq   = obs_state_side_seq_get();
     p_seq->side_sample_msec = now_msec;
     obs_state_watch_angle_set(p_seq->look_deg);
@@ -1218,6 +1317,8 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
     p_seq->side_hits        = 0U;
     p_seq->hit_rear_mm      = 0.0F;
     p_seq->clear_hits       = 0U;
+    p_seq->miss_hits        = 0U;
+    p_seq->b_default_end    = false;
     p_seq->clear_rear_mm = 0.0F;
     p_seq->side_seq         = 0U;
     p_seq->side_sample_msec = now_msec;
@@ -1429,9 +1530,11 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         p_seq->face_x_mm   = face_x;
         p_seq->rear_x_mm   = (face_x > p_seq->rear_x_mm) ? face_x
                                                        : p_seq->rear_x_mm;
-        p_seq->b_seen      = false;
-        p_seq->side_hits   = 0U;
-        p_seq->search_side = p_seq->side;
+        p_seq->b_seen        = false;
+        p_seq->side_hits     = 0U;
+        p_seq->miss_hits     = 0U;
+        p_seq->b_default_end = false;
+        p_seq->search_side   = p_seq->side;
         obs_state_set_route((p_seq->side > 0) ? OBS_ROUTE_LEFT
                                               : OBS_ROUTE_RIGHT);
         obs_state_set_width_cm(scan_plan_width_cm(&plan));

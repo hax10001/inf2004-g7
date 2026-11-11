@@ -1016,8 +1016,18 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
         (void)ir_shared_take_sides(&b_left, &b_right);
         p_history->b_have_previous_action = false;
 #ifdef B1_LIVE_COMMANDS
-        g7_nav_clear_decoded();
-        if (!g7_nav_begin_run()) return ROBOT_STOPPED;
+        /* The scanner was cancelled when the obstacle was confirmed and has
+         * rearmed while suppressed during the bypass. Do not cancel it again
+         * here: that made it not ready on the very next check, so every
+         * bypass ended STOPPED. g7_nav_begin_run() resets mailbox ownership.
+         */
+        if (!g7_nav_begin_run())
+        {
+            /* UB views the same string bytes; tm_printf does not modify. */
+            tm_printf((UB *)"[CTRL] Bypass done but barcode scanner not "
+                            "armed -> STOPPED\n");
+            return ROBOT_STOPPED;
+        }
         nav_start(&g_navigation, now.lo);
 #endif
         tm_printf((UB *)"[CTRL] Bypass done -> LINE_FOLLOWING\n");

@@ -8,6 +8,16 @@ evidence for V9 onwards (test logs, size audits, checklists) is in
 
 ## Unreleased
 
+- Obstacle bypass: the straight leg could overshoot to the 1200 mm
+  `OBS_PASS_MAX_MM` fault whenever the side watch could not confirm the
+  object's end. A single unconfirmed echo turned off the never-seen fallback,
+  and a seen object had no fallback at all. The new `OBS_PASS_DEFAULT_MM`
+  (which replaces `OBS_UNSEEN_DEPTH_MM`) ends the leg in all of those cases,
+  while a confirmed end still finishes earlier.
+- Bypass side choice: sides within `OBS_SIDE_PREFERENCE_THRESHOLD_MM` count as
+  centred and use `OBS_SIDE_DEFAULT`. `OBS_DEBUG_LOG` prints both side
+  clearances, the choice, and how and where the straight leg ended.
+
 - Repository cleanup: the root patch notes were merged into the
   [README](../README.md), [TROUBLESHOOTING](TROUBLESHOOTING.md),
   [DASHBOARD](DASHBOARD.md), [ROBOT_OPERATION](ROBOT_OPERATION.md) and this

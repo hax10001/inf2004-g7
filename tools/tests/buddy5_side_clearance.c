@@ -87,5 +87,20 @@ int main(void)
     sample(&right, 240);sample(&right, 240);
     assert(right.b_seen && right.rear_x_mm > 0.0F);
     puts("PASS mirrored right bypass tracks the object on its left");
+
+    /* Pings since the last hit: every non-hit counts, including self
+     * echoes that reset the absence run; it saturates and a hit clears it. */
+    obstacle_seq_t miss = {0};
+    miss.side = 1;miss.look_deg = -OBS_SIDE_LOOK_DEG;
+    miss.pose.y_mm = 300.0F;miss.lateral_mm = 300;
+    sample(&miss, 240);
+    assert(miss.miss_hits == 0U);
+    sample(&miss, -1);sample(&miss, 30);
+    assert(miss.miss_hits == 2U && miss.clear_hits == 0U);
+    for (unsigned i = 0U; i < 2U * OBS_SIDE_CLEAR_HITS; ++i) sample(&miss, 30);
+    assert(miss.miss_hits == OBS_SIDE_CLEAR_HITS);
+    sample(&miss, 240);
+    assert(miss.miss_hits == 0U);
+    puts("PASS misses since the last hit count noise, saturate and reset");
     return 0;
 }

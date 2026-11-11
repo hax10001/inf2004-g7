@@ -18,7 +18,7 @@
 #define APP_CONTROLLER_PRIORITY 6
 #define APP_IMU_PRIORITY 7
 #ifndef APP_OBSTACLE_ENABLED
-#define APP_OBSTACLE_ENABLED 0
+#define APP_OBSTACLE_ENABLED 1
 #endif
 /* Set to 1 to restore IMU impact-triggered stops. IMU telemetry stays on. */
 #ifndef APP_COLLISION_ENABLED
@@ -123,7 +123,7 @@
  * The live-navigation controller uses confirmed readings and a pending
  * mapped barcode, and stops safely on an unmapped/ambiguous crossing.
  */
-#define APP_JUNCTION_STOP_ENABLED 1
+#define APP_JUNCTION_STOP_ENABLED 0
 /* AUTONOMOUS BENCH DEFAULTS — NOT floor-calibrated turning geometry.
  * Two digital IR sensors cannot distinguish all lifted/black/junction
  * cases; require confirmed black plus a pending mapped barcode action. */

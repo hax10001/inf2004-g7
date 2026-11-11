@@ -11,7 +11,8 @@
  * whose turn and run still clear the nearest face is used; a 90 degree turn
  * always fits, so only another object beside the path makes a side unusable.
  * Both extreme bearings are included. The clear corridor needing the
- * smaller offset wins; two blocked corridors produce NO_ROUTE.
+ * smaller offset wins; offsets within OBS_SIDE_PREFERENCE_THRESHOLD_MM are a
+ * tie and go to OBS_SIDE_DEFAULT. Two blocked corridors produce NO_ROUTE.
  * Integer maths is used because the RP2040 has no floating point unit.
  */
 #include "scan_plan.h"
@@ -20,6 +21,15 @@
 
 #if ((OBS_SCAN_STEP_DEG % 10) != 0)
 #error "OBS_SCAN_STEP_DEG must be a multiple of 10 degrees."
+#endif
+
+#if ((OBS_SIDE_PREFERENCE_THRESHOLD_MM < 0) || \
+     (OBS_SIDE_PREFERENCE_THRESHOLD_MM > 255))
+#error "OBS_SIDE_PREFERENCE_THRESHOLD_MM must be 0..255 mm."
+#endif
+
+#if ((OBS_SIDE_DEFAULT != 1) && (OBS_SIDE_DEFAULT != -1))
+#error "OBS_SIDE_DEFAULT must be 1 (left) or -1 (right)."
 #endif
 
 #define TRIG_STEP_DEG 5
@@ -33,6 +43,8 @@
 #define WIDTH_LIMIT_CM 254
 #define DIST_LIMIT_CM 510
 #define SEED_NONE_DEG 32767
+/* Largest value of the 12-bit need fields in scan_plan_sides_t. */
+#define NEED_LIMIT_MM 4095
 
 /* Packed plan layout: word A holds the first six fields, word B the rest. */
 #define RESULT_SHIFT 0U
@@ -110,12 +122,16 @@ static bool corridor_blocked (scan_plan_point_t const * p_points, int32_t count,
                               int32_t limit_mm, int32_t sign);
 /** @brief Pick the smallest angle whose run clears the near face. */
 static uint32_t pick_angle (int32_t near_depth, int32_t need_mm);
+/** @brief Clamp a sideways need to the 12-bit report field. */
+static uint32_t need_field (int32_t need_mm);
 /** @brief Build a plan; prefer is 1 left, -1 right or 0 for the nearer edge.
  *  @param b_strict Never switch away from a non-zero preferred side.
+ *  @param[out] p_sides Side comparison for the log; may be NULL.
  */
 static void build_plan (scan_plan_point_t const * p_points, int32_t count,
                         int32_t prefer, bool b_strict,
-                        scan_plan_bypass_t * p_plan);
+                        scan_plan_bypass_t * p_plan,
+                        scan_plan_sides_t * p_sides);
 /** @brief Work out the offset and angle needed on one side.
  *  @param b_edge_seen False if the object reaches the end of the sweep.
  */
@@ -123,15 +139,20 @@ static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
                            int32_t low, int32_t high, int32_t outward_edge,
                            bool b_edge_seen, int32_t near_depth, int32_t sign,
                            side_option_t * p_option);
-/** @brief Choose the side and fill in the plan fields. */
+/** @brief Choose the side and fill in the plan fields.
+ *  @param tie_side Side for a centred object: 1 left, -1 right.
+ *  @param[out] p_b_tie Set when both sides were clear and within
+ *  OBS_SIDE_PREFERENCE_THRESHOLD_MM of each other.
+ */
 static void choose_side (side_option_t const * p_left,
                          side_option_t const * p_right, int32_t width_mm,
-                         int32_t prefer, bool b_strict,
-                         plan_fields_t * p_fields);
+                         int32_t prefer, bool b_strict, int32_t tie_side,
+                         plan_fields_t * p_fields, bool * p_b_tie);
 /** @brief Measure the object and plan a path round it. */
 static void plan_object (scan_plan_point_t const * p_points, int32_t count,
                          int32_t low, int32_t high, int32_t prefer,
-                         bool b_strict, plan_fields_t * p_fields);
+                         bool b_strict, plan_fields_t * p_fields,
+                         scan_plan_sides_t * p_sides);
 /** @brief Pack the plan fields into two words. */
 static void pack_fields (plan_fields_t const * p_fields,
                          scan_plan_bypass_t *  p_plan);
@@ -151,20 +172,27 @@ int32_t scan_plan_angle_deg (uint32_t angle_index)
 void scan_plan_build (scan_plan_point_t const * p_points, int32_t count,
                       scan_plan_bypass_t * p_plan)
 {
-    build_plan(p_points, count, OBS_PREFERRED_SIDE, false, p_plan);
+    build_plan(p_points, count, OBS_PREFERRED_SIDE, false, p_plan, NULL);
 }
 
 static void build_plan (scan_plan_point_t const * p_points, int32_t count,
                         int32_t prefer, bool b_strict,
-                        scan_plan_bypass_t * p_plan)
+                        scan_plan_bypass_t * p_plan,
+                        scan_plan_sides_t * p_sides)
 {
     plan_fields_t fields = {SCAN_PLAN_CLEAR, false, 0U, 0U, 0U, 0U, 0U, 0U};
     int32_t       low    = 0;
     int32_t       high   = 0;
 
+    if (NULL != p_sides)
+    {
+        *p_sides = (scan_plan_sides_t){0U, 0U, 0U, 0U, 0U, 0U};
+    }
+
     if (find_cluster(p_points, count, &low, &high))
     {
-        plan_object(p_points, count, low, high, prefer, b_strict, &fields);
+        plan_object(p_points, count, low, high, prefer, b_strict, &fields,
+                    p_sides);
     }
 
     pack_fields(&fields, p_plan);
@@ -180,6 +208,16 @@ void scan_plan_build_confirmed (scan_plan_point_t * p_points, int32_t count,
 void scan_plan_build_side (scan_plan_point_t * p_points, int32_t count,
                            int32_t confirmed_front_mm, int32_t required_side,
                            scan_plan_bypass_t * p_plan)
+{
+    scan_plan_build_side_report(p_points, count, confirmed_front_mm,
+                                required_side, p_plan, NULL);
+}
+
+void scan_plan_build_side_report (scan_plan_point_t * p_points, int32_t count,
+                                  int32_t confirmed_front_mm,
+                                  int32_t required_side,
+                                  scan_plan_bypass_t * p_plan,
+                                  scan_plan_sides_t * p_sides)
 {
     if (NULL == p_plan)
     {
@@ -209,12 +247,13 @@ void scan_plan_build_side (scan_plan_point_t * p_points, int32_t count,
 
     if (0 == required_side)
     {
-        build_plan(p_points, count, OBS_PREFERRED_SIDE, false, p_plan);
+        build_plan(p_points, count, OBS_PREFERRED_SIDE, false, p_plan,
+                   p_sides);
     }
     else
     {
         build_plan(p_points, count, (required_side > 0) ? 1 : -1, true,
-                   p_plan);
+                   p_plan, p_sides);
     }
 }
 
@@ -347,6 +386,24 @@ static uint32_t to_cm (int32_t length_mm, int32_t limit_cm)
 
     /* The value is clamped between zero and a positive limit. */
     return (uint32_t)centimetres;
+}
+
+static uint32_t need_field (int32_t need_mm)
+{
+    int32_t clamped = need_mm;
+
+    if (clamped < 0)
+    {
+        clamped = 0;
+    }
+
+    if (clamped > NEED_LIMIT_MM)
+    {
+        clamped = NEED_LIMIT_MM;
+    }
+
+    /* The value is clamped to 0..4095, so it fits the 12-bit field. */
+    return (uint32_t)clamped;
 }
 
 static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
@@ -489,19 +546,36 @@ static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
 
 static void choose_side (side_option_t const * p_left,
                          side_option_t const * p_right, int32_t width_mm,
-                         int32_t prefer, bool b_strict,
-                         plan_fields_t * p_fields)
+                         int32_t prefer, bool b_strict, int32_t tie_side,
+                         plan_fields_t * p_fields, bool * p_b_tie)
 {
     bool b_pick_left = true;
 
+    *p_b_tie = false;
+
     if (0 == prefer)
     {
-        /* The side needing the smaller move; ties go left. */
-        if (p_left->b_ok || p_right->b_ok)
+        if (p_left->b_ok && p_right->b_ok)
         {
-            b_pick_left = p_left->b_ok &&
-                          ((!p_right->b_ok) ||
-                           (p_left->need_mm <= p_right->need_mm));
+            /* Both clear: the side needing the smaller move, unless the
+             * two are close enough that the object counts as centred.
+             * Needs are a few thousand mm at most, so this cannot overflow.
+             */
+            int32_t const diff_mm = p_left->need_mm - p_right->need_mm;
+
+            if (abs_int(diff_mm) <= OBS_SIDE_PREFERENCE_THRESHOLD_MM)
+            {
+                *p_b_tie    = true;
+                b_pick_left = (tie_side > 0);
+            }
+            else
+            {
+                b_pick_left = (diff_mm < 0);
+            }
+        }
+        else if (p_left->b_ok || p_right->b_ok)
+        {
+            b_pick_left = p_left->b_ok;
         }
         else
         {
@@ -545,7 +619,8 @@ static void choose_side (side_option_t const * p_left,
 
 static void plan_object (scan_plan_point_t const * p_points, int32_t count,
                          int32_t low, int32_t high, int32_t prefer,
-                         bool b_strict, plan_fields_t * p_fields)
+                         bool b_strict, plan_fields_t * p_fields,
+                         scan_plan_sides_t * p_sides)
 {
     int32_t near_depth = point_y(&p_points[low]);
 
@@ -573,20 +648,43 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
     evaluate_side(p_points, count, low, high, -right_x, b_right_seen,
                   near_depth, -1, &right);
 
-    if ((!b_left_seen) && (!b_right_seen) && left.b_ok && right.b_ok &&
-        (left.need_mm == right.need_mm))
+    /* A centred object goes to OBS_SIDE_DEFAULT. If neither edge was seen,
+     * go where the outermost sample is farther instead, as that end of the
+     * object is more likely to be turning away.
+     */
+    int32_t tie_side = OBS_SIDE_DEFAULT;
+    bool    b_tie    = false;
+
+    if ((!b_left_seen) && (!b_right_seen))
     {
-        /* Neither edge was seen: go where the outermost sample is farther,
-         * as that end of the object is more likely to be turning away.
-         */
         if (p_points[0].range_mm > p_points[count - 1].range_mm)
         {
-            left.need_mm++;
+            tie_side = -1;
+        }
+        else if (p_points[count - 1].range_mm > p_points[0].range_mm)
+        {
+            tie_side = 1;
+        }
+        else
+        {
+            /* Equal outermost echoes: keep the configured default. */
         }
     }
+
     p_fields->width_cm = to_cm(width, WIDTH_LIMIT_CM);
     p_fields->near_cm  = to_cm(near_depth, DIST_LIMIT_CM);
-    choose_side(&left, &right, width, prefer, b_strict, p_fields);
+    choose_side(&left, &right, width, prefer, b_strict, tie_side, p_fields,
+                &b_tie);
+
+    if (NULL != p_sides)
+    {
+        p_sides->left_need_mm  = need_field(left.need_mm);
+        p_sides->right_need_mm = need_field(right.need_mm);
+        p_sides->b_left_ok     = left.b_ok ? 1U : 0U;
+        p_sides->b_right_ok    = right.b_ok ? 1U : 0U;
+        p_sides->b_tie         = b_tie ? 1U : 0U;
+        p_sides->b_object      = 1U;
+    }
 }
 
 static void pack_fields (plan_fields_t const * p_fields,

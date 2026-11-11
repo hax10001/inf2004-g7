@@ -24,17 +24,26 @@ each one; values below are the committed defaults.
    (`OBS_SCAN_*`), with `OBS_SCAN_PINGS` pings per bearing. Flat faces stop
    echoing beyond about 30°, so wide obstacles look narrower than they are;
    `OBS_MIN_LATERAL_MM` (245) sets a floor on the passing offset.
-3. **Choose a side:** `OBS_PREFERRED_SIDE=0` takes the clear corridor that needs
-   the smaller sideways move. If both sides are blocked the planner reports
-   `NO_ROUTE`. A mid-bypass rescan keeps the side already taken, or stops.
+3. **Choose a side:** with `OBS_PREFERRED_SIDE=0`, the planner works out how
+   far sideways each side needs the robot to move and takes the clear side
+   needing less, which is the side the object blocks least. If the two differ by
+   no more than `OBS_SIDE_PREFERENCE_THRESHOLD_MM` (40), the object counts as
+   centred and `OBS_SIDE_DEFAULT` (1, left) is used. When neither edge was
+   seen, the farther outermost echo decides instead. If both sides are blocked
+   the planner reports `NO_ROUTE`. A mid-bypass rescan keeps the side already
+   taken, or stops. Each bearing is the median of `OBS_SCAN_PINGS` (3) pings,
+   so one bad echo cannot swing the choice.
 4. **Pass:** the servo watches the obstacle's side. Acquiring it needs
    `OBS_SIDE_SEEN_HITS` (2) echoes. An end candidate needs `OBS_SIDE_CLEAR_HITS`
    (5) consecutive absent samples. A returning echo cancels clearance. Side
    samples older than `OBS_SIDE_MAX_AGE_MSEC` (1000) cannot authorise a return,
    and a stalled worker faults. `OBS_PASS_FRONT_GLANCE=0` means no front checks
-   while passing. If the object is never seen from the side,
-   `OBS_UNSEEN_DEPTH_MM` (300) past its front face stands in for its end.
-   `OBS_PASS_MAX_MM` (1200) bounds the pass.
+   while passing. **Default length:** if the side watch cannot confirm the end
+   (it never saw the object, saw it only once, or noise keeps breaking the
+   absence run) and hasn't seen it in the last 5 pings, the sensor passing
+   `OBS_PASS_DEFAULT_MM` (300) beyond the front face stands in for the end. An
+   object still being seen keeps the leg going. `OBS_PASS_MAX_MM` (1200) is the
+   hard limit: past it the robot stops with a `NO_ROUTE` fault.
 5. **Return:** the turn back (`OBS_RETURN_DEG`, 60°) starts once the measured gap
    and the swept body clear the obstacle's rear by `OBS_SAFETY_MARGIN_MM` (40),
    using the actual sensor position (`OBS_SENSOR_TO_AXLE_MM` 110,
@@ -42,6 +51,11 @@ each one; values below are the committed defaults.
    black is seen within `OBS_VERIFY_CYCLES`, the robot zig-zags at
    `OBS_SEEK_DEG` across ±`OBS_SEEK_BAND_MM` for up to `OBS_SEEK_LEGS` legs,
    then stops with `LINE_LOST`.
+
+With `OBS_DEBUG_LOG=1` the log shows `[OBS] Side need L=… R=… mm, clear L=… R=…,
+<reason> -> <side>` after each scan, and `[OBS] Pass … by side watch|default
+distance: sensor N mm past face …` when the straight leg ends and when the
+robot turns back.
 
 STOP, MQTT-loss STOP and the existing travel and time bounds stay active
 throughout. "Where the line should be" is the straight extension of the line at
