@@ -1,0 +1,38 @@
+Struct,Field,Valid_range_or_semantics,Required_bits,After_implementation,Notes
+B1_Line,ir,0..7,3,C bit-field,
+B1_Line,line,0..7,3,C bit-field,
+B1_Line,barcode,0..25 or 31 (no letter),5,C bit-field,
+B1_Line,action,0..3,2,C bit-field,
+B1_Line,action_valid,boolean,1,C bit-field,
+B1_Motion,checkpoint,boolean,1,C bit-field,
+B1_Mission,mission,0..7,3,C bit-field,
+B1_Mission,ready,boolean,1,C bit-field,
+B1_Mission,running,boolean,1,C bit-field,
+B1_Mission,remote_hold,boolean,1,C bit-field,
+B1_Mission,barcode_hold,boolean,1,C bit-field,
+B1_Obstacle,side,0..3,2,C bit-field,
+G7_TelemetryPeers,have_motion,boolean,1,C bit-field,
+G7_TelemetryPeers,have_ir,boolean,1,C bit-field,
+G7_TelemetryPeers,have_imu,boolean,1,C bit-field,
+G7_TelemetryPeers,barcode_valid,boolean,1,C bit-field,
+G7_TelemetryPeers,have_obstacle,boolean,1,C bit-field,
+G7_TelemetryPeers,odom_confidence,0..2; 3 reserved,2,C bit-field,
+B1_SnapshotPayload,source_mask,five flags,5,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,stale_mask,five flags,5,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,mission,0..7,3,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,line,0..7,3,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,ir,three IR flags,3,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,barcode,0..25 or 31,5,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,action,0..3,2,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,action_valid,boolean,1,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,side,0..3,2,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,bypass_count,0..255,8,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,faults,eight flags,8,C bit-field; explicit serialized wire representation,
+B1_SnapshotPayload,hump_mm,0..1022; 1023 unavailable,10,native 16-bit calculation storage; packed to stated bits on wire,Internal producer type deliberately retained for safe clamping/precision; requires further minimum-bit internal audit
+B1_SnapshotPayload,max_hump_mm,0..1022; 1023 unavailable,10,native 16-bit calculation storage; packed to stated bits on wire,Internal producer type deliberately retained for safe clamping/precision; requires further minimum-bit internal audit
+B1_SnapshotPayload,obstacle_cm,0..1022; 1023 unavailable,10,native 16-bit calculation storage; packed to stated bits on wire,Internal producer type deliberately retained for safe clamping/precision; requires further minimum-bit internal audit
+B1_SnapshotPayload,speed_left_mm_s,-2047..2047,12,native 16-bit calculation storage; packed to stated bits on wire,Internal producer type deliberately retained for safe clamping/precision; requires further minimum-bit internal audit
+B1_SnapshotPayload,speed_right_mm_s,-2047..2047,12,native 16-bit calculation storage; packed to stated bits on wire,Internal producer type deliberately retained for safe clamping/precision; requires further minimum-bit internal audit
+B1_Command,command,1..6,3,Existing byte-based internal/wire envelope,Command mapping payload remains 6 bytes for v1 compatibility; 5-byte versioned proposal not shipped
+B1_Command,transaction,0..65535,16,Existing byte-based internal/wire envelope,Command mapping payload remains 6 bytes for v1 compatibility; 5-byte versioned proposal not shipped
+B1_Command,mapping[0..3],"A..Z (0..25), four entries",20,Existing byte-based internal/wire envelope,Command mapping payload remains 6 bytes for v1 compatibility; 5-byte versioned proposal not shipped

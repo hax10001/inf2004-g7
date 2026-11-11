@@ -1,0 +1,22 @@
+{
+  "release": "V10 minimum-bit expansion + unified console UX",
+  "status": "SOURCE CHECKPOINT, NOT FULL WEEK 13 / HARDWARE ACCEPTANCE",
+  "source_base": "V9 Mac Test Fix ZIP",
+  "reviewed_fields_in_candidate_inventory": 95,
+  "fields_requiring_semantic_review": 212,
+  "test_results": {
+    "dashboard_node": "70/70 PASS",
+    "autonav": "144 assertions PASS",
+    "native_packing": "PASS including SPSC overflow",
+    "C_JS_wire_golden": "PASS",
+    "host_obstacle_controller": "PASS",
+    "application_style": "112 files, 0 errors",
+    "browser_scroll_and_layout": "PASS, offline synthetic data",
+    "ARM_build": "NOT VERIFIED",
+    "physical_vehicle": "NOT VERIFIED",
+    "barcode_core_deterministic": "361/362 assertions PASS; same one failure in V9 and V10",
+    "barcode_recorded_layout": "V9 and V10 byte-identical; 89 correct, 0 wrong, 179 passes"
+  },
+  "wire_protocol": "V1 unchanged; before/after message sizes 0 bytes difference",
+  "notes": "No private WiFi settings or robot recordings included"
+}

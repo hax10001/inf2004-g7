@@ -1,0 +1,12 @@
+field,valid_range,minimum_bits,representation,notes
+filtered_pitch_x10,"-900..900, signed deci-degrees",11,controller-only bit-field,rounded/truncated after validating -90..90 float degrees
+scale_percent,65..100 inclusive,7,controller-only bit-field,saturates at 100
+engaged,0..1,1,controller-only bit-field,hysteresis active
+initialized,0..1,1,controller-only bit-field,first filter sample
+fault,0..1,1,controller-only bit-field,latches until explicit STOP
+confirm,0..3,2,controller-only bit-field,engage after 3 controller periods
+release,0..4,3,controller-only bit-field,release after 4 controller periods
+stale,0..4,3,controller-only bit-field,fails closed after 4 bad periods while moving
+overspeed,0..3,2,controller-only bit-field,fails closed after 3 periods
+g_downhill_brake.remaining,0..4,3,controller-only bit-field,200ms/50ms bounded brake
+APP_DOWNHILL_NOSE_DOWN_SIGN,"-1, 0, +1; compile-time",2,"compile-time macro, no RAM field",0 means disabled until physical verification

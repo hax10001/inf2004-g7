@@ -1,0 +1,37 @@
+# G7 V12 → V13: Safe downhill speed governor (implementation prompt)
+
+Act as an embedded-C controls engineer for the **attached V12 source**, not a new project. Implement a **downhill speed governor** which slows the robot on a verified nose-down ramp, maintains line-follow steering, and never weakens collision, MQTT STOP, obstacle or junction safety. Preserve **Change Requirement 1 minimum-bit representations**. Finish the implementation, add tests and package a new separate V13 source folder; do not modify or overwrite the current working V12 baseline.
+
+## Required source-first audit
+
+1. Read `app_program/modules/motion/motion.c`, `motion.h`, `steering.c`, `wheel_speed.c`, `app_program/modules/terrain/task_imu.c`, `terrain.h`, `app_program/app/task_controller.c`, `nav_core.c`, `app_config.h`, barcode scan-speed settings and existing tests.
+2. Trace current wheel ownership, RPM target ramp, inner/outer wheel direction, real measured RPM, PI correction, STOP precedence, IMU mutex/age/status and live MQTT control. Do not introduce another motor writer or another I2C reader.
+3. The LSM303 has an accelerometer/magnetometer but **no gyroscope**. Pitch calculated from acceleration can be biased by braking, acceleration or bumps. Use stationary calibrated level as reference, filtering, hysteresis and real validation. Do not claim ramp direction from unverified sensor-axis signs.
+4. **First confirm the mounted pitch sign** by measuring *level*, *front-wheel-lower/nose-down*, *rear-wheel-lower/nose-up* while stationary. Record actual pitch sign and axis mapping. A sign of zero/unknown must prevent activation; do not silently assume which sign means downhill. Define a test-only override if necessary, never an automatic fallback that starts motion.
+
+## Intended control behavior
+
+- Use **one task-owned compact state** (e.g. a 1-bit downhill-active flag plus the smallest valid debounce counter), derived by the controller from a recent valid calibrated IMU snapshot. No unsynchronised packed ISR/task writes. Respect the existing terrain mutex and controller motor ownership.
+- Thresholds must be configurable and documented; start with conservative *bench-only proposed* values (e.g. entry |pitch| 5°, release |pitch| 3°, sustained qualifying samples for >100 ms). Tune against real ramps. Handle timestamp freshness, implausible jumps, startup calibration, level/slope ambiguity, and IMU faults. When already derated, a temporary unreliable IMU sample must not suddenly increase wheel target RPM.
+- On confirmed **downhill**, smoothly cap forward speed below its normal target, e.g. **suggested initial governor factor 0.65**, to be calibrated to the actual surface. Lowering a PWM/RPM target alone may not physically slow a gravity-driven robot: compare actual encoder speed against the limit, and if wheel overspeed persists beyond a measured safe allowance, command a controlled fail-safe STOP or brake using the existing motor owner (never increase torque in response). Never exceed the baseline target or cause a sudden speed-up when the ramp ends. Reduce target immediately when a downhill limit becomes stricter; only recover upward with the existing bounded ramp. Maintain a stable state indication `LEVEL / DOWNHILL / IMU_UNAVAILABLE` without claiming unavailable data is level.
+- Crucial per-wheel rule: **keep the existing steering ratio and slow BOTH wheel targets**, not just a guessed "downhill wheel". On a left turn, the **left inner wheel stays slower** than the right outer wheel; on a right turn, the **right inner wheel stays slower** than the left outer wheel. On a straight, target equal calibrated ground speeds. Do not reverse the left/right assignments or let a PI integral wind up during derating. If a wheel slips, respect its own encoder feedback and fault policy; do not use acceleration pitch to arbitrarily swap steering outputs.
+- Coordinate special modes: barcode capture at minimum reliable scan speed; junction-centering, pivots/U-turns, obstacle bypass `motion_drive`, line loss, motor stop/brake, scan hold and reverse movement must keep their existing safety priority. STOP and collision stop remain immediate, never smoothed or derated into a nonzero target. Do not automatically resume after a collision, network loss or STOP.
+- Ramp descent must not be confused with the **one-wheel hump roll-height model**. Test one-wheel hump, roll-only slope and front-to-back ramp separately. Do not modify hump peak reporting simply to implement downhill control.
+
+## Minimum-bit and protocol constraints
+
+- Follow Change Requirement 1: record valid ranges and exact necessary bits for each new application field; compact state flags/counters under a single owner or existing mutex. Preserve 12-bit ADC, full encoder count/time ranges, precision needed by RPM PI and tilt calculations, and valid/invalid sentinels. `volatile` alone is not synchronization.
+- Avoid changing the v1 MQTT binary payload, event semantics, topics, command sequence/CRC or dashboard decoder merely to show ramp status. If status wire changes are necessary, make an explicit versioned firmware+JS migration with golden-vector tests and before/after message sizes. A dashboard may show downhill state only when it has a real source; never infer it from stale IMU history.
+- Add relevant fields and reasons to the Week 13 data-representation audit; compare native and **ARM** structure/RAM/message sizes, and capture control-loop performance evidence.
+
+## Required tests and acceptance
+
+Implement deterministic host tests for: level, nose-down, nose-up, threshold hysteresis, oscillating noise, stale/invalid IMU, calibration missing, motor acceleration/braking false tilt, ramp transitions, overlapping hump/roll, gravity-driven overspeed and commanded brake/STOP response, LEFT/RIGHT steering under governor (explicitly check which wheel is inner), equal straight-wheel targets, barcode scanning, obstacle pass, turn/U-turn, and stopping while on a ramp. Verify no motor writes outside the controller and no auto-restart after link loss or collision.
+
+Run the full existing style/network, V9/V10/V11 precision, 73+ dashboard, obstacle/telemetry and 144 autonomous-navigation checks. Build with the same ARM toolchain/flags as V12; compare ELF `.data`, `.bss`, stack/queue usage and timing. For physical validation, use raised wheels first and a reachable motor power cutoff, then repeat measured shallow and steep ramp trials on the actual course. Log roll/pitch, sensor age, target/actual left/right RPM, PWM, detected governor state, STOP latency, barcode success and junction decisions. **Do not claim complete safety or calibration without these trials.**
+
+## Preservation of the V12 changes
+
+Keep scanner status/scan history in the single Barcode quadrant, wheel and compass diagnostics in Advanced Diagnostics, four matching console cards, independent manual-scroll/latest behavior, clear `Scan not queued` mapping reason, remote START/STOP and the normal-build IMU/collision configuration. For an unmapped decoded letter, **never fabricate a mission action**: report mismatch and allow the operator to edit the confirmed four-letter mapping.
+
+Deliver a complete new ZIP, concise changelog, tests/results, source audit and any remaining on-car-only validation items. Do not include Wi-Fi/MQTT/admin credentials, local `.lan-secrets.json`, recordings, or secret configuration.

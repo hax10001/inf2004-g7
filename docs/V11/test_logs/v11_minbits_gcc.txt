@@ -1,0 +1,10 @@
+V10_SIZES nav_sample=16 nav_controller=104 nav_result=2 code_result=2 scan=164 fastq_sample=24 ring=1536 layout=12 match=16 telemetry_store=760
+PASS V10 boundaries, packed states, barcode SPSC and overflow
+PASS C-to-JS snapshot/frame golden vector
+snapshot_hex=57bccfff5f38a97d2e0dc0ff03
+frame_hex=b101010039014d0040e201000d57bccfff5f38a97d2e0dc0ff0330
+store_bytes=760
+peers_bytes=68
+PASS v9 bit-field/CRC/mapping/fault/native golden vector
+V11_SIZES snapshot=16 event=9 odom=10 line=12 terrain=16 mission=20 obstacle=16 store=760 peers=68 wave=12 drive=12 steering=32 motion=48 adc=20 stats=180
+PASS V11 saturation, state boundaries, and packed semantic fields

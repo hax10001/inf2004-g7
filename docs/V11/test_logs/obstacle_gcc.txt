@@ -1,0 +1,54 @@
+PASS empty scan
+PASS centred object yields bypass
+PASS retained 350 mm front obstacle
+PASS invalid previous detection not trusted
+PASS both sides crowded widens the preferred side, no NO_ROUTE
+PASS preferred side used even when the other edge is nearer
+PASS crowded preferred side falls back to the other side
+PASS mid-bypass rescan keeps the side already taken
+PASS edge reaches the next empty ray, widening the offset
+PASS narrow obstacle is not widened to the minimum offset
+PASS wide-looking obstacle gets at least the minimum offset
+All planner scenarios passed.
+PASS reviewed side-hit accumulation survives an intervening miss
+PASS two qualifying side hits establish the object
+PASS sustained absence is required after first acquiring the object
+PASS one side sample is consumed only once
+PASS object reappearance cancels the clear counter
+PASS invalid/self echo resets the continuous absence distance
+PASS valid obstacle echoes beyond 500 mm remain tracked
+PASS mirrored right bypass tracks the object on its left
+Building: /mnt/data/v11_work/inf2004-g7-v11/tmp/buddy5_clearance/buddy5_planner
+Building: /mnt/data/v11_work/inf2004-g7-v11/tmp/buddy5_clearance/buddy5_side_clearance
+PASS: reviewed planner and side-tracking regressions.
+PASS worker keeps the ultrasonic aimed at the obstacle while passing
+PASS with front glances off the servo never leaves the obstacle
+PASS worker re-aims whenever the requested watch angle changes
+PASS a missing echo is published once for sequencer debounce
+PASS leaving side watch parks the servo without a false clear sample
+Obstacle handoff: preemption, RPM, stop, reacquisition, fault and stale IR PASS
+Controller handoff: STOP priority, no missed STOP, START gating and mutex-busy fail-safe PASS
+Obstacle motion: RPM ramp, stopped inner wheel and immediate STOP PASS
+Obstacle telemetry: event, range, route, faults and staleness PASS
+C codec + aggregation + IMU guard tests PASS
+AUTONAV PASS: 144 assertions
+PASS never-seen object returns after the assumed depth and body
+PASS late echoes from an unseen object switch to normal tracking
+PASS confirmed side absence plus whole-body travel permits right return
+PASS full return, IR reacquisition, alignment and handback
+PASS brief dropout cannot end tracking and reappearance cancels clearance
+PASS right bypass mirrors the return turn to the left
+PASS confirmed front obstruction stops the passing leg
+PASS long obstacle stays under side watch beyond the former depth estimate
+PASS cached clear samples cannot authorize a turn and a stalled worker stops
+PASS an early black mark cannot bypass the body-clearance check
+PASS a front-guard rescan requires fresh side confirmation before return
+PASS an obstacle that never ends stops at the configured travel limit
+PASS return straightens up on the odometry line without seeing black
+PASS unconfirmed line starts a seek leg instead of faulting
+PASS seek leg finds the line, straightens and hands back
+PASS seek zig-zags across the band and stops after the last leg
+PASS servo stays pointed at the object while turning out
+PASS blocked way out rescans rather than faulting
+PASS drive out reaches the full offset before the pivot
+PASS: obstacle integration and existing navigation regressions.

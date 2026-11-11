@@ -1,0 +1,1 @@
+Headless Chromium: 4 equal 755x570 desktop cards; Barcode scanner spotlight/counters inside Barcode card; detached 3-card summary absent; 2 device diagnostic entries retained inside Advanced; mapped/unmapped reason visible; no browser exceptions; mobile horizontal overflow=false. Synthetic status only; not live robot.

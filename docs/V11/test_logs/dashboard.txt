@@ -1,0 +1,430 @@
+TAP version 13
+# Subtest: one barcode owner with timer scanner and no old decoder
+ok 1 - one barcode owner with timer scanner and no old decoder
+  ---
+  duration_ms: 1.059574
+  type: 'test'
+  ...
+# Subtest: connection auto-reconnect does not need a separate Connect button
+ok 2 - connection auto-reconnect does not need a separate Connect button
+  ---
+  duration_ms: 0.434815
+  type: 'test'
+  ...
+# Subtest: 42-byte barcode diagnostic carries scanner state, white and last pass
+ok 3 - 42-byte barcode diagnostic carries scanner state, white and last pass
+  ---
+  duration_ms: 2.49883
+  type: 'test'
+  ...
+# Subtest: older 28-byte barcode diagnostic still decodes without scanner fields
+ok 4 - older 28-byte barcode diagnostic still decodes without scanner fields
+  ---
+  duration_ms: 0.70461
+  type: 'test'
+  ...
+# Subtest: RECALIBRATE_BARCODE is command 6 with no arguments
+ok 5 - RECALIBRATE_BARCODE is command 6 with no arguments
+  ---
+  duration_ms: 0.544229
+  type: 'test'
+  ...
+# Subtest: dashboard logs scanner state changes and each pass result
+ok 6 - dashboard logs scanner state changes and each pass result
+  ---
+  duration_ms: 2.4122
+  type: 'test'
+  ...
+# Subtest: UI and server expose a barcode recalibrate control
+ok 7 - UI and server expose a barcode recalibrate control
+  ---
+  duration_ms: 0.549267
+  type: 'test'
+  ...
+# Subtest: serial barcode letters are extracted but never claimed as MQTT
+ok 8 - serial barcode letters are extracted but never claimed as MQTT
+  ---
+  duration_ms: 1.552666
+  type: 'test'
+  ...
+# Subtest: real MQTT barcode event logs decoded letter
+ok 9 - real MQTT barcode event logs decoded letter
+  ---
+  duration_ms: 1.705236
+  type: 'test'
+  ...
+# Subtest: ACK must match command id, target and boot session, cannot confirm actuation
+ok 10 - ACK must match command id, target and boot session, cannot confirm actuation
+  ---
+  duration_ms: 0.846915
+  type: 'test'
+  ...
+# Subtest: timeout and failed publishes have explicit statuses
+ok 11 - timeout and failed publishes have explicit statuses
+  ---
+  duration_ms: 0.188994
+  type: 'test'
+  ...
+# Subtest: read-only LAN refuses mapping and Start with explicit launch instructions
+ok 12 - read-only LAN refuses mapping and Start with explicit launch instructions
+  ---
+  duration_ms: 94.845006
+  type: 'test'
+  ...
+# Subtest: telemetry and command monitor are intentionally separated
+ok 13 - telemetry and command monitor are intentionally separated
+  ---
+  duration_ms: 0.752262
+  type: 'test'
+  ...
+# Subtest: V8.0 reports barcode motor hold and real requested PWM separately from ACK
+ok 14 - V8.0 reports barcode motor hold and real requested PWM separately from ACK
+  ---
+  duration_ms: 2.663418
+  type: 'test'
+  ...
+# Subtest: E2E: local broker + simulator binary packets + HTTP dashboard + admin ACK
+ok 15 - E2E: local broker + simulator binary packets + HTTP dashboard + admin ACK
+  ---
+  duration_ms: 2008.260067
+  type: 'test'
+  ...
+# Subtest: network retries, 10s bounded join, guarded commands off by default
+ok 16 - network retries, 10s bounded join, guarded commands off by default
+  ---
+  duration_ms: 1.055909
+  type: 'test'
+  ...
+# Subtest: firmware event observes validated letter and does not send motor command
+ok 17 - firmware event observes validated letter and does not send motor command
+  ---
+  duration_ms: 0.268284
+  type: 'test'
+  ...
+# Subtest: live mapping ACK is required before dashboard sends START; no USB serial needed
+ok 18 - live mapping ACK is required before dashboard sends START; no USB serial needed
+  ---
+  duration_ms: 775.210566
+  type: 'test'
+  ...
+# Subtest: real TCP MQTT broker routes fragmented binary frame with authentication
+ok 19 - real TCP MQTT broker routes fragmented binary frame with authentication
+  ---
+  duration_ms: 126.712757
+  type: 'test'
+  ...
+# Subtest: Overview is focused, with no mission event feed or detailed sensor summary
+ok 20 - Overview is focused, with no mission event feed or detailed sensor summary
+  ---
+  duration_ms: 1.143731
+  type: 'test'
+  ...
+# Subtest: Telemetry keeps advanced diagnostic values accessible but collapsed by default
+ok 21 - Telemetry keeps advanced diagnostic values accessible but collapsed by default
+  ---
+  duration_ms: 0.376126
+  type: 'test'
+  ...
+# Subtest: Overview reports stale connection and missing sensor packets separately
+ok 22 - Overview reports stale connection and missing sensor packets separately
+  ---
+  duration_ms: 1.079779
+  type: 'test'
+  ...
+# Subtest: responsive overview fills width and keeps low-value mission-event spam out of command monitor
+ok 23 - responsive overview fills width and keeps low-value mission-event spam out of command monitor
+  ---
+  duration_ms: 0.401915
+  type: 'test'
+  ...
+# Subtest: MQTT-enabled radio owner attempts a direct join without scan prerequisite
+ok 24 - MQTT-enabled radio owner attempts a direct join without scan prerequisite
+  ---
+  duration_ms: 0.969058
+  type: 'test'
+  ...
+# Subtest: owner handles binary MQTT target topic while app does not own lwIP calls
+ok 25 - owner handles binary MQTT target topic while app does not own lwIP calls
+  ---
+  duration_ms: 0.360843
+  type: 'test'
+  ...
+# Subtest: mapping A,B,C,D packs 20 bits in three bytes
+ok 26 - mapping A,B,C,D packs 20 bits in three bytes
+  ---
+  duration_ms: 1.78144
+  type: 'test'
+  ...
+# Subtest: frame CRC detects modifications and refuses truncated frames
+ok 27 - frame CRC detects modifications and refuses truncated frames
+  ---
+  duration_ms: 0.420132
+  type: 'test'
+  ...
+# Subtest: snapshot has valid zero and invalid sentinels
+ok 28 - snapshot has valid zero and invalid sentinels
+  ---
+  duration_ms: 0.337308
+  type: 'test'
+  ...
+# Subtest: MQTT wildcard matching
+ok 29 - MQTT wildcard matching
+  ---
+  duration_ms: 0.177507
+  type: 'test'
+  ...
+# Subtest: odometry integration and missing delta flag
+ok 30 - odometry integration and missing delta flag
+  ---
+  duration_ms: 1.160586
+  type: 'test'
+  ...
+# Subtest: MQTT STATUS reports mapping and readiness independently of USB serial
+ok 31 - MQTT STATUS reports mapping and readiness independently of USB serial
+  ---
+  duration_ms: 0.432451
+  type: 'test'
+  ...
+# Subtest: status frame decoding rejects invalid sizes
+ok 32 - status frame decoding rejects invalid sizes
+  ---
+  duration_ms: 0.374583
+  type: 'test'
+  ...
+# Subtest: a live binary sensor frame produces telemetry-console lines
+ok 33 - a live binary sensor frame produces telemetry-console lines
+  ---
+  duration_ms: 0.33231
+  type: 'test'
+  ...
+# Subtest: after host restart transaction resumes at firmware counter; Pico reboot restores map but NEVER auto-START
+ok 34 - after host restart transaction resumes at firmware counter; Pico reboot restores map but NEVER auto-START
+  ---
+  duration_ms: 496.988635
+  type: 'test'
+  ...
+# Subtest: STOP can be sent with fresh MQTT link even before first STATUS token arrives
+ok 35 - STOP can be sent with fresh MQTT link even before first STATUS token arrives
+  ---
+  duration_ms: 237.260914
+  type: 'test'
+  ...
+# Subtest: CSV escaping prevents spreadsheet formula execution and line breaking
+ok 36 - CSV escaping prevents spreadsheet formula execution and line breaking
+  ---
+  duration_ms: 0.781436
+  type: 'test'
+  ...
+# Subtest: recoverable navigation safety stop has a distinct mission code and explicit STOP instructions
+ok 37 - recoverable navigation safety stop has a distinct mission code and explicit STOP instructions
+  ---
+  duration_ms: 2.595335
+  type: 'test'
+  ...
+# Subtest: genuine controller fault retains separate blocking message
+ok 38 - genuine controller fault retains separate blocking message
+  ---
+  duration_ms: 0.361223
+  type: 'test'
+  ...
+# Subtest: zero scanner rejection error is described as unknown, not no error
+ok 39 - zero scanner rejection error is described as unknown, not no error
+  ---
+  duration_ms: 0.795827
+  type: 'test'
+  ...
+# Subtest: live map only reports ACK-accepted route assignments, not speculative selections
+ok 40 - live map only reports ACK-accepted route assignments, not speculative selections
+  ---
+  duration_ms: 2.365389
+  type: 'test'
+  ...
+# Subtest: robot reboot clears the old route confirmation and physical position
+ok 41 - robot reboot clears the old route confirmation and physical position
+  ---
+  duration_ms: 0.422486
+  type: 'test'
+  ...
+# Subtest: barcodes record detection order but remain position-invalid without odometry
+ok 42 - barcodes record detection order but remain position-invalid without odometry
+  ---
+  duration_ms: 1.118734
+  type: 'test'
+  ...
+# Subtest: the map visibly separates robot mapping, observed barcodes, and estimated route
+ok 43 - the map visibly separates robot mapping, observed barcodes, and estimated route
+  ---
+  duration_ms: 0.633594
+  type: 'test'
+  ...
+# Subtest: failed scan count produces a visible alert in both live telemetry and monitor, not a guessed decoded letter
+ok 44 - failed scan count produces a visible alert in both live telemetry and monitor, not a guessed decoded letter
+  ---
+  duration_ms: 2.423657
+  type: 'test'
+  ...
+# Subtest: decoded A-Z event creates success with the actual letter and clears on new session
+ok 45 - decoded A-Z event creates success with the actual letter and clears on new session
+  ---
+  duration_ms: 0.602046
+  type: 'test'
+  ...
+# Subtest: completed-count does not invent a successful letter; actual event shows once
+ok 46 - completed-count does not invent a successful letter; actual event shows once
+  ---
+  duration_ms: 1.287648
+  type: 'test'
+  ...
+# Subtest: odometry sequence is exposed to browser only if measured incremental ODOM packet arrived
+ok 47 - odometry sequence is exposed to browser only if measured incremental ODOM packet arrived
+  ---
+  duration_ms: 0.742157
+  type: 'test'
+  ...
+# Subtest: dashboard has two result views, independent sensor status fields, and responsive spacing styles
+ok 48 - dashboard has two result views, independent sensor status fields, and responsive spacing styles
+  ---
+  duration_ms: 1.055158
+  type: 'test'
+  ...
+# Subtest: barcode diagnostics are actual robot counters, not inferred barcode success
+ok 49 - barcode diagnostics are actual robot counters, not inferred barcode success
+  ---
+  duration_ms: 1.998757
+  type: 'test'
+  ...
+# Subtest: invalid diagnostic length is rejected rather than fabricated
+ok 50 - invalid diagnostic length is rejected rather than fabricated
+  ---
+  duration_ms: 0.435074
+  type: 'test'
+  ...
+# Subtest: sensor odometry flag labels nominal scale versus measured and retains heading validity
+ok 51 - sensor odometry flag labels nominal scale versus measured and retains heading validity
+  ---
+  duration_ms: 0.323707
+  type: 'test'
+  ...
+# Subtest: sensor packet reports valid IMU, three IR and encoders
+ok 52 - sensor packet reports valid IMU, three IR and encoders
+  ---
+  duration_ms: 1.088067
+  type: 'test'
+  ...
+# Subtest: obstacle owner publishes measured ultrasonic range and bypass phase
+ok 53 - obstacle owner publishes measured ultrasonic range and bypass phase
+  ---
+  duration_ms: 1.237382
+  type: 'test'
+  ...
+# Subtest: extended sensor packet explains why the bypass has not returned
+ok 54 - extended sensor packet explains why the bypass has not returned
+  ---
+  duration_ms: 1.226997
+  type: 'test'
+  ...
+# Subtest: serial sensor mirror populates dashboard without claiming MQTT link
+ok 55 - serial sensor mirror populates dashboard without claiming MQTT link
+  ---
+  duration_ms: 0.512281
+  type: 'test'
+  ...
+# Subtest: MQTT sensor frame retains live origin and session
+ok 56 - MQTT sensor frame retains live origin and session
+  ---
+  duration_ms: 0.246111
+  type: 'test'
+  ...
+# Subtest: priority ACK arriving ahead of queued telemetry does not drop them
+ok 57 - priority ACK arriving ahead of queued telemetry does not drop them
+  ---
+  duration_ms: 0.602156
+  type: 'test'
+  ...
+# Subtest: V7.8 status reports exact startup blockers and backwards compatibility
+ok 58 - V7.8 status reports exact startup blockers and backwards compatibility
+  ---
+  duration_ms: 1.674189
+  type: 'test'
+  ...
+# Subtest: V7.8 MQTT command clock cannot be rolled backward by barcode or odometry history
+ok 59 - V7.8 MQTT command clock cannot be rolled backward by barcode or odometry history
+  ---
+  duration_ms: 1.569571
+  type: 'test'
+  ...
+# Subtest: single navigation bar with Overview, Map, Telemetry Console, Monitor and Robot Log without redundant rail
+ok 60 - single navigation bar with Overview, Map, Telemetry Console, Monitor and Robot Log without redundant rail
+  ---
+  duration_ms: 1.021587
+  type: 'test'
+  ...
+# Subtest: browser scripts parse (a syntax error leaves the dashboard stuck at CONNECTING)
+ok 61 - browser scripts parse (a syntax error leaves the dashboard stuck at CONNECTING)
+  ---
+  duration_ms: 2.800003
+  type: 'test'
+  ...
+# Subtest: 3D renderer provides software fallback and stays inside browser
+ok 62 - 3D renderer provides software fallback and stays inside browser
+  ---
+  duration_ms: 0.304037
+  type: 'test'
+  ...
+# Subtest: theme and controls use one spacing system across monitoring views
+ok 63 - theme and controls use one spacing system across monitoring views
+  ---
+  duration_ms: 0.512932
+  type: 'test'
+  ...
+# Subtest: single-command simulation is opt-in and scoped to synthetic telemetry
+ok 64 - single-command simulation is opt-in and scoped to synthetic telemetry
+  ---
+  duration_ms: 0.287733
+  type: 'test'
+  ...
+# Subtest: every monitoring list has independent scroll-follow detection and Latest button
+ok 65 - every monitoring list has independent scroll-follow detection and Latest button
+  ---
+  duration_ms: 0.913705
+  type: 'test'
+  ...
+# Subtest: new entries append oldest-to-newest, and pause-view does not stop ingestion
+ok 66 - new entries append oldest-to-newest, and pause-view does not stop ingestion
+  ---
+  duration_ms: 0.289635
+  type: 'test'
+  ...
+# Subtest: four responsive quadrants share a full-height card shell and internal scroll bodies
+ok 67 - four responsive quadrants share a full-height card shell and internal scroll bodies
+  ---
+  duration_ms: 0.194222
+  type: 'test'
+  ...
+# Subtest: unified console has four named quadrants and reuses existing monitor panels
+ok 68 - unified console has four named quadrants and reuses existing monitor panels
+  ---
+  duration_ms: 0.719503
+  type: 'test'
+  ...
+# Subtest: live controls and original MQTT streams remain single-owned
+ok 69 - live controls and original MQTT streams remain single-owned
+  ---
+  duration_ms: 0.228473
+  type: 'test'
+  ...
+# Subtest: stale readiness and historical scans cannot be presented as live success
+ok 70 - stale readiness and historical scans cannot be presented as live success
+  ---
+  duration_ms: 0.135584
+  type: 'test'
+  ...
+1..70
+# tests 70
+# suites 0
+# pass 70
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4845.081132

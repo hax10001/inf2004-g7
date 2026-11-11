@@ -1,0 +1,1648 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "pico/stdlib.h"
+#include "hardware/pwm.h"
+#include "hardware/i2c.h"
+
+
+// ============================================================
+// INF2004 G7 FULL HARDWARE DIAGNOSTIC
+// NEW WIRING + MOTOR DIRECTION FIX
+// CONTINUOUS IR SAMPLING
+// ============================================================
+//
+// GROVE 1:
+//   LEFT MOTOR ENCODER
+//   GP0 = A
+//   GP1 = B
+//
+// GROVE 2:
+//   RIGHT LINE IR
+//   GP2 = signal
+//
+// GROVE 3:
+//   ULTRASONIC
+//   GP4 = TRIG
+//   GP5 = ECHO
+//
+// GROVE 4:
+//   IMU
+//   GP16 = SDA
+//   GP17 = SCL
+//
+// GROVE 5:
+//   LEFT LINE IR
+//   GP6 = signal
+//
+// GROVE 6:
+//   BARCODE IR
+//   GP26 / GP27
+//
+//   We read BOTH during this diagnostic
+//   to identify the actual signal conductor.
+//
+// GROVE 7:
+//   RIGHT MOTOR ENCODER
+//   GP7  = A
+//   GP28 = B
+//
+// MOTOR DRIVE:
+//   M1 LEFT  = GP8 / GP9
+//   M2 RIGHT = GP10 / GP11
+//
+// SERVO:
+//   GP15
+//
+// ============================================================
+
+
+// ============================================================
+// MOTOR PINS
+// ============================================================
+
+#define M1_A 8
+#define M1_B 9
+
+#define M2_A 10
+#define M2_B 11
+
+
+// ============================================================
+// MOTOR TEST SETTINGS
+// ============================================================
+
+#define TEST_SPEED      80
+#define TURN_SPEED      75
+
+#define MOVE_TIME_MS    250
+
+
+// ============================================================
+// ENCODERS
+// ============================================================
+
+// Grove 1
+#define LEFT_ENC_A 0
+#define LEFT_ENC_B 1
+
+// Grove 7
+#define RIGHT_ENC_A 7
+#define RIGHT_ENC_B 28
+
+
+volatile int32_t left_encoder_count = 0;
+volatile int32_t right_encoder_count = 0;
+
+
+// ============================================================
+// IR SENSORS
+// ============================================================
+
+// Grove 5 = LEFT line sensor
+#define IR_LEFT_PIN 6
+
+// Grove 2 = RIGHT line sensor
+#define IR_RIGHT_PIN 2
+
+// Grove 6 = barcode sensor
+//
+// PRIMARY = GP26
+//
+// GP27 is temporarily monitored as an alternate
+// diagnostic input in case the Grove cable has the
+// signal on the second GPIO conductor.
+
+#define IR_BARCODE_PIN      26
+#define IR_BARCODE_ALT_PIN  27
+
+
+// Current RAW state
+
+volatile int ir_left_raw = 0;
+volatile int ir_right_raw = 0;
+
+volatile int ir_barcode_raw = 0;
+volatile int ir_barcode_alt_raw = 0;
+
+
+// Previous RAW state
+
+int ir_left_previous = 0;
+int ir_right_previous = 0;
+
+int ir_barcode_previous = 0;
+int ir_barcode_alt_previous = 0;
+
+
+// Transition counters
+
+uint32_t ir_left_changes = 0;
+uint32_t ir_right_changes = 0;
+
+uint32_t ir_barcode_changes = 0;
+uint32_t ir_barcode_alt_changes = 0;
+
+
+// ============================================================
+// IR PRINT TIMING
+// ============================================================
+
+uint64_t last_ir_status_print = 0;
+
+
+// ============================================================
+// ULTRASONIC
+// ============================================================
+
+// Grove 3
+
+#define TRIG_PIN 4
+#define ECHO_PIN 5
+
+
+// ============================================================
+// IMU
+// ============================================================
+
+// Grove 4
+
+#define IMU_I2C i2c0
+
+#define IMU_SDA 16
+#define IMU_SCL 17
+
+
+#define IMU_ACCEL_ADDR 0x19
+#define IMU_MAG_ADDR   0x1E
+
+
+// ============================================================
+// SERVO
+// ============================================================
+
+#define SERVO_PIN 15
+
+
+// ============================================================
+// MOTOR INITIALISATION
+// ============================================================
+
+void init_motor_pwm_pin(uint pin)
+{
+    gpio_set_function(
+        pin,
+        GPIO_FUNC_PWM
+    );
+
+    uint slice =
+        pwm_gpio_to_slice_num(pin);
+
+    pwm_set_wrap(
+        slice,
+        255
+    );
+
+    pwm_set_enabled(
+        slice,
+        true
+    );
+}
+
+
+// ============================================================
+// RAW MOTOR COMMAND
+// ============================================================
+
+void set_motor(
+    uint pin_a,
+    uint pin_b,
+    int speed
+)
+{
+    if (speed > 255)
+        speed = 255;
+
+    if (speed < -255)
+        speed = -255;
+
+
+    if (speed > 0)
+    {
+        pwm_set_gpio_level(
+            pin_a,
+            speed
+        );
+
+        pwm_set_gpio_level(
+            pin_b,
+            0
+        );
+    }
+
+    else if (speed < 0)
+    {
+        pwm_set_gpio_level(
+            pin_a,
+            0
+        );
+
+        pwm_set_gpio_level(
+            pin_b,
+            -speed
+        );
+    }
+
+    else
+    {
+        pwm_set_gpio_level(
+            pin_a,
+            0
+        );
+
+        pwm_set_gpio_level(
+            pin_b,
+            0
+        );
+    }
+}
+
+
+// ============================================================
+// VEHICLE DRIVE
+// ============================================================
+//
+// IMPORTANT:
+//
+// Your physical test showed:
+//
+// +LEFT command actually drives LEFT wheel backwards.
+// +RIGHT command correctly drives RIGHT wheel forwards.
+//
+// Therefore LEFT motor is inverted HERE.
+//
+// This lets the rest of the program use:
+//      +,+ = forward
+//      -,- = backward
+//      -,+ = left
+//      +,- = right
+//
+// ============================================================
+
+void drive(
+    int left_speed,
+    int right_speed
+)
+{
+    // LEFT MOTOR IS PHYSICALLY REVERSED
+    set_motor(
+        M1_A,
+        M1_B,
+        -left_speed
+    );
+
+
+    // RIGHT MOTOR
+    set_motor(
+        M2_A,
+        M2_B,
+        right_speed
+    );
+}
+
+
+void stop_motors()
+{
+    drive(0, 0);
+}
+
+
+// ============================================================
+// ENCODER CALLBACK
+// ============================================================
+//
+// Only encoders use interrupts.
+//
+// IR sensors are now POLLED continuously.
+//
+// ============================================================
+
+void encoder_callback(
+    uint gpio,
+    uint32_t events
+)
+{
+    (void)events;
+
+
+    // ========================================================
+    // LEFT ENCODER
+    // ========================================================
+
+    if (gpio == LEFT_ENC_A)
+    {
+        bool a =
+            gpio_get(LEFT_ENC_A);
+
+        bool b =
+            gpio_get(LEFT_ENC_B);
+
+
+        if (a == b)
+        {
+            left_encoder_count++;
+        }
+        else
+        {
+            left_encoder_count--;
+        }
+    }
+
+
+    // ========================================================
+    // RIGHT ENCODER
+    // ========================================================
+
+    else if (gpio == RIGHT_ENC_A)
+    {
+        bool a =
+            gpio_get(RIGHT_ENC_A);
+
+        bool b =
+            gpio_get(RIGHT_ENC_B);
+
+
+        if (a == b)
+        {
+            right_encoder_count++;
+        }
+        else
+        {
+            right_encoder_count--;
+        }
+    }
+}
+
+
+// ============================================================
+// ENCODER INIT
+// ============================================================
+
+void init_encoders()
+{
+    gpio_init(LEFT_ENC_A);
+    gpio_set_dir(LEFT_ENC_A, GPIO_IN);
+    gpio_pull_up(LEFT_ENC_A);
+
+
+    gpio_init(LEFT_ENC_B);
+    gpio_set_dir(LEFT_ENC_B, GPIO_IN);
+    gpio_pull_up(LEFT_ENC_B);
+
+
+    gpio_init(RIGHT_ENC_A);
+    gpio_set_dir(RIGHT_ENC_A, GPIO_IN);
+    gpio_pull_up(RIGHT_ENC_A);
+
+
+    gpio_init(RIGHT_ENC_B);
+    gpio_set_dir(RIGHT_ENC_B, GPIO_IN);
+    gpio_pull_up(RIGHT_ENC_B);
+
+
+    // Install callback
+
+    gpio_set_irq_enabled_with_callback(
+        LEFT_ENC_A,
+        GPIO_IRQ_EDGE_RISE |
+        GPIO_IRQ_EDGE_FALL,
+        true,
+        &encoder_callback
+    );
+
+
+    gpio_set_irq_enabled(
+        RIGHT_ENC_A,
+        GPIO_IRQ_EDGE_RISE |
+        GPIO_IRQ_EDGE_FALL,
+        true
+    );
+}
+
+
+// ============================================================
+// IR INITIALISATION
+// ============================================================
+
+void init_ir()
+{
+    // LEFT LINE
+
+    gpio_init(IR_LEFT_PIN);
+
+    gpio_set_dir(
+        IR_LEFT_PIN,
+        GPIO_IN
+    );
+
+
+    // RIGHT LINE
+
+    gpio_init(IR_RIGHT_PIN);
+
+    gpio_set_dir(
+        IR_RIGHT_PIN,
+        GPIO_IN
+    );
+
+
+    // BARCODE PRIMARY
+
+    gpio_init(IR_BARCODE_PIN);
+
+    gpio_set_dir(
+        IR_BARCODE_PIN,
+        GPIO_IN
+    );
+
+
+    // BARCODE ALTERNATE GROVE 6 DATA LINE
+
+    gpio_init(IR_BARCODE_ALT_PIN);
+
+    gpio_set_dir(
+        IR_BARCODE_ALT_PIN,
+        GPIO_IN
+    );
+
+
+    // Initial readings
+
+    ir_left_raw =
+        gpio_get(IR_LEFT_PIN);
+
+    ir_right_raw =
+        gpio_get(IR_RIGHT_PIN);
+
+    ir_barcode_raw =
+        gpio_get(IR_BARCODE_PIN);
+
+    ir_barcode_alt_raw =
+        gpio_get(IR_BARCODE_ALT_PIN);
+
+
+    ir_left_previous =
+        ir_left_raw;
+
+    ir_right_previous =
+        ir_right_raw;
+
+    ir_barcode_previous =
+        ir_barcode_raw;
+
+    ir_barcode_alt_previous =
+        ir_barcode_alt_raw;
+}
+
+
+// ============================================================
+// CONTINUOUS IR SAMPLE
+// ============================================================
+//
+// Call this VERY frequently.
+//
+// No printf occurs here.
+//
+// ============================================================
+
+void sample_all_ir()
+{
+    int left =
+        gpio_get(IR_LEFT_PIN);
+
+    int right =
+        gpio_get(IR_RIGHT_PIN);
+
+    int barcode =
+        gpio_get(IR_BARCODE_PIN);
+
+    int barcode_alt =
+        gpio_get(IR_BARCODE_ALT_PIN);
+
+
+    // ========================================================
+    // LEFT
+    // ========================================================
+
+    if (left != ir_left_previous)
+    {
+        ir_left_changes++;
+
+        ir_left_previous =
+            left;
+    }
+
+
+    // ========================================================
+    // RIGHT
+    // ========================================================
+
+    if (right != ir_right_previous)
+    {
+        ir_right_changes++;
+
+        ir_right_previous =
+            right;
+    }
+
+
+    // ========================================================
+    // BARCODE GP26
+    // ========================================================
+
+    if (barcode != ir_barcode_previous)
+    {
+        ir_barcode_changes++;
+
+        ir_barcode_previous =
+            barcode;
+    }
+
+
+    // ========================================================
+    // BARCODE ALTERNATE GP27
+    // ========================================================
+
+    if (barcode_alt != ir_barcode_alt_previous)
+    {
+        ir_barcode_alt_changes++;
+
+        ir_barcode_alt_previous =
+            barcode_alt;
+    }
+
+
+    ir_left_raw =
+        left;
+
+    ir_right_raw =
+        right;
+
+    ir_barcode_raw =
+        barcode;
+
+    ir_barcode_alt_raw =
+        barcode_alt;
+}
+
+
+// ============================================================
+// LIVE IR STATUS
+// ============================================================
+
+void print_ir_status()
+{
+    printf(
+        "IR | LEFT G5/GP6=%d | RIGHT G2/GP2=%d | "
+        "BARCODE G6/GP26=%d | G6 ALT/GP27=%d\n",
+        ir_left_raw,
+        ir_right_raw,
+        ir_barcode_raw,
+        ir_barcode_alt_raw
+    );
+
+
+    printf(
+        "IR transitions | LEFT=%lu RIGHT=%lu "
+        "BARCODE26=%lu BARCODE27=%lu\n",
+        (unsigned long)ir_left_changes,
+        (unsigned long)ir_right_changes,
+        (unsigned long)ir_barcode_changes,
+        (unsigned long)ir_barcode_alt_changes
+    );
+}
+
+
+// ============================================================
+// POLLING WAIT
+// ============================================================
+//
+// Replacement for normal sleep_ms() during diagnostics.
+//
+// IR sensors continue being sampled approximately every 1 ms.
+//
+// ============================================================
+
+void wait_with_ir(
+    uint32_t milliseconds,
+    bool show_ir
+)
+{
+    uint64_t start =
+        time_us_64();
+
+    uint64_t last_print =
+        time_us_64();
+
+
+    while (
+        (time_us_64() - start)
+        <
+        ((uint64_t)milliseconds * 1000)
+    )
+    {
+        // CONSTANT IR READING
+
+        sample_all_ir();
+
+
+        if (
+            show_ir &&
+            (
+                time_us_64() -
+                last_print
+                >=
+                100000
+            )
+        )
+        {
+            print_ir_status();
+
+            last_print =
+                time_us_64();
+        }
+
+
+        sleep_us(1000);
+    }
+}
+
+
+// ============================================================
+// ULTRASONIC INIT
+// ============================================================
+
+void init_ultrasonic()
+{
+    gpio_init(TRIG_PIN);
+
+    gpio_set_dir(
+        TRIG_PIN,
+        GPIO_OUT
+    );
+
+    gpio_put(
+        TRIG_PIN,
+        0
+    );
+
+
+    gpio_init(ECHO_PIN);
+
+    gpio_set_dir(
+        ECHO_PIN,
+        GPIO_IN
+    );
+}
+
+
+// ============================================================
+// ULTRASONIC READ
+// ============================================================
+//
+// Even while waiting for ECHO,
+// we continue sampling the IR sensors.
+//
+// ============================================================
+
+float read_distance_cm()
+{
+    gpio_put(
+        TRIG_PIN,
+        0
+    );
+
+    sleep_us(3);
+
+
+    gpio_put(
+        TRIG_PIN,
+        1
+    );
+
+    sleep_us(10);
+
+
+    gpio_put(
+        TRIG_PIN,
+        0
+    );
+
+
+    // ========================================================
+    // WAIT FOR ECHO HIGH
+    // ========================================================
+
+    uint64_t wait_start =
+        time_us_64();
+
+
+    while (!gpio_get(ECHO_PIN))
+    {
+        sample_all_ir();
+
+
+        if (
+            time_us_64() -
+            wait_start >
+            30000
+        )
+        {
+            return -1.0f;
+        }
+    }
+
+
+    // ========================================================
+    // MEASURE HIGH PULSE
+    // ========================================================
+
+    uint64_t pulse_start =
+        time_us_64();
+
+
+    while (gpio_get(ECHO_PIN))
+    {
+        sample_all_ir();
+
+
+        if (
+            time_us_64() -
+            pulse_start >
+            30000
+        )
+        {
+            return -1.0f;
+        }
+    }
+
+
+    uint64_t pulse_end =
+        time_us_64();
+
+
+    return
+        (pulse_end - pulse_start)
+        / 58.0f;
+}
+
+
+// ============================================================
+// ULTRASONIC TEST
+// ============================================================
+
+void test_ultrasonic()
+{
+    printf("\n");
+    printf("ULTRASONIC TEST - GROVE 3\n");
+    printf("----------------------------------------\n");
+
+
+    for (int i = 0; i < 3; i++)
+    {
+        float distance =
+            read_distance_cm();
+
+
+        if (distance < 0)
+        {
+            printf(
+                "Reading %d: TIMEOUT\n",
+                i + 1
+            );
+        }
+
+        else
+        {
+            printf(
+                "Reading %d: %.2f cm\n",
+                i + 1,
+                distance
+            );
+        }
+
+
+        wait_with_ir(
+            70,
+            false
+        );
+    }
+
+
+    printf("----------------------------------------\n");
+}
+
+
+// ============================================================
+// IMU INIT
+// ============================================================
+
+void init_imu()
+{
+    i2c_init(
+        IMU_I2C,
+        100000
+    );
+
+
+    gpio_set_function(
+        IMU_SDA,
+        GPIO_FUNC_I2C
+    );
+
+
+    gpio_set_function(
+        IMU_SCL,
+        GPIO_FUNC_I2C
+    );
+
+
+    gpio_pull_up(IMU_SDA);
+    gpio_pull_up(IMU_SCL);
+}
+
+
+// ============================================================
+// I2C CHECK
+// ============================================================
+
+bool i2c_device_alive(
+    uint8_t address
+)
+{
+    uint8_t dummy;
+
+
+    int result =
+        i2c_read_timeout_us(
+            IMU_I2C,
+            address,
+            &dummy,
+            1,
+            false,
+            2000
+        );
+
+
+    return result >= 0;
+}
+
+
+// ============================================================
+// IMU TEST
+// ============================================================
+
+void test_imu()
+{
+    bool accel =
+        i2c_device_alive(
+            IMU_ACCEL_ADDR
+        );
+
+
+    bool mag =
+        i2c_device_alive(
+            IMU_MAG_ADDR
+        );
+
+
+    printf(
+        "IMU | ACCEL 0x%02X=%s | MAG 0x%02X=%s\n",
+        IMU_ACCEL_ADDR,
+        accel ? "OK" : "NO",
+        IMU_MAG_ADDR,
+        mag ? "OK" : "NO"
+    );
+}
+
+
+// ============================================================
+// SERVO INIT
+// ============================================================
+
+void init_servo()
+{
+    gpio_set_function(
+        SERVO_PIN,
+        GPIO_FUNC_PWM
+    );
+
+
+    uint slice =
+        pwm_gpio_to_slice_num(
+            SERVO_PIN
+        );
+
+
+    pwm_set_clkdiv(
+        slice,
+        64.0f
+    );
+
+
+    pwm_set_wrap(
+        slice,
+        39062
+    );
+
+
+    pwm_set_enabled(
+        slice,
+        true
+    );
+}
+
+
+// ============================================================
+// SERVO ANGLE
+// ============================================================
+
+void set_servo_angle(
+    int angle
+)
+{
+    // Small diagnostic range
+
+    if (angle < 70)
+        angle = 70;
+
+    if (angle > 110)
+        angle = 110;
+
+
+    float pulse_us =
+        500.0f +
+        ((float)angle / 180.0f)
+        * 2000.0f;
+
+
+    uint16_t level =
+        (uint16_t)(
+            pulse_us *
+            1.953125f
+        );
+
+
+    pwm_set_gpio_level(
+        SERVO_PIN,
+        level
+    );
+
+
+    printf(
+        "Servo -> %d deg\n",
+        angle
+    );
+}
+
+
+// ============================================================
+// MOTOR TEST
+// ============================================================
+
+void run_motion(
+    const char *name,
+    int left_speed,
+    int right_speed
+)
+{
+    printf("\n");
+    printf("========================================\n");
+    printf("MOTOR TEST: %s\n", name);
+    printf("========================================\n");
+
+
+    int32_t left_before =
+        left_encoder_count;
+
+    int32_t right_before =
+        right_encoder_count;
+
+
+    printf(
+        "Vehicle command LEFT=%d RIGHT=%d\n",
+        left_speed,
+        right_speed
+    );
+
+
+    drive(
+        left_speed,
+        right_speed
+    );
+
+
+    // IR CONTINUES TO BE READ DURING MOVEMENT
+
+    wait_with_ir(
+        MOVE_TIME_MS,
+        true
+    );
+
+
+    stop_motors();
+
+
+    wait_with_ir(
+        200,
+        false
+    );
+
+
+    int32_t left_delta =
+        left_encoder_count -
+        left_before;
+
+
+    int32_t right_delta =
+        right_encoder_count -
+        right_before;
+
+
+    printf(
+        "LEFT encoder delta : %ld\n",
+        (long)left_delta
+    );
+
+
+    printf(
+        "RIGHT encoder delta: %ld\n",
+        (long)right_delta
+    );
+
+
+    printf("MOTORS STOPPED\n");
+
+
+    print_ir_status();
+
+
+    printf(
+        "========================================\n"
+    );
+
+
+    wait_with_ir(
+        1000,
+        false
+    );
+}
+
+
+// ============================================================
+// BARCODE DIAGNOSTIC
+// ============================================================
+
+void barcode_diagnostic()
+{
+    printf("\n");
+    printf("================================================\n");
+    printf("BARCODE SENSOR DIAGNOSTIC - GROVE 6\n");
+    printf("================================================\n");
+
+    printf(
+        "Move the BARCODE sensor across BLACK/WHITE now.\n"
+    );
+
+    printf(
+        "Watching BOTH Grove 6 GPIOs:\n"
+    );
+
+    printf(
+        "  GP26 = intended barcode input\n"
+    );
+
+    printf(
+        "  GP27 = alternate diagnostic input\n"
+    );
+
+
+    uint32_t before26 =
+        ir_barcode_changes;
+
+    uint32_t before27 =
+        ir_barcode_alt_changes;
+
+
+    // 8 seconds
+
+    wait_with_ir(
+        8000,
+        true
+    );
+
+
+    uint32_t change26 =
+        ir_barcode_changes -
+        before26;
+
+    uint32_t change27 =
+        ir_barcode_alt_changes -
+        before27;
+
+
+    printf("\n");
+    printf("BARCODE DIAGNOSTIC RESULT\n");
+
+    printf(
+        "GP26 transitions = %lu\n",
+        (unsigned long)change26
+    );
+
+    printf(
+        "GP27 transitions = %lu\n",
+        (unsigned long)change27
+    );
+
+
+    if (
+        change26 > 0 &&
+        change27 == 0
+    )
+    {
+        printf(
+            "*** BARCODE SIGNAL APPEARS TO BE GP26 ***\n"
+        );
+    }
+
+    else if (
+        change27 > 0 &&
+        change26 == 0
+    )
+    {
+        printf(
+            "*** BARCODE SIGNAL APPEARS TO BE GP27 ***\n"
+        );
+
+        printf(
+            "*** CHANGE IR_BARCODE_PIN TO 27 AFTER CONFIRMING ***\n"
+        );
+    }
+
+    else if (
+        change26 == 0 &&
+        change27 == 0
+    )
+    {
+        printf(
+            "*** NO BARCODE RESPONSE ON GP26 OR GP27 ***\n"
+        );
+
+        printf(
+            "*** CHECK SENSOR POWER / OUT WIRE / HEIGHT / THRESHOLD ***\n"
+        );
+    }
+
+    else
+    {
+        printf(
+            "*** BOTH PINS CHANGED - CHECK GROVE 6 WIRING / FLOATING INPUT ***\n"
+        );
+    }
+
+
+    printf(
+        "================================================\n"
+    );
+}
+
+
+// ============================================================
+// FULL IR TEST
+// ============================================================
+
+void full_ir_test()
+{
+    printf("\n");
+    printf("================================================\n");
+    printf("ALL IR SENSORS - CONTINUOUS LIVE TEST\n");
+    printf("================================================\n");
+
+    printf(
+        "LEFT    = Grove 5 / GP6\n"
+    );
+
+    printf(
+        "RIGHT   = Grove 2 / GP2\n"
+    );
+
+    printf(
+        "BARCODE = Grove 6 / GP26\n"
+    );
+
+    printf(
+        "ALT     = Grove 6 / GP27 diagnostic only\n"
+    );
+
+
+    uint32_t left_before =
+        ir_left_changes;
+
+    uint32_t right_before =
+        ir_right_changes;
+
+    uint32_t barcode_before =
+        ir_barcode_changes;
+
+    uint32_t barcode27_before =
+        ir_barcode_alt_changes;
+
+
+    wait_with_ir(
+        10000,
+        true
+    );
+
+
+    printf("\n");
+    printf("10 SECOND IR RESULT\n");
+
+    printf(
+        "LEFT    changes = %lu\n",
+        (unsigned long)(
+            ir_left_changes -
+            left_before
+        )
+    );
+
+    printf(
+        "RIGHT   changes = %lu\n",
+        (unsigned long)(
+            ir_right_changes -
+            right_before
+        )
+    );
+
+    printf(
+        "BARCODE GP26 changes = %lu\n",
+        (unsigned long)(
+            ir_barcode_changes -
+            barcode_before
+        )
+    );
+
+    printf(
+        "BARCODE GP27 changes = %lu\n",
+        (unsigned long)(
+            ir_barcode_alt_changes -
+            barcode27_before
+        )
+    );
+
+    printf(
+        "================================================\n"
+    );
+}
+
+
+// ============================================================
+// STATUS
+// ============================================================
+
+void print_status()
+{
+    sample_all_ir();
+
+
+    printf("\n");
+    printf("----------------------------------------\n");
+    printf("CURRENT HARDWARE STATUS\n");
+    printf("----------------------------------------\n");
+
+
+    print_ir_status();
+
+
+    printf(
+        "LEFT encoder total : %ld\n",
+        (long)left_encoder_count
+    );
+
+
+    printf(
+        "RIGHT encoder total: %ld\n",
+        (long)right_encoder_count
+    );
+
+
+    test_imu();
+
+
+    float distance =
+        read_distance_cm();
+
+
+    if (distance >= 0)
+    {
+        printf(
+            "Ultrasonic: %.2f cm\n",
+            distance
+        );
+    }
+
+    else
+    {
+        printf(
+            "Ultrasonic: TIMEOUT\n"
+        );
+    }
+
+
+    printf("----------------------------------------\n");
+}
+
+
+// ============================================================
+// PIN MAP
+// ============================================================
+
+void print_pin_map()
+{
+    printf("\n");
+    printf("================================================\n");
+    printf("             CURRENT PIN MAP\n");
+    printf("================================================\n");
+
+
+    printf(
+        "G1 LEFT ENCODER  : GP0 / GP1\n"
+    );
+
+    printf(
+        "G2 RIGHT IR      : GP2\n"
+    );
+
+    printf(
+        "G3 ULTRASONIC    : TRIG GP4 / ECHO GP5\n"
+    );
+
+    printf(
+        "G4 IMU           : SDA GP16 / SCL GP17\n"
+    );
+
+    printf(
+        "G5 LEFT IR       : GP6\n"
+    );
+
+    printf(
+        "G6 BARCODE IR    : GP26 [GP27 also monitored]\n"
+    );
+
+    printf(
+        "G7 RIGHT ENCODER : GP7 / GP28\n"
+    );
+
+    printf(
+        "LEFT MOTOR M1    : GP8 / GP9 [software inverted]\n"
+    );
+
+    printf(
+        "RIGHT MOTOR M2   : GP10 / GP11\n"
+    );
+
+    printf(
+        "SERVO            : GP15\n"
+    );
+
+
+    printf("================================================\n");
+}
+
+
+// ============================================================
+// MAIN
+// ============================================================
+
+int main()
+{
+    stdio_init_all();
+
+
+    sleep_ms(2000);
+
+
+    printf("\n");
+    printf("================================================\n");
+    printf("       INF2004 G7 FULL HARDWARE TEST\n");
+    printf("       MOTOR DIRECTION FIX + LIVE IR\n");
+    printf("================================================\n");
+
+
+    // ========================================================
+    // MOTORS
+    // ========================================================
+
+    init_motor_pwm_pin(M1_A);
+    init_motor_pwm_pin(M1_B);
+
+    init_motor_pwm_pin(M2_A);
+    init_motor_pwm_pin(M2_B);
+
+    stop_motors();
+
+
+    // ========================================================
+    // ENCODERS
+    // ========================================================
+
+    init_encoders();
+
+
+    // ========================================================
+    // IR
+    // ========================================================
+
+    init_ir();
+
+
+    // ========================================================
+    // ULTRASONIC
+    // ========================================================
+
+    init_ultrasonic();
+
+
+    // ========================================================
+    // IMU
+    // ========================================================
+
+    init_imu();
+
+
+    // ========================================================
+    // SERVO
+    // ========================================================
+
+    init_servo();
+
+    set_servo_angle(90);
+
+
+    print_pin_map();
+
+
+    printf(
+        "\nStarting test in 3 seconds...\n"
+    );
+
+
+    wait_with_ir(
+        3000,
+        true
+    );
+
+
+    while (true)
+    {
+        printf("\n\n");
+        printf("################################################\n");
+        printf("              NEW TEST CYCLE\n");
+        printf("################################################\n");
+
+
+        // ====================================================
+        // SENSOR STATUS
+        // ====================================================
+
+        print_status();
+
+
+        wait_with_ir(
+            1000,
+            true
+        );
+
+
+        // ====================================================
+        // SERVO
+        // ====================================================
+
+        printf("\n");
+        printf("SERVO TEST\n");
+
+        set_servo_angle(90);
+
+        wait_with_ir(
+            600,
+            true
+        );
+
+
+        set_servo_angle(80);
+
+        wait_with_ir(
+            600,
+            true
+        );
+
+
+        set_servo_angle(100);
+
+        wait_with_ir(
+            600,
+            true
+        );
+
+
+        set_servo_angle(90);
+
+        wait_with_ir(
+            600,
+            true
+        );
+
+
+        // ====================================================
+        // ULTRASONIC
+        // ====================================================
+
+        test_ultrasonic();
+
+
+        // ====================================================
+        // MOTOR TESTS
+        // ====================================================
+
+        run_motion(
+            "FORWARD - SHOULD NOW ACTUALLY GO FORWARD",
+            TEST_SPEED,
+            TEST_SPEED
+        );
+
+
+        run_motion(
+            "BACKWARD - SHOULD NOW ACTUALLY GO BACKWARD",
+            -TEST_SPEED,
+            -TEST_SPEED
+        );
+
+
+        run_motion(
+            "TURN LEFT",
+            -TURN_SPEED,
+            TURN_SPEED
+        );
+
+
+        run_motion(
+            "TURN RIGHT",
+            TURN_SPEED,
+            -TURN_SPEED
+        );
+
+
+        // ====================================================
+        // BARCODE
+        // ====================================================
+
+        barcode_diagnostic();
+
+
+        // ====================================================
+        // ALL THREE IR
+        // ====================================================
+
+        full_ir_test();
+
+
+        // ====================================================
+        // FINAL STATUS
+        // ====================================================
+
+        print_status();
+
+
+        printf("\n");
+        printf("################################################\n");
+        printf("              TEST COMPLETE\n");
+        printf("################################################\n");
+
+
+        printf(
+            "Restarting in 5 seconds...\n"
+        );
+
+
+        stop_motors();
+
+
+        wait_with_ir(
+            5000,
+            true
+        );
+    }
+
+
+    return 0;
+}

@@ -1,0 +1,19 @@
+Using Pico SDK 2.2.0 from /Users/linustay/pico/pico-sdk-2.2.0
+Application standard checks: 115 files, 0 errors.
+CONTROLLED BENCH PROFILE: boots STOPPED. Start only from MQTT.
+Network loss triggers a software STOP. Keep physical power stop ready.
+Build rules: restored 0 missing subdir.mk; preserved 67 existing
+Prepared 72 build output directories; source/config/credentials unchanged
+G7 build cache: verified firmware inputs unchanged
+python3 ../tools/check_app_standard.py
+Application standard checks: 115 files, 0 errors.
+PASS: verified G7DIAG-V7-9-RECONNECT-20261102 in linked ELF used to produce UF2.
+G7 build cache: verified source fingerprint recorded
+PASS: mqtt_utk_poll linked into active CYW43 firmware.
+Created: /Users/linustay/Downloads/inf2004-g7-combine-mqtt-lf-barcode/out/g7-improve-movement-mqtt.uf2
+Console: usb_cdc; barcode result ACK owned by telemetry.
+WiFi join deadline: 10 seconds; motion/IR starts independently.
+Obstacle detection and bypass enabled; ultrasonic GP4/GP5, servo GP15.
+Live MQTT Start/Stop ON: boots held, requires mapping,
+fresh IR/IMU and broker. Link loss requests local STOP.
+Do not share this UF2: Wi-Fi/MQTT secrets may be embedded in the image.

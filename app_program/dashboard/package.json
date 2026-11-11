@@ -1,0 +1,6 @@
+{
+  "name":"inf2004-g7-mission-control","version":"2.0.0","private":true,
+  "description":"Group G7 improve-movement MQTT monitoring and command dashboard",
+  "engines":{"node":">=18"},
+  "scripts":{"start":"node server/index.js","demo":"node tools/demo.js","demo:drive":"node tools/demo.js --auto-start --fast","test":"node --test tests/*.test.js","lan":"node tools/start-lan.js","setup:wifi":"node tools/setup-wifi.js"}
+}

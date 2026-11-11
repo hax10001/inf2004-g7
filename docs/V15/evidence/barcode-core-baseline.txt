@@ -1,0 +1,2 @@
+FAIL: extreme short narrow run still rejected
+Barcode core: 362 assertions, 1 failed

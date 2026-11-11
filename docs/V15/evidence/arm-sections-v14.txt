@@ -1,0 +1,24 @@
+../v14-source/build_make/mtk3pico_smp1_usb_cdc_wifi_dhcp.elf  :
+section                     size        addr
+boot2                        256   268435456
+.text                     419789   268435712
+.time_critical.tinyusb       456   268855504
+.ARM.exidx                     8   268855960
+vector                       192   536870912
+.data                       2556   536871104
+.bss                      208240   536873660
+.debug_info               632852           0
+.debug_abbrev             114417           0
+.debug_loclists           318156           0
+.debug_aranges             13560           0
+.debug_rnglists            40899           0
+.debug_macro              273914           0
+.debug_line               523049           0
+.debug_str               1174008           0
+.comment                      70           0
+.ARM.attributes               42           0
+.debug_frame               39804           0
+.debug_line_str              644           0
+Total                    3762912
+
+

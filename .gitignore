@@ -1,0 +1,39 @@
+﻿Debug
+Release
+
+# Build artifacts
+*.elf
+*.uf2
+*.map
+*.o
+*.d
+*.bin
+*.hex
+build_make/tools/elf2uf2
+build_make/tools/elf2uf2.exe
+tools/elf2uf2/elf2uf2
+build_make/.build_profile
+
+# Local Wi-Fi credentials. Copy config/wifi_credentials.example.h to this
+# path and edit it; never commit the populated file.
+config/wifi_credentials.h
+config/network_config.h
+config/udp_test_config.h
+config/tcp_test_config.h
+
+# Python
+__pycache__/
+*.pyc
+
+# Local validation outputs and pre-refactor snapshots.
+/tmp/
+app_program/dashboard/recordings/
+
+# Canonical local network-owner MQTT secrets; never share.
+config/wifi_secrets.h
+app_program/modules/telemetry/buddy1_broker_local.h
+
+.venv-serial/
+
+# Private backups of local credentials
+.g7-wifi-private-backups/

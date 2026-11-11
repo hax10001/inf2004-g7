@@ -1,0 +1,14 @@
+Type,Before_payload_bytes,After_payload_bytes,Before_frame_bytes_including_header_crc,After_frame_bytes_including_header_crc,Savings_bytes
+SNAPSHOT,13,13,27,27,0
+ODOM,6,6,20,20,0
+EVENT,6,6,20,20,0
+CHECKPOINT,4,4,18,18,0
+HEARTBEAT,4,4,18,18,0
+SENSOR basic,24,24,38,38,0
+SENSOR extended,32,32,46,46,0
+STATUS,14,14,28,28,0
+BARCODE_DIAG v1,28,28,42,42,0
+BARCODE_DIAG v2,42,42,56,56,0
+COMMAND mapping,6,6,20,20,0
+COMMAND other,3,3,17,17,0
+ACK,4,4,18,18,0

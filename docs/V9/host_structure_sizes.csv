@@ -1,0 +1,12 @@
+Type,Before_bytes_native_x86_64,After_bytes_native_x86_64,Difference_bytes,Change_percent
+B1_Motion,24,20,-4,-16.7
+B1_Line,20,12,-8,-40.0
+B1_Terrain,20,16,-4,-20.0
+B1_Mission,28,20,-8,-28.6
+B1_Obstacle,20,16,-4,-20.0
+B1_Event,12,12,0,0.0
+B1_SnapshotPayload,22,18,-4,-18.2
+B1_Command,8,8,0,0.0
+B1_Frame,60,60,0,0.0
+B1_Store,1312,1152,-160,-12.2
+G7_TelemetryPeers,72,68,-4,-5.6

@@ -1,0 +1,34 @@
+{
+  "name": "INF2004 G7 V9 preservation-first source checkpoint",
+  "status": "CODE CHECKPOINT \u2014 final minimum-bit compliance and physical acceptance NOT VERIFIED",
+  "input_zip_sha256": "9c33611573a5c853b9d6798d3e6de9aa07139c587ab434c9088737e4399b06b2",
+  "test_results": {
+    "dashboard_node_tests": "67 passed, 0 failed",
+    "application_style": "112 files, 0 errors",
+    "network_owner": "PASS",
+    "host_obstacle_navigation": "PASS",
+    "C_to_JS_golden": "PASS",
+    "arm_target": "NOT TESTED",
+    "physical_robot": "NOT TESTED"
+  },
+  "files_changed": [
+    "app_program/dashboard/public/app.js",
+    "app_program/dashboard/public/style.css",
+    "app_program/modules/telemetry/buddy1.h",
+    "app_program/modules/telemetry/buddy1_protocol.h",
+    "app_program/modules/telemetry/buddy1_protocol.c",
+    "app_program/modules/telemetry/telemetry_peers.h"
+  ],
+  "new_files": [
+    "V9_RELEASE_NOTES.md",
+    "docs/V9/README.md",
+    "docs/V9/data_representation_verified.csv",
+    "docs/V9/application_fields_candidate_inventory.csv",
+    "docs/V9/host_structure_sizes.csv",
+    "docs/V9/message_size_comparison.csv",
+    "app_program/dashboard/tests/unified-console-v9.test.js",
+    "tools/test_v9_minbits.py",
+    "tools/tests/test_v9_minbits.c"
+  ],
+  "exclusions": "Local recordings, temporary compilations, build outputs and private credentials are excluded from the release ZIP."
+}

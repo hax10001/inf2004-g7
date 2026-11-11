@@ -1,0 +1,13 @@
+/** @file module.h
+ * @brief Describe this module's public responsibility.
+ */
+#ifndef MODULE_H
+#define MODULE_H
+
+/** @brief Describe the operation, inputs, ownership and return value. */
+void module_init (void);
+
+#endif /* MODULE_H */
+
+/*** end of file ***/
+

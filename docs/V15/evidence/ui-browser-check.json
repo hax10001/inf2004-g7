@@ -1,0 +1,67 @@
+{
+  "passed": true,
+  "desktopWidth": 1440,
+  "mobile": {
+    "width": 390,
+    "panes": [
+      {
+        "id": "pane-sensors",
+        "width": 366,
+        "height": 460
+      },
+      {
+        "id": "pane-barcode",
+        "width": 366,
+        "height": 460
+      },
+      {
+        "id": "pane-robotlog",
+        "width": 366,
+        "height": 460
+      },
+      {
+        "id": "pane-commands",
+        "width": 366,
+        "height": 460
+      }
+    ],
+    "tabs": [
+      {
+        "top": 96,
+        "height": 38
+      },
+      {
+        "top": 96,
+        "height": 38
+      },
+      {
+        "top": 96,
+        "height": 38
+      }
+    ]
+  },
+  "nav": [
+    "Overview",
+    "Map & robot",
+    "Console"
+  ],
+  "width": 1440,
+  "duplicateIds": [],
+  "removed": true,
+  "checks": [
+    "single Console navigation",
+    "no duplicate DOM IDs",
+    "removed diagnostic clutter",
+    "real rejection reason",
+    "scan filtering",
+    "pause/resume",
+    "manual scroll preservation",
+    "Latest button",
+    "action menus",
+    "command history",
+    "stale state",
+    "responsive overflow",
+    "view switching"
+  ],
+  "browserErrors": []
+}

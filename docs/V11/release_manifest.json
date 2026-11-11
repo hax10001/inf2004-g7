@@ -1,0 +1,53 @@
+{
+  "release": "INF2004 G7 V11 minimum-bit code checkpoint",
+  "code_compliance": "PARTIAL; NOT final Week 13 approval",
+  "target_build": "NOT VERIFIED (ARM toolchain missing)",
+  "physical_robocar": "NOT VERIFIED",
+  "wire_format": "v1 unchanged",
+  "host": {
+    "dashboard": "70/70 PASS",
+    "nav": "144 assertions PASS",
+    "obstacle_gcc": "PASS",
+    "obstacle_clang": "PASS",
+    "minbits_gcc_clang": "PASS",
+    "network_ownership": "PASS",
+    "style": "112 files 0 errors"
+  },
+  "selected_native_record_size_bytes": {
+    "B1_Event": {
+      "v10": "12",
+      "v11": "9"
+    },
+    "B1_Store": {
+      "v10": "1152",
+      "v11": "760"
+    },
+    "scan_plan_point_t": {
+      "v10": "8",
+      "v11": "4"
+    },
+    "BC_PORT_STATIC_CONFIG": {
+      "v10": "36",
+      "v11": "8"
+    }
+  },
+  "changed_firmware_files": [
+    "app_program/modules/barcode_scanning/bc_code.h",
+    "app_program/modules/barcode_scanning/bc_fast.h",
+    "app_program/modules/barcode_scanning/bc_port.c",
+    "app_program/modules/barcode_scanning/bc_port.h",
+    "app_program/modules/barcode_scanning/bc_wave.h",
+    "app_program/modules/line_barcode/ir_shared.c",
+    "app_program/modules/motion/motion.h",
+    "app_program/modules/motion/steering.h",
+    "app_program/modules/obstacle/obstacle.c",
+    "app_program/modules/obstacle/obstacle.h",
+    "app_program/modules/obstacle/scan_plan.h",
+    "app_program/modules/telemetry/buddy1.c",
+    "app_program/modules/telemetry/buddy1.h",
+    "app_program/modules/telemetry/buddy1_protocol.h",
+    "app_program/modules/telemetry/telemetry_peers.h",
+    "tools/test_controller_remote.c"
+  ],
+  "versioning": "Separate V11 source folder; do not overwrite V10 rollback"
+}

@@ -1,0 +1,15 @@
+Type,V9_native_bytes,V10_native_bytes,Difference_bytes,Change_percent,Interpretation
+nav_config_t,52,52,0,0.0,type size only; not total firmware RAM
+nav_sample_t,20,16,-4,-20.0,type size only; not total firmware RAM
+nav_controller_t,116,104,-12,-10.3,type size only; not total firmware RAM
+nav_result_t,12,2,-10,-83.3,type size only; not total firmware RAM
+bc_code_result_t,4,2,-2,-50.0,type size only; not total firmware RAM
+bc_scan_t,164,164,0,0.0,type size only; not total firmware RAM
+bc_fastq_sample_t,28,24,-4,-14.3,one item; also counted in ring
+bc_fastq_ring_bytes,1792,1536,-256,-14.3,"64-record SPSC sample array, not an additional struct"
+bc_match_result_t,20,16,-4,-20.0,type size only; not total firmware RAM
+bc_layout_result_t,14,12,-2,-14.3,type size only; not total firmware RAM
+ir_shared_snapshot_t,20,8,-12,-60.0,type size only; not total firmware RAM
+terrain_snapshot,40,24,-16,-40.0,type size only; not total firmware RAM
+B1_Store,1152,1152,0,0.0,type size only; not total firmware RAM
+G7_TelemetryPeers,68,68,0,0.0,type size only; not total firmware RAM

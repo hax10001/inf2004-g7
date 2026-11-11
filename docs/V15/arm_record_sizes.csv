@@ -1,0 +1,16 @@
+Record,V14_bytes,V15_bytes,Delta
+B1_Event,9,9,0
+B1_Mission,20,20,0
+B1_Motion,20,20,0
+B1_OdomRecord,10,10,0
+B1_Store,736,736,0
+B1_Terrain,16,16,0
+G7_TelemetryPeers,68,68,0
+bc_fastq_sample_t,24,24,0
+downhill_governor_t,8,8,0
+motion_status_t,48,48,0
+nav_controller_t,104,104,0
+nav_result_t,2,2,0
+nav_sample_t,16,16,0
+scan_handoff_t,0,12,12
+terrain_snapshot,24,28,4

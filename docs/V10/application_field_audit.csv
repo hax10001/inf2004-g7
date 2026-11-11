@@ -1,0 +1,308 @@
+Source,Struct,Field,Range,Required_bits,Implementation,Ownership,Status
+app_program/app/nav_core.h,nav_config_t,confirm_msec,TO VALIDATE,TO VALIDATE,uint32_t confirm_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,min_turn_msec,TO VALIDATE,TO VALIDATE,uint32_t min_turn_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,max_turn_msec,TO VALIDATE,TO VALIDATE,uint32_t max_turn_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,max_cross_msec,TO VALIDATE,TO VALIDATE,uint32_t max_cross_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,min_after_barcode_counts,TO VALIDATE,TO VALIDATE,uint32_t min_after_barcode_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,junction_confirm_counts,TO VALIDATE,TO VALIDATE,uint32_t junction_confirm_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,junction_confirm_max_msec,TO VALIDATE,TO VALIDATE,uint32_t junction_confirm_max_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,decode_wait_msec,TO VALIDATE,TO VALIDATE,uint32_t decode_wait_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,decode_grace_msec,TO VALIDATE,TO VALIDATE,uint32_t decode_grace_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,centre_counts,TO VALIDATE,TO VALIDATE,uint32_t centre_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,centre_max_msec,TO VALIDATE,TO VALIDATE,uint32_t centre_max_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,turn90_counts,TO VALIDATE,TO VALIDATE,uint32_t turn90_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_config_t,repeat_action,0..1,1,C bit-field or explicit bitmask,controller task; config copy,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_sample_t,now_msec,TO VALIDATE,TO VALIDATE,uint32_t now_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_sample_t,travel_counts,TO VALIDATE,TO VALIDATE,uint32_t travel_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_sample_t,left_black,boolean 0..1,1,C bit-field or explicit bitmask,controller stack sample,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_sample_t,right_black,boolean 0..1,1,C bit-field or explicit bitmask,controller stack sample,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_sample_t,barcode_capturing,boolean 0..1,1,C bit-field or explicit bitmask,controller stack sample,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_sample_t,barcode_decoding,boolean 0..1,1,C bit-field or explicit bitmask,controller stack sample,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_sample_t,both_interrupted,boolean 0..1,1,C bit-field or explicit bitmask,controller stack sample,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_sample_t,turn_counts,TO VALIDATE,TO VALIDATE,uint32_t turn_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,state,NAV_WAIT..NAV_CENTRE = 0..8,4,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,pending,boolean 0..1,1,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,letter,0..25,5,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,action,0..3,2,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,edge_seen,boolean 0..1,1,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,turn_announced,boolean 0..1,1,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,resume_announced,boolean 0..1,1,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,fault_reason,0..5,3,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,decode_hold,boolean 0..1,1,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,hold_letter,boolean 0..1,1,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,held,boolean 0..1,1,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,held_letter,0..25,5,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,held_action,0..3,2,C bit-field or explicit bitmask,controller-owned state,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_controller_t,hold_since,TO VALIDATE,TO VALIDATE,uint32_t hold_since,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,decode_idle_since,TO VALIDATE,TO VALIDATE,uint32_t decode_idle_since,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,state_since,TO VALIDATE,TO VALIDATE,uint32_t state_since,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,black_since,TO VALIDATE,TO VALIDATE,uint32_t black_since,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,black_from_counts,TO VALIDATE,TO VALIDATE,uint32_t black_from_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,edge_since,TO VALIDATE,TO VALIDATE,uint32_t edge_since,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,barcode_counts,TO VALIDATE,TO VALIDATE,uint32_t barcode_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,last_barcode_counts,TO VALIDATE,TO VALIDATE,uint32_t last_barcode_counts,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,last_barcode_ms,TO VALIDATE,TO VALIDATE,uint32_t last_barcode_ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,centre_from,TO VALIDATE,TO VALIDATE,uint32_t centre_from,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,turn_from,TO VALIDATE,TO VALIDATE,uint32_t turn_from,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,last_barcode_seq,TO VALIDATE,TO VALIDATE,uint16_t last_barcode_seq,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_controller_t,cfg,TO VALIDATE,TO VALIDATE,nav_config_t cfg,TO VALIDATE,REVIEW_REQUIRED
+app_program/app/nav_core.h,nav_result_t,drive,0..5,3,C bit-field or explicit bitmask,controller return value,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_result_t,event,"0,12..20",5,C bit-field or explicit bitmask,controller return value,REVIEWED_MINBIT
+app_program/app/nav_core.h,nav_result_t,value,action 0..3 or fault reason 1..5,3,C bit-field or explicit bitmask,controller return value,REVIEWED_MINBIT
+app_program/drivers/encoder.h,encoder_sample_t,count,TO VALIDATE,TO VALIDATE,int32_t count,TO VALIDATE,REVIEW_REQUIRED
+app_program/drivers/encoder.h,encoder_sample_t,edge_usec,TO VALIDATE,TO VALIDATE,uint32_t edge_usec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_code.h,bc_code_pattern_t,element_pattern,TO VALIDATE,TO VALIDATE,uint16_t element_pattern,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_code.h,bc_code_result_t,letter,0..25; 31 invalid,5,C bit-field or explicit bitmask,decoder result,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_code.h,bc_code_result_t,quality,0..3,2,C bit-field or explicit bitmask,decoder result,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_code.h,bc_code_result_t,reverse,boolean 0..1,1,C bit-field or explicit bitmask,decoder result,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_code.h,bc_code_result_t,valid,boolean 0..1,1,C bit-field or explicit bitmask,decoder result,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_fast.h,bc_fast_adc_stats_t,samples,TO VALIDATE,TO VALIDATE,uint32_t samples,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fast.h,bc_fast_adc_stats_t,errors,TO VALIDATE,TO VALIDATE,uint32_t errors,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fast.h,bc_fast_adc_stats_t,latest,TO VALIDATE,TO VALIDATE,uint32_t latest,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fast.h,bc_fast_adc_stats_t,minimum,TO VALIDATE,TO VALIDATE,uint32_t minimum,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fast.h,bc_fast_adc_stats_t,maximum,TO VALIDATE,TO VALIDATE,uint32_t maximum,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fast.h,bc_fast_adc_stats_t,filtered_spikes,TO VALIDATE,TO VALIDATE,uint32_t filtered_spikes,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,time_usec,TO VALIDATE,TO VALIDATE,uint32_t time_usec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,left_count,TO VALIDATE,TO VALIDATE,int32_t left_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,right_count,TO VALIDATE,TO VALIDATE,int32_t right_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,left_edge_usec,TO VALIDATE,TO VALIDATE,uint32_t left_edge_usec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,right_edge_usec,TO VALIDATE,TO VALIDATE,uint32_t right_edge_usec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,gpio_level,boolean 0..1,1,C bit-field or explicit bitmask,SPSC whole-record publication; 32-bit DMB index,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,valid,boolean 0..1,1,C bit-field or explicit bitmask,SPSC whole-record publication; 32-bit DMB index,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,adc_raw,0..4095 ADC,12,C bit-field or explicit bitmask,SPSC whole-record publication; 32-bit DMB index,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_fastq.h,bc_fastq_sample_t,adc_valid,boolean 0..1,1,C bit-field or explicit bitmask,SPSC whole-record publication; 32-bit DMB index,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,valid,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,letter,TO VALIDATE,TO VALIDATE,uint8_t letter,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,reverse,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,variant,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,reason,0..6,3,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,runner,TO VALIDATE,TO VALIDATE,uint8_t runner,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,other,TO VALIDATE,TO VALIDATE,uint8_t other,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,bars,TO VALIDATE,TO VALIDATE,uint8_t bars,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,err_centi,TO VALIDATE,TO VALIDATE,uint16_t err_centi,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,module_x10,TO VALIDATE,TO VALIDATE,uint16_t module_x10,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_layout.h,bc_layout_result_t,gap_permille,TO VALIDATE,TO VALIDATE,uint16_t gap_permille,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,valid,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,letter,0..25; 31 invalid,5,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,reverse,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,support,TO VALIDATE,TO VALIDATE,uint8_t support,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,score_z100,TO VALIDATE,TO VALIDATE,int32_t score_z100,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,margin_z100,TO VALIDATE,TO VALIDATE,int32_t margin_z100,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,runner_letter,0..25; 31 invalid,5,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,runner_reverse,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,positive,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,eligible,boolean 0..1,1,C bit-field or explicit bitmask,decoder task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_match.h,bc_match_result_t,runner_score_z100,TO VALIDATE,TO VALIDATE,int32_t runner_score_z100,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_result_t,timestamp_msec,TO VALIDATE,TO VALIDATE,uint32_t timestamp_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_result_t,sequence,TO VALIDATE,TO VALIDATE,uint16_t sequence,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_result_t,info,TO VALIDATE,TO VALIDATE,uint16_t info,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_config_t,scan,TO VALIDATE,TO VALIDATE,bc_scan_config_t scan,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_config_t,left_forward_sign,TO VALIDATE,TO VALIDATE,int8_t left_forward_sign,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_config_t,right_forward_sign,TO VALIDATE,TO VALIDATE,int8_t right_forward_sign,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_config_t,max_wheel_step_delta,TO VALIDATE,TO VALIDATE,uint16_t max_wheel_step_delta,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_config_t,max_sample_travel_units,TO VALIDATE,TO VALIDATE,uint16_t max_sample_travel_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_config_t,max_sample_interval_msec,TO VALIDATE,TO VALIDATE,uint16_t max_sample_interval_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_config_t,black_gpio_level,TO VALIDATE,TO VALIDATE,uint8_t black_gpio_level,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,samples,TO VALIDATE,TO VALIDATE,uint32_t samples,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,capture_invalid,TO VALIDATE,TO VALIDATE,uint32_t capture_invalid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,gap_invalid,TO VALIDATE,TO VALIDATE,uint32_t gap_invalid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,direction_invalid,TO VALIDATE,TO VALIDATE,uint32_t direction_invalid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,skew_invalid,TO VALIDATE,TO VALIDATE,uint32_t skew_invalid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,step_invalid,TO VALIDATE,TO VALIDATE,uint32_t step_invalid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,stale_edge,TO VALIDATE,TO VALIDATE,uint32_t stale_edge,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,lock_lost,TO VALIDATE,TO VALIDATE,uint32_t lock_lost,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,max_gap_usec,TO VALIDATE,TO VALIDATE,uint32_t max_gap_usec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,raw,TO VALIDATE,TO VALIDATE,uint32_t raw,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,edges,TO VALIDATE,TO VALIDATE,uint32_t edges,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,state,TO VALIDATE,TO VALIDATE,uint32_t state,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,runs,TO VALIDATE,TO VALIDATE,uint32_t runs,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,scan_units,TO VALIDATE,TO VALIDATE,uint32_t scan_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,completed,TO VALIDATE,TO VALIDATE,uint32_t completed,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,rejected,TO VALIDATE,TO VALIDATE,uint32_t rejected,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,last_event,TO VALIDATE,TO VALIDATE,uint32_t last_event,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,last_error,TO VALIDATE,TO VALIDATE,uint32_t last_error,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,last_runs,TO VALIDATE,TO VALIDATE,uint32_t last_runs,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,last_scan_units,TO VALIDATE,TO VALIDATE,uint32_t last_scan_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_port.h,bc_port_stats_t,last_widths,TO VALIDATE,TO VALIDATE,uint32_t last_widths[BC_CODE_ELEMENTS],TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_config_t,min_run_units,TO VALIDATE,TO VALIDATE,uint32_t min_run_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_config_t,leading_units,TO VALIDATE,TO VALIDATE,uint32_t leading_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_config_t,trailing_units,TO VALIDATE,TO VALIDATE,uint32_t trailing_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_config_t,min_barcode_units,TO VALIDATE,TO VALIDATE,uint32_t min_barcode_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_config_t,max_barcode_units,TO VALIDATE,TO VALIDATE,uint32_t max_barcode_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_config_t,timeout_msec,TO VALIDATE,TO VALIDATE,uint32_t timeout_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,cfg,TO VALIDATE,TO VALIDATE,bc_scan_config_t cfg,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,widths,TO VALIDATE,TO VALIDATE,uint32_t widths[BC_CODE_ELEMENTS],TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,first_white_units,TO VALIDATE,TO VALIDATE,uint32_t first_white_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,last_edge_units,TO VALIDATE,TO VALIDATE,uint32_t last_edge_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,start_units,TO VALIDATE,TO VALIDATE,uint32_t start_units,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,start_msec,TO VALIDATE,TO VALIDATE,uint32_t start_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,result_msec,TO VALIDATE,TO VALIDATE,uint32_t result_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,state,0..5,3,C bit-field or explicit bitmask,scanner task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,run_count,0..29,5,C bit-field or explicit bitmask,scanner task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,last_black,boolean 0..1,1,C bit-field or explicit bitmask,scanner task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_scan.h,bc_scan_t,error,0..8,4,C bit-field or explicit bitmask,scanner task-owned,REVIEWED_MINBIT
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,state,TO VALIDATE,TO VALIDATE,uint8_t state,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,white_rejects,TO VALIDATE,TO VALIDATE,uint8_t white_rejects,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,white_mean,TO VALIDATE,TO VALIDATE,uint16_t white_mean,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,white_sigma,TO VALIDATE,TO VALIDATE,uint16_t white_sigma,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,sequence,TO VALIDATE,TO VALIDATE,uint16_t sequence,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,last_valid,TO VALIDATE,TO VALIDATE,uint8_t last_valid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,last_letter,TO VALIDATE,TO VALIDATE,uint8_t last_letter,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,last_reason,TO VALIDATE,TO VALIDATE,uint8_t last_reason,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/bc_wave.h,bc_wave_status_t,last_process_ms,TO VALIDATE,TO VALIDATE,uint16_t last_process_ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/host/barcode_kernel.h,T_CSEM,sematr,TO VALIDATE,TO VALIDATE,UW sematr,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/host/barcode_kernel.h,T_CSEM,isemcnt,TO VALIDATE,TO VALIDATE,INT isemcnt,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/barcode_scanning/host/barcode_kernel.h,T_CSEM,maxsem,TO VALIDATE,TO VALIDATE,INT maxsem,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/line_barcode/ir_shared.h,ir_shared_snapshot_t,left,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/line_barcode/ir_shared.h,ir_shared_snapshot_t,right,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/line_barcode/ir_shared.h,ir_shared_snapshot_t,barcode,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/line_barcode/ir_shared.h,ir_shared_snapshot_t,timestamp_msec,TO VALIDATE,TO VALIDATE,uint32_t timestamp_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/line_barcode/ir_shared.h,ir_shared_snapshot_t,b_valid,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/line_barcode/ir_shared.h,ir_shared_diag_t,samples,TO VALIDATE,TO VALIDATE,uint16_t samples,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/line_barcode/ir_shared.h,ir_shared_diag_t,left,TO VALIDATE,TO VALIDATE,uint16_t left,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/line_barcode/ir_shared.h,ir_shared_diag_t,right,TO VALIDATE,TO VALIDATE,uint16_t right,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/line_barcode/ir_shared.h,ir_shared_diag_t,both,TO VALIDATE,TO VALIDATE,uint16_t both,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,left_rpm,TO VALIDATE,TO VALIDATE,float left_rpm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,right_rpm,TO VALIDATE,TO VALIDATE,float right_rpm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,left_target_rpm,TO VALIDATE,TO VALIDATE,float left_target_rpm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,right_target_rpm,TO VALIDATE,TO VALIDATE,float right_target_rpm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,steer,TO VALIDATE,TO VALIDATE,float steer,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,speed_mm_per_sec,TO VALIDATE,TO VALIDATE,float speed_mm_per_sec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,left_count,TO VALIDATE,TO VALIDATE,int32_t left_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,right_count,TO VALIDATE,TO VALIDATE,int32_t right_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,left_pwm,TO VALIDATE,TO VALIDATE,uint32_t left_pwm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,right_pwm,TO VALIDATE,TO VALIDATE,uint32_t right_pwm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,timestamp_usec,TO VALIDATE,TO VALIDATE,uint32_t timestamp_usec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/motion.h,motion_status_t,b_valid,TO VALIDATE,TO VALIDATE,bool b_valid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,integral,TO VALIDATE,TO VALIDATE,float integral,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,b_off_centre,TO VALIDATE,TO VALIDATE,bool b_off_centre,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,last_side,TO VALIDATE,TO VALIDATE,float last_side,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,centred_count,TO VALIDATE,TO VALIDATE,uint32_t centred_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,hold_count,TO VALIDATE,TO VALIDATE,uint32_t hold_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,bend_side,TO VALIDATE,TO VALIDATE,float bend_side,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,bend_age,TO VALIDATE,TO VALIDATE,uint32_t bend_age,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/steering.h,steering_t,touch_count,TO VALIDATE,TO VALIDATE,uint32_t touch_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/wheel_speed.h,wheel_speed_t,last_count,TO VALIDATE,TO VALIDATE,int32_t last_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/wheel_speed.h,wheel_speed_t,last_edge_usec,TO VALIDATE,TO VALIDATE,uint32_t last_edge_usec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/motion/wheel_speed.h,wheel_speed_t,rpm,TO VALIDATE,TO VALIDATE,float rpm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/obstacle.h,obstacle_drive_t,left_rpm,TO VALIDATE,TO VALIDATE,int32_t left_rpm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/obstacle.h,obstacle_drive_t,right_rpm,TO VALIDATE,TO VALIDATE,int32_t right_rpm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/obstacle.h,obstacle_drive_t,b_stop,TO VALIDATE,TO VALIDATE,bool b_stop,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/obstacle.h,obstacle_drive_t,b_line_follow,TO VALIDATE,TO VALIDATE,bool b_line_follow,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/obstacle.h,obstacle_drive_t,b_done,TO VALIDATE,TO VALIDATE,bool b_done,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/obstacle.h,obstacle_drive_t,b_fault,TO VALIDATE,TO VALIDATE,bool b_fault,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/scan_plan.h,scan_plan_point_t,angle_deg,TO VALIDATE,TO VALIDATE,int32_t angle_deg,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/scan_plan.h,scan_plan_point_t,range_mm,TO VALIDATE,TO VALIDATE,int32_t range_mm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/scan_plan.h,scan_plan_bypass_t,word_a,TO VALIDATE,TO VALIDATE,uint32_t word_a,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/obstacle/scan_plan.h,scan_plan_bypass_t,word_b,TO VALIDATE,TO VALIDATE,uint32_t word_b,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Motion,cumulative_mm,TO VALIDATE,TO VALIDATE,"uint32_t ms,cumulative_mm",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Motion,seq,TO VALIDATE,TO VALIDATE,uint16_t seq,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Motion,right_delta_mm,TO VALIDATE,TO VALIDATE,"int16_t left_delta_mm,right_delta_mm",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Motion,right_speed_mm_s,TO VALIDATE,TO VALIDATE,"int16_t left_speed_mm_s,right_speed_mm_s",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Motion,checkpoint,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Line,ms,TO VALIDATE,TO VALIDATE,uint32_t ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Line,event_id,TO VALIDATE,TO VALIDATE,"uint16_t seq,event_id",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Line,action_valid,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Line,event_kind,TO VALIDATE,TO VALIDATE,uint8_t event_kind,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Terrain,ms,TO VALIDATE,TO VALIDATE,uint32_t ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Terrain,event_id,TO VALIDATE,TO VALIDATE,"uint16_t seq,hump_mm,max_hump_mm,event_id",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Terrain,event_kind,TO VALIDATE,TO VALIDATE,"uint8_t quality,mode,event_kind",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Mission,ms,TO VALIDATE,TO VALIDATE,uint32_t ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Mission,event_value,TO VALIDATE,TO VALIDATE,"uint16_t seq,pwm_left,pwm_right,event_id,event_value",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Mission,event_kind,TO VALIDATE,TO VALIDATE,"uint8_t faults,ready_blockers,event_kind",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Mission,barcode_hold,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Obstacle,ms,TO VALIDATE,TO VALIDATE,uint32_t ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Obstacle,event_value,TO VALIDATE,TO VALIDATE,"uint16_t seq,distance_cm,event_id,event_value",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Obstacle,event_kind,TO VALIDATE,TO VALIDATE,"uint8_t bypass_count,faults,event_kind",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Obstacle,side,0..3,2,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Event,ms,TO VALIDATE,TO VALIDATE,uint32_t ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Event,value,TO VALIDATE,TO VALIDATE,"uint16_t id,value",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Event,kind,TO VALIDATE,TO VALIDATE,"uint8_t source,kind",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,unlock,TO VALIDATE,TO VALIDATE,"B1_Lock lock,unlock",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,lock_context,TO VALIDATE,TO VALIDATE,void *lock_context,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,motion,TO VALIDATE,TO VALIDATE,B1_Motion motion,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,line,TO VALIDATE,TO VALIDATE,B1_Line line,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,terrain,TO VALIDATE,TO VALIDATE,B1_Terrain terrain,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,mission,TO VALIDATE,TO VALIDATE,B1_Mission mission,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,obstacle,TO VALIDATE,TO VALIDATE,B1_Obstacle obstacle,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,uncertain,boolean 0..1,1,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Store,motions,TO VALIDATE,TO VALIDATE,B1_Motion motions[B1_MOTION_DEPTH],TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,motion_count,0..32,6,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Store,events,TO VALIDATE,TO VALIDATE,B1_Event events[B1_EVENT_DEPTH],TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,event_count,0..24,5,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Store,checkpoint_ms,TO VALIDATE,TO VALIDATE,"uint32_t dropped,invalid,dup,session_ms,last_snapshot_ms, last_heartbeat_ms,last_status_ms,checkpoint_mm,checkpoint_ms",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,checkpoint_pending,boolean 0..1,1,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Store,last_cmd_transaction,TO VALIDATE,TO VALIDATE,"uint16_t session,wire_seq,last_cmd_transaction",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,cmd_seen,boolean 0..1,1,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Store,status_challenges,TO VALIDATE,TO VALIDATE,uint32_t status_challenges[8],TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,status_challenge_head,0..7,3,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1.h,B1_Store,coordinator,TO VALIDATE,TO VALIDATE,B1_Coordinator coordinator,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1.h,B1_Store,coordinator_context,TO VALIDATE,TO VALIDATE,void *coordinator_context,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1_protocol.h,B1_Frame,payload_len,TO VALIDATE,TO VALIDATE,"uint8_t type, flags, payload[B1_MAX_PAYLOAD], payload_len",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1_protocol.h,B1_Frame,seq,TO VALIDATE,TO VALIDATE,"uint16_t session, seq",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1_protocol.h,B1_Frame,time_ms,TO VALIDATE,TO VALIDATE,uint32_t time_ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1_protocol.h,B1_SnapshotPayload,obstacle_cm,TO VALIDATE,TO VALIDATE,"uint16_t hump_mm,max_hump_mm,obstacle_cm",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1_protocol.h,B1_SnapshotPayload,speed_right_mm_s,TO VALIDATE,TO VALIDATE,"int16_t speed_left_mm_s,speed_right_mm_s",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1_protocol.h,B1_SnapshotPayload,line,0..7,3,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1_protocol.h,B1_SnapshotPayload,side,0..3,2,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1_protocol.h,B1_SnapshotPayload,faults,eight flags,8,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/buddy1_protocol.h,B1_Command,mapping,TO VALIDATE,TO VALIDATE,"uint8_t command, mapping[4]",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/buddy1_protocol.h,B1_Command,transaction,TO VALIDATE,TO VALIDATE,uint16_t transaction,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,have_motion,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,have_ir,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,have_imu,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,barcode_valid,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,have_obstacle,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,odom_confidence,0..2; 3 reserved,2,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,last_ir_bits,TO VALIDATE,TO VALIDATE,"uint8_t barcode_letter, last_ir_bits",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,obstacle_event_seq,TO VALIDATE,TO VALIDATE,"uint16_t obstacle_seq,obstacle_event_seq",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,obstacle_last_status,TO VALIDATE,TO VALIDATE,uint32_t obstacle_last_status,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,barcode_last_seq,TO VALIDATE,TO VALIDATE,uint32_t barcode_last_seq,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,last_sensor_report_ms,TO VALIDATE,TO VALIDATE,uint32_t last_sensor_report_ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,last_barcode_report_ms,TO VALIDATE,TO VALIDATE,uint32_t last_barcode_report_ms,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,imu_seq,TO VALIDATE,TO VALIDATE,"uint16_t motion_seq,ir_seq,imu_seq",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,imu_last_ms,TO VALIDATE,TO VALIDATE,"uint32_t motion_last_us,ir_last_ms,imu_last_ms",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,previous_right_count,TO VALIDATE,TO VALIDATE,"int32_t previous_left_count,previous_right_count",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,right_residual_mm,TO VALIDATE,TO VALIDATE,"float left_residual_mm,right_residual_mm",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/telemetry/telemetry_peers.h,G7_TelemetryPeers,right_mm_per_count,TO VALIDATE,TO VALIDATE,"float left_mm_per_count,right_mm_per_count",TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_calibration,roll_zero_deg,TO VALIDATE,TO VALIDATE,float roll_zero_deg,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_calibration,pitch_zero_deg,TO VALIDATE,TO VALIDATE,float pitch_zero_deg,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_calibration,b_valid,TO VALIDATE,TO VALIDATE,bool b_valid,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_jerk_vector,x,TO VALIDATE,TO VALIDATE,int32_t x,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_jerk_vector,y,TO VALIDATE,TO VALIDATE,int32_t y,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_jerk_vector,z,TO VALIDATE,TO VALIDATE,int32_t z,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,roll_deg,TO VALIDATE,TO VALIDATE,float roll_deg,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,pitch_deg,TO VALIDATE,TO VALIDATE,float pitch_deg,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,hump_height_mm,TO VALIDATE,TO VALIDATE,uint16_t hump_height_mm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,last_hump_height_mm,TO VALIDATE,TO VALIDATE,uint16_t last_hump_height_mm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,max_hump_height_mm,TO VALIDATE,TO VALIDATE,uint16_t max_hump_height_mm,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,hump_count,TO VALIDATE,TO VALIDATE,uint8_t hump_count,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,hump_phase,0..2,2,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/terrain/terrain.h,terrain_snapshot,onHump,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/terrain/terrain.h,terrain_snapshot,height_valid,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/terrain/terrain.h,terrain_snapshot,timestamp_msec,TO VALIDATE,TO VALIDATE,uint32_t timestamp_msec,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,b_valid,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/terrain/terrain.h,terrain_snapshot,heading_deg,TO VALIDATE,TO VALIDATE,float heading_deg,TO VALIDATE,REVIEW_REQUIRED
+app_program/modules/terrain/terrain.h,terrain_snapshot,heading_valid,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+app_program/modules/terrain/terrain.h,terrain_snapshot,b_collision,boolean 0..1,1,C bit-field or explicit bitmask,RTOS mutex protected published snapshot,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Store,seen,five source flags,5,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Store,mapping_valid,boolean 0..1,1,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Store,committed,boolean 0..1,1,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Store,motion_head,0..31,5,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Store,event_head,0..23,5,C bit-field or explicit bitmask,existing store mutex,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Line,ir,0..7,3,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Line,line,0..7,3,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Line,barcode,0..25 or 31 (no letter),5,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Line,action,0..3,2,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Mission,mission,0..7,3,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Mission,ready,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Mission,running,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_Mission,remote_hold,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,source_mask,five flags,5,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,stale_mask,five flags,5,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,mission,0..7,3,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,ir,three IR flags,3,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,barcode,0..25 or 31,5,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,action,0..3,2,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,action_valid,boolean,1,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT
+see source header / V9 documentation,B1_SnapshotPayload,bypass_count,0..255,8,C bit-field or explicit bitmask,as reviewed in V9; concurrency to be reverified on ARM,REVIEWED_MINBIT

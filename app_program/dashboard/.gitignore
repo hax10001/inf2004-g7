@@ -1,0 +1,2 @@
+# Machine-specific generated local secrets, never commit these files
+.lan-secrets.json

@@ -1,0 +1,9 @@
+{
+  "version": "8.2",
+  "source": "/Users/linustay/Downloads/g7-improve-movement-live-v7",
+  "config_preserved": [
+    "config/wifi_credentials.h",
+    "config/wifi_secrets.h",
+    "app_program/dashboard/.lan-secrets.json"
+  ]
+}
