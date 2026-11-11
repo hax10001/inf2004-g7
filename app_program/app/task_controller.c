@@ -340,11 +340,14 @@ uint8_t g7_controller_remote_command (uint8_t cmd, void * p_context)
  */
 static robot_state_t remote_reset_after_stop(robot_state_t prior)
 {
+    terrain_snapshot stopped = {0};
     obstacle_abort();
     motion_reset_run();
-    /* A matching ACK cannot clear a later impact. Do not change the
-     * stationary level reference or barcode white calibration here. */
-    if (terrain_ack_collision(g_collision_seen) < E_OK)
+    /* Freeze the producer before acknowledging the latest run impact.
+     * Pickup/placement while stopped cannot race this ACK or block START. */
+    if (terrain_set_collision_enabled(false) < E_OK ||
+        terrain_get_snapshot(&stopped) < E_OK ||
+        terrain_ack_collision(stopped.collision_sequence) < E_OK)
     {
         tm_printf((UB *)"[CTRL] IMU event ACK changed/unavailable\n");
         return prior == ROBOT_ERROR ? ROBOT_ERROR : ROBOT_NAV_SAFETY_STOP;
@@ -488,6 +491,7 @@ static robot_state_t controller_cycle(robot_state_t state,
                 /* Apply physical zero-output request before touching the
                  * network event mailbox; STOP always wins. */
                 motion_stop_now();
+                (void)terrain_set_collision_enabled(false);
                 g7_nav_clear_decoded();
                 *p_history = (controller_history_t){0};
                 /* A navigation safety stop is recoverable only by STOP.
@@ -528,6 +532,11 @@ static robot_state_t controller_cycle(robot_state_t state,
             remote_publish_state(state);
         }
 #endif
+        /* IDLE here is the startup check reached after authorized START.
+         * Keep monitoring through run-time junction holds and bypasses. */
+        (void)terrain_set_collision_enabled(
+            state == ROBOT_IDLE || state == ROBOT_LINE_FOLLOWING ||
+            state == ROBOT_AT_JUNCTION || state == ROBOT_OBSTACLE);
         /* Driving off the track round an obstacle passes floor edges and
          * marks that are not barcodes; do not start captures then.
          */
@@ -565,9 +574,9 @@ static robot_state_t controller_cycle(robot_state_t state,
         if (snapshot.b_collision)
         {
             g_collision_seen = snapshot.collision_sequence;
-            report_fault(1U);
             if (collision_requires_stop(state, terrain_error, &snapshot))
             {
+                report_fault(1U);
                 motion_apply(LINE_UNCERTAIN);
 #ifdef B1_LIVE_COMMANDS
                 g7_nav_clear_decoded();
@@ -631,6 +640,9 @@ static robot_state_t controller_cycle(robot_state_t state,
             break;
         }
 
+        if (state != ROBOT_IDLE && state != ROBOT_LINE_FOLLOWING &&
+            state != ROBOT_AT_JUNCTION && state != ROBOT_OBSTACLE)
+            (void)terrain_set_collision_enabled(false);
 #ifdef B1_LIVE_COMMANDS
         remote_publish_state(state);
 #endif

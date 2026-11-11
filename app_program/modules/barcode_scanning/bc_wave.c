@@ -1295,16 +1295,14 @@ static void wave_report (void)
         uint32_t like_widest = 0U;
         if (0U == wave_barcode_like(&like_bars, &like_widest))
         {
-            /* Not a barcode attempt: no failure is counted or sent. */
+            /* Keep the reason, but report the finished capture to the UI.
+             * A capture must not disappear between decoding and READY. */
             ++g_ignored;
             g_last_reason = BC_WAVE_REASON_IGNORED;
-            tm_printf((UB *)"[BARCODE] Ignored capture %u: not barcode-like "
-                              "(strong_bars=%u widest=%u units); not a scan "
-                              "failure\n",
+            tm_printf((UB *)"[BARCODE] Unreadable capture %u: not barcode-like "
+                              "(strong_bars=%u widest=%u units)\n",
                       (UINT)g_ignored, (UINT)like_bars, (UINT)like_widest);
         }
-        else
-        {
         uint8_t error_code = BC_SCAN_ERROR_PATTERN;
         if (g_freeze_reason == 3U) error_code = BC_SCAN_ERROR_TIMEOUT;
         else if (g_adc_errors || g_invalid) error_code = BC_SCAN_ERROR_INPUT;
@@ -1316,7 +1314,6 @@ static void wave_report (void)
 #if APP_BARCODE_TEMPLATE_ENABLED && APP_BARCODE_ESTIMATES_ENABLED
         wave_estimate(&matched, (uint8_t)(4U == comparison));
 #endif
-        }
     }
     (void)bc_port_nav_finish();
 #if APP_BARCODE_WAVE_DUMP_ENABLED

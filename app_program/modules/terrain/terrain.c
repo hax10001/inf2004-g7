@@ -17,6 +17,8 @@ static ID volatile gh_calibration_mutex = 0;
 static ID volatile gh_snapshot_mutex = 0;
 static terrain_calibration volatile g_calibration = {0};
 static terrain_snapshot volatile g_snapshot = {0};
+/* Protected by the snapshot mutex, including the producer's final gate. */
+static bool g_collision_enabled;
 
 /** @brief Compute an integer square root without the floating-point library. */
 static uint32_t integer_sqrt (uint32_t number);
@@ -62,6 +64,7 @@ ER terrain_init(void)
     g_calibration = (terrain_calibration){0.0F, 0.0F, false};
 
     g_snapshot = (terrain_snapshot){0};
+    g_collision_enabled = false;
 
     return E_OK;
 }
@@ -372,11 +375,30 @@ ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot)
      * publishes a pulse, not a permanently latched local boolean. */
     terrain_snapshot next = *p_snapshot;
     next.collision_sequence = g_snapshot.collision_sequence;
-    if (p_snapshot->b_collision) ++next.collision_sequence;
+    next.b_collision = p_snapshot->b_collision && g_collision_enabled;
+    if (next.b_collision) ++next.collision_sequence;
     if (g_snapshot.b_collision) next.b_collision = 1U;
     g_snapshot = next;
 
     return tk_unl_mtx(gh_snapshot_mutex);
+}
+
+ER terrain_set_collision_enabled(bool enabled)
+{
+    if (gh_snapshot_mutex <= E_OK) return E_OBJ;
+    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
+    if (error < E_OK) return error;
+    g_collision_enabled = enabled;
+    return tk_unl_mtx(gh_snapshot_mutex);
+}
+
+bool terrain_collision_enabled(void)
+{
+    if (gh_snapshot_mutex <= E_OK) return false;
+    if (tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR) < E_OK) return false;
+    bool const enabled = g_collision_enabled;
+    (void)tk_unl_mtx(gh_snapshot_mutex);
+    return enabled;
 }
 
 ER terrain_acknowledge_collision(void)

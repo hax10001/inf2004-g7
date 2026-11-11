@@ -26,6 +26,9 @@ static float g_left_rpm, g_right_rpm;
 static obstacle_drive_t g_bypass_drive;
 static uint32_t g_now = 100U;
 static terrain_snapshot g_terrain = {.b_valid=true};
+static bool g_collision_enabled;
+ER terrain_set_collision_enabled(bool enabled)
+{g_collision_enabled=enabled;return E_OK;}
 static uint8_t g_ir_left, g_ir_right, g_scan_pending, g_capture, g_guard;
 static uint8_t g_scan_letter, g_scan_action;
 static uint16_t g_scan_seq;
@@ -198,6 +201,7 @@ static void v15_cycles(void)
         assert(g7_controller_remote_command(B1_CMD_START,NULL)==B1_OK);
         state=cycle(state,&history);
         assert(state==ROBOT_LINE_FOLLOWING);
+        assert(g_collision_enabled);
         assert(g_decoded_clears == clears_before_start);
         state=cycle(state,&history);
         assert(g_last_action==LINE_FORWARD);
@@ -228,6 +232,7 @@ static void v15_cycles(void)
         assert(g7_controller_remote_command(B1_CMD_START,NULL)==B1_NOT_READY);
         state=cycle(state,&history);
         assert(state==ROBOT_REMOTE_HOLD && g_last_action==LINE_UNCERTAIN);
+        assert(!g_collision_enabled);
         assert(!g_navigation.held && !g_navigation.pending);
         assert(g7_controller_remote_hold_applied());
         assert(g7_controller_remote_ready());
@@ -269,10 +274,12 @@ static void v15_cycles(void)
     g_terrain.b_collision=true;g_terrain.collision_sequence=1U;
     state=ROBOT_LINE_FOLLOWING;state=cycle(state,&history);
     assert(state==ROBOT_STOPPED && g_last_action==LINE_UNCERTAIN);
+    assert(!g_collision_enabled);
     assert(g_scan_result==1); /* Fault preempts result consumption. */
     assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
     state=cycle(state,&history);
     assert(state==ROBOT_REMOTE_HOLD && !g_terrain.b_collision);
+    assert(!g_collision_enabled && g7_controller_remote_ready());
     state=cycle(state,&history);
     assert(state==ROBOT_REMOTE_HOLD && g_last_action==LINE_UNCERTAIN);
     g_terrain.b_collision=true;g_terrain.collision_sequence=2U;

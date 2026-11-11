@@ -3,8 +3,9 @@ const fs=require('node:fs'),path=require('node:path');
 const {frame,command,interpret,decodeFrame,TYPES,COMMANDS}=require('../server/protocol');
 const {RobotState}=require('../server/state');
 
-function diag({state=2,white=195,sigma=17,rejects=0,pass=0,valid=0,letter=31,reason=0,ms=0}={}){
+function diag({state=2,white=195,sigma=17,rejects=0,pass=0,valid=0,letter=31,reason=0,ms=0,rejected=0,failureStatus=0}={}){
   const d=Buffer.alloc(42);d[0]=2;d[28]=state;d[29]=rejects;
+  d.writeUInt32LE(rejected,4);d[15]=failureStatus;
   d.writeUInt16LE(white,30);d.writeUInt16LE(sigma,32);d.writeUInt16LE(pass,34);
   d[36]=valid;d[37]=letter;d[38]=reason;d.writeUInt16LE(ms,40);
   return d;
@@ -19,6 +20,57 @@ test('42-byte barcode diagnostic carries scanner state, white and last pass',()=
   assert.equal(m.scanner.lastProcessMs,1810);
   const dark=interpret(decodeFrame(frame(TYPES.BARCODE_DIAG,diag({state:6,white:2472,rejects:2}))));
   assert.equal(dark.scanner.stateName,'NOT ON WHITE');assert.equal(dark.scanner.whiteRejects,2);
+});
+
+test('an unreadable completed capture remains visible through rearm even when firmware did not count a rejection',()=>{
+ const s=new RobotState();let seq=0;
+ const send=p=>s.ingest(frame(TYPES.BARCODE_DIAG,p,{session:5,seq:++seq}));
+ send(diag({state:3}));send(diag({state:4}));
+ send(diag({state:5,pass:1,reason:7,ms:600}));
+ assert.equal(s.scanOutcomes.length,1);
+ assert.equal(s.scanOutcomes[0].status,'failed');
+ assert.match(s.scanOutcomes[0].detail,/No barcode pattern found/);
+ assert.ok(s.logs.some(x=>x.category==='scanner'&&/SCAN FAILED/.test(x.message)));
+ send(diag({state:2,pass:1,reason:7,ms:600}));
+ send(diag({state:2,pass:1,reason:7,ms:600,rejected:1,failureStatus:7}));
+ assert.equal(s.scanOutcomes.length,1,'READY and delayed counter do not repeat the failure');
+});
+
+test('first diagnostic recovers a failure and simultaneous pass/counter updates create one result',()=>{
+ const s=new RobotState();let seq=0;
+ const send=p=>s.ingest(frame(TYPES.BARCODE_DIAG,p,{session:5,seq:++seq}));
+ send(diag({pass:1,reason:3,rejected:1,failureStatus:7}));
+ assert.equal(s.scanOutcomes.length,1);
+ assert.match(s.scanOutcomes[0].detail,/ambiguous letters/);
+ send(diag({pass:2,reason:1,rejected:2,failureStatus:7}));
+ assert.equal(s.scanOutcomes.length,2);
+ send(diag({pass:2,reason:1,rejected:2,failureStatus:7}));
+ assert.equal(s.scanOutcomes.length,2);
+});
+
+test('a real diagnostic letter recovers a dropped result event and pairs once in either arrival order',()=>{
+ for(const eventFirst of [false,true]){
+  const s=new RobotState();let seq=0;
+  const send=(type,p)=>s.ingest(frame(type,p,{session:5,seq:++seq}));
+  const event=id=>Buffer.from([2,1,id,0,5,0]);
+  if(eventFirst)send(TYPES.EVENT,event(1));
+  send(TYPES.BARCODE_DIAG,diag({pass:1,valid:1,letter:5}));
+  if(!eventFirst)send(TYPES.EVENT,event(1));
+  assert.equal(s.scanOutcomes.length,1);
+  assert.equal(s.scanOutcomes[0].letter,'F');
+  send(TYPES.EVENT,event(2));
+  send(TYPES.BARCODE_DIAG,diag({pass:2,valid:1,letter:5}));
+  assert.equal(s.scanOutcomes.length,2,'the same letter on a new pass is a separate scan');
+ }
+});
+
+test('legacy diagnostic already containing rejected attempts shows the failure on connect',()=>{
+ const s=new RobotState();const p=Buffer.alloc(28);
+ p.writeUInt32LE(2,4);p[15]=4;
+ s.ingest(frame(TYPES.BARCODE_DIAG,p,{session:5,seq:1}));
+ assert.equal(s.scanOutcomes.length,1);
+ assert.equal(s.scanOutcomes[0].count,2);
+ assert.match(s.scanOutcomes[0].detail,/Capture timed out/);
 });
 
 test('older 28-byte barcode diagnostic still decodes without scanner fields',()=>{

@@ -56,6 +56,11 @@ typedef struct
 } terrain_snapshot;
 /* Acknowledges only the event that the controller observed. */
 ER terrain_ack_collision(uint32_t sequence);
+/** @brief Controller enables impact detection only for an authorized run.
+ * Disabling prevents new events; an existing run fault still needs STOP ACK.
+ */
+ER terrain_set_collision_enabled(bool enabled);
+bool terrain_collision_enabled(void);
 
 /** @brief Initialise subsystem resources; device open remains task-owned. */
 ER terrain_init (void);

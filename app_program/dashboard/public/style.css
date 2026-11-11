@@ -724,6 +724,18 @@ body.consoleView .statusbar{margin:0 0 24px}
 .scannerState[data-tone=active]{color:#506c91!important;background:#edf3fa;border-color:#d4e1ef}
 .scannerState[data-tone=warning]{color:#98702b!important;background:#fff5dc;border-color:#f0dca4}
 .scannerState[data-tone=simulated]{color:#76638f!important;background:#f3eef9;border-color:#dfd3ef}
+.scannerLivePanel{padding:15px 20px;background:#f6f8fa;border-top:1px solid var(--border);border-bottom:1px solid var(--border);flex-shrink:0}
+.scannerLiveCopy strong{display:block;color:var(--navy);font-size:16px}
+.scannerLiveCopy p{margin:5px 0 12px;color:#657589;font-size:12px;line-height:1.5}
+.scannerPhases{display:flex;flex-wrap:wrap;gap:6px}
+.scannerPhases span{padding:5px 8px;border:1px solid #dfe4e9;border-radius:6px;color:#7c8793;font-size:11px;background:var(--offwhite)}
+.scannerLivePanel[data-phase="2"] [data-phase="2"],.scannerLivePanel[data-phase="3"] [data-phase="3"],.scannerLivePanel[data-phase="4"] [data-phase="4"],.scannerLivePanel[data-phase="5"] [data-phase="5"]{background:#e5edf8;border-color:#b7cbe4;color:#345b88;font-weight:700}
+.scannerLivePanel[data-tone=ready] .scannerLiveCopy strong{color:#267459}
+.scannerLivePanel[data-tone=warning] .scannerLiveCopy strong{color:#98702b}
+.scannerLastResult{margin-top:12px;padding:9px 11px;border-radius:7px;background:#eeefeb;color:#68756f;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.scannerLastResult[data-result=failed]{background:#faece8;color:#984c3f}
+.scannerLastResult[data-result=success]{background:#eaf4ed;color:#267459}
+#view-telemetry .unifiedPane .scannerLivePanel~.scanTimelineList{min-height:0;flex:1}
 .panelTools,.maintenanceMenu{position:relative;flex:0 0 auto;z-index:5}
 .panelTools summary,.maintenanceMenu summary{display:flex;gap:12px;align-items:center;justify-content:center;list-style:none;cursor:pointer;border:1px solid #ded8cb;background:#fffefa;color:#526175;border-radius:7px;padding:7px 10px;font-size:11px;font-weight:650;min-height:34px}
 .maintenanceMenu summary{min-height:40px;padding:8px 12px}

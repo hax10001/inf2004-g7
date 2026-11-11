@@ -36,17 +36,23 @@ class RobotState {
   recordScanOutcome(status, detail, options={}){
     const now=Date.now();
     const item={id:++this.logSequence,at:now,status,detail,letter:options.letter||null,
-      failureStatus:options.failureStatus??null,count:options.count||1,source:options.source||'LIVE'};
-    // A completed-count diagnostic may precede the actual letter event. Replace
-    // that provisional result if the decoded letter arrives shortly afterward.
-    const last=this.scanOutcomes[0];
-    if(status==='success' && item.letter && last?.status==='success' &&
-       !last.letter && last.source===item.source && now-last.at<2500){
-      this.scanOutcomes[0]=item;
-    }else{
-      this.scanOutcomes.unshift(item);
-      if(this.scanOutcomes.length>30)this.scanOutcomes.length=30;
+      failureStatus:options.failureStatus??null,count:options.count||1,source:options.source||'LIVE',
+      pass:options.pass??null,eventId:options.eventId??null};
+    // The pass diagnostic carries a real decoded letter and can recover a
+    // dropped EVENT. Pair the two reports once, in either arrival order.
+    if(status==='success' && item.letter){
+      const match=this.scanOutcomes.find(x=>x.status==='success' &&
+        x.letter===item.letter && x.source===item.source && now-x.at<10000 &&
+        (item.pass!==null && x.pass===null && x.eventId!==null ||
+         item.eventId!==null && x.eventId===null && x.pass!==null));
+      if(match){
+        if(item.pass!==null)match.pass=item.pass;
+        if(item.eventId!==null)match.eventId=item.eventId;
+        return;
+      }
     }
+    this.scanOutcomes.unshift(item);
+    if(this.scanOutcomes.length>30)this.scanOutcomes.length=30;
     const level=status==='failed'?'warn':'info';
     this.log('barcode',detail,level); // continuous telemetry view
     this.log('scanner',detail,level); // important event in command monitor
@@ -160,23 +166,36 @@ class RobotState {
           sc.state===6?` (read ${sc.whiteMean}; place the sensor on white or press Recalibrate barcode)`:'';
         this.log('barcode',`Scanner: ${sc.stateName}${white}`,sc.state===6?'warn':'info');
       }
-      if(sc && prevSc && sc.lastPass!==prevSc.lastPass){
+      const passChanged=sc && (prevSc?sc.lastPass!==prevSc.lastPass:sc.lastPass!==0);
+      const delta=previous?(msg.rejected-previous.rejected)>>>0:msg.rejected;
+      const rejectedDelta=delta<0x80000000?delta:0;
+      if(passChanged){
         const secs=(sc.lastProcessMs/1000).toFixed(1);
         this.log('barcode',sc.lastValid?
           `Pass ${sc.lastPass}: read ${sc.lastLetter} in ${secs} s`:
           `Pass ${sc.lastPass}: no letter (${sc.lastReasonName}) after ${secs} s`,
           sc.lastValid?'info':'warn');
-      }
-      if(!previous || previous.completed!==msg.completed || previous.rejected!==msg.rejected){
-        /* The successful-count packet and actual letter event can arrive
-         * in either order. Never invent a success alert without the letter:
-         * completed counters remain visible in diagnostic telemetry. */
-        if(previous && msg.rejected>previous.rejected){
-          const count=msg.rejected-previous.rejected;
+        if(sc.lastValid && sc.lastLetter){
+          this.recordScanOutcome('success',
+            `SCAN SUCCESS — decoded letter ${sc.lastLetter} (letter=${sc.lastLetter})`,
+            {letter:sc.lastLetter,pass:sc.lastPass,source:origin});
+        }else if(!sc.lastValid){
+          const reason=sc.lastReason===7?'No barcode pattern found in this capture':
+            sc.lastReason?sc.lastReasonName:scanFailureReason(msg.failureStatus);
           this.recordScanOutcome('failed',
-            `SCAN FAILED ×${count} — ${scanFailureReason(msg.failureStatus)} (code ${msg.failureStatus})`,
-            {count,failureStatus:msg.failureStatus,source:origin});
+            `SCAN FAILED — pass ${sc.lastPass}: ${reason} (${secs} s decoding)`,
+            {pass:sc.lastPass,count:rejectedDelta||1,
+              failureStatus:msg.failureStatus,source:origin});
         }
+      }
+      /* Old firmware has only counters. Also recover failures already present
+       * when this dashboard first connects, without repeating a pass result. */
+      const reportedPass=sc && !sc.lastValid && this.scanOutcomes.some(x=>
+        x.status==='failed' && x.pass===sc.lastPass && x.source===origin);
+      if(rejectedDelta && !reportedPass){
+        this.recordScanOutcome('failed',
+          `SCAN FAILED ×${rejectedDelta} — ${scanFailureReason(msg.failureStatus)} (code ${msg.failureStatus})`,
+          {count:rejectedDelta,failureStatus:msg.failureStatus,source:origin});
       }
     } else if(msg.kind==='snapshot'){
       if(this.snapshot && this.snapshot.mission!==msg.mission)this.log('mission',`Mission state ${this.snapshot.mission} → ${msg.mission}`);
@@ -215,7 +234,7 @@ class RobotState {
       if(msg.eventKind===1 && msg.value<=25){
         const letter=String.fromCharCode(65+msg.value);
         this.recordScanOutcome('success',`SCAN SUCCESS — decoded letter ${letter} (letter=${letter})`,
-          {letter,source:origin});
+          {letter,eventId:msg.eventId,source:origin});
       }else{
         this.log(source==='terrain'?'imu':source==='motion'||source==='line'?'movement':
           source==='obstacle'?'obstacle':'mission',`${name} · ${source} · ${detail}`,

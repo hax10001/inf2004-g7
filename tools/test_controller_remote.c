@@ -90,6 +90,9 @@ ER tk_unl_mtx(ID id)
 uint8_t b1_mqtt_connected(void) {return g_connected;}
 bool terrain_is_calibrated(void) {return true;}
 static uint8_t g_collision_latched = 0U;
+static bool g_collision_enabled;
+ER terrain_set_collision_enabled(bool enabled)
+{g_collision_enabled=enabled;return E_OK;}
 static unsigned int g_collision_acks = 0U;
 ER terrain_acknowledge_collision(void)
 {

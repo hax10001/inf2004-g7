@@ -6,6 +6,17 @@
 
 static uint32_t now;
 static unsigned int captures;
+static unsigned int rejections;
+bc_match_result_t bc_match_result(void) {return (bc_match_result_t){0};}
+bc_layout_result_t bc_layout_result(void)
+{return (bc_layout_result_t){.reason=BC_LAYOUT_FEW_BARS,.letter=255U};}
+char const *bc_layout_reason_text(uint8_t reason)
+{(void)reason;return "few bars";}
+ER bc_port_publish_buffered(bc_code_result_t const *result,uint32_t ms)
+{(void)result;(void)ms;assert(0 && "unreadable capture cannot publish a letter");return E_OK;}
+ER bc_port_publish_buffered_rejection(uint8_t code,uint32_t ms)
+{(void)ms;assert(code==BC_SCAN_ERROR_PATTERN);++rejections;return E_OK;}
+ER bc_port_nav_finish(void) {return E_OK;}
 INT tm_printf(UB const *f,...) {(void)f;return 0;}
 uint32_t encoder_now_usec(void) {return now;}
 ER bc_port_nav_begin(uint32_t ms) {(void)ms;++captures;return E_OK;}
@@ -49,6 +60,13 @@ int main(void)
     g_cancel_requested=0U;
     bc_wave_request_relearn();
     assert(!bc_wave_is_ready());
+    /* Even a capture filtered as non-barcode-like must have a failed result.
+     * This exercises the real report path, not a guessed UI timeout. */
+    g_count=0U;g_sequence=7U;g_phase=BC_WAVE_REPORT;
+    wave_report();
+    bc_wave_status(&status);
+    assert(rejections==1U && !status.last_valid && status.sequence==7U);
+    assert(status.last_reason==BC_WAVE_REASON_IGNORED);
     puts("PASS real scanner: persistent held READY, first-stripe capture, "
          "CLEAR/DONE/cancel/relearn cannot authorize START");
     return 0;

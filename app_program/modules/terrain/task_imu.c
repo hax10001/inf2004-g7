@@ -74,6 +74,7 @@ typedef struct
     int16_t previous_y;
     int16_t previous_z;
     bool     b_have_previous;
+    bool     b_collision_enabled; /**< Previous sample was in an active run. */
     uint32_t previous_time_msec;
     uint32_t last_log_msec;
 } imu_history_t;
@@ -411,10 +412,14 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         /* Sensor X/Y are sideways/forward. Keep Z in the diagnostic log;
          * vertical jerk alone does not trigger this horizontal-impact rule.
          */
-        if (sample.jerk_x > IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
+        bool const collision_enabled = terrain_collision_enabled();
+        /* The first run sample establishes a fresh impact baseline. Handling
+         * the car in STOP must neither count nor become a START-time impact. */
+        if (collision_enabled && p_history->b_collision_enabled &&
+            (sample.jerk_x > IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
             sample.jerk_x < -IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
             sample.jerk_y > IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
-            sample.jerk_y < -IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC)
+            sample.jerk_y < -IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC))
         {
             tm_printf((UB *)"[IMU] Collision detected! "
                             "XYZ jerk=(%d,%d,%d) mg/s\n",
@@ -424,6 +429,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
              * STOP acknowledges it, not a separate unsynchronised IMU flag. */
             snapshot.b_collision = true;
         }
+        p_history->b_collision_enabled = collision_enabled;
         // Compute the tilt from smoothed readings: raw ones swing by
         // several degrees with motor vibration.
         int16_t smoothed[3] = {0};

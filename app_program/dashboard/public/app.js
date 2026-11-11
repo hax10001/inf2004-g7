@@ -53,6 +53,9 @@ function buildUnifiedConsole(){
  scanner.querySelector('.scanTimelineHeading').after(scanFilters);
  const scanHeading=scanner.querySelector('.scanTimelineHeading');
  scanHeading.innerHTML='<div><div class="eyebrow">SCAN RESULTS</div><strong>Barcode scans</strong><span>Decoded letters and rejected attempts.</span></div><span id="scannerLiveState" class="scannerState" data-tone="quiet" role="status">Waiting</span>';
+ const scanLive=document.createElement('div');scanLive.className='scannerLivePanel';scanLive.id='scannerLivePanel';
+ scanLive.innerHTML='<div class="scannerLiveCopy" role="status" aria-live="polite"><strong id="scannerLiveTitle">Waiting for scanner</strong><p id="scannerLiveDetail">Connect the robot to see scanner readiness.</p></div><div class="scannerPhases" aria-label="Scan progress"><span data-phase="2">Ready to scan</span><span data-phase="3">Reading</span><span data-phase="4">Decoding</span><span data-phase="5">Rearming</span></div><div id="scannerLastResult" class="scannerLastResult" role="status" aria-live="polite">No completed scan yet.</div>';
+ scanHeading.after(scanLive);
  const streamFilters=document.createElement('div');streamFilters.className='unifiedPanelFilters';
  streamFilters.innerHTML='<label>Source <select id="telemetryFilter"><option value="all">All sensors</option><option value="telemetry">Live telemetry</option><option value="barcode">Barcode</option><option value="imu">IMU</option><option value="movement">Movement</option></select></label><input id="telemetrySearch" aria-label="Search telemetry" placeholder="Filter sensor readings…"><label><input type="checkbox" id="telemetryFollow" checked> Follow</label><button class="btn subtle" id="telemetryPause" type="button">Pause view</button>';
  sensorPanel.querySelector('.consoleHead').after(streamFilters);
@@ -398,6 +401,25 @@ function updateScannerPanels(){
   bcDiag?.received?'Offline':'Waiting';
  state.dataset.tone=!scLive?'quiet':view.mode==='SIMULATED'?'simulated':
   sc.state===2?'ready':sc.state===6?'warning':'active';
+ const titles={1:'Learning white',2:'Ready to scan',3:'Reading barcode',
+  4:'Decoding scan',5:'Rearming scanner',6:'Place sensor on white'};
+ const details={1:'Keep the barcode sensor over plain white while it learns the background.',
+  2:view.robotStatus?.running===false?'Scanner armed. Press Start to begin scanning.':'Scanner armed and waiting for the next barcode.',
+  3:'Capturing the bars. The result will appear after decoding.',
+  4:'Checking the captured pattern. A decoded letter or failed scan will follow.',
+  5:'Waiting for plain white to clear the last barcode and arm the next scan.',
+  6:'Move the barcode sensor onto plain white, or use Recalibrate barcode while stopped.'};
+ const panel=el('scannerLivePanel');
+ panel.dataset.phase=scLive?String(sc.state):'0';
+ panel.dataset.tone=state.dataset.tone;
+ el('scannerLiveTitle').textContent=scLive?
+  (view.mode==='SIMULATED'?'Simulated · ':'')+(titles[sc.state]||'Scanner inactive'):
+  bcDiag?.received?'Scanner offline':'Waiting for scanner';
+ el('scannerLiveDetail').textContent=scLive?(details[sc.state]||'No active scanner reported.'):
+  bcDiag?.received?'Scanner updates have stopped. The last result is kept below.':'Connect the robot to see scanner readiness.';
+ const latest=scans[0],lastResult=el('scannerLastResult');
+ lastResult.dataset.result=latest?.status||'none';
+ lastResult.textContent=latest?`${latest.source==='SIMULATED'?'Simulation · ':''}${latest.status==='failed'?'Last scan failed':latest.letter?'Last decoded letter: '+latest.letter:'Last scan completed'} · ${new Date(latest.at).toLocaleTimeString()} — ${latest.detail}`:'No completed scan yet.';
  const scannerFilter=el('scannerFilter').value,scannerSearch=el('scannerSearch').value.trim().toLowerCase();
  const selectedScans=scans.filter(x=>(scannerFilter==='all'||x.status===scannerFilter)&&
   (!scannerSearch||x.detail.toLowerCase().includes(scannerSearch))).slice(0,120);
@@ -405,7 +427,7 @@ function updateScannerPanels(){
  if(scanSignature!==updateScannerPanels.previous){
   updateScannerPanels.previous=scanSignature;
   paintLiveList('telemetryScanHistory',selectedScans.length?selectedScans.reverse().map(x=>
-   `<div class="scanHistoryRow ${safe(x.status)}"><span aria-hidden="true">${x.status==='failed'?'✕':'✓'}</span><div class="scanResult"><strong>${x.status==='failed'?'Scan rejected':x.letter?'Letter '+safe(x.letter):'Scan completed'}</strong><small>${x.status==='failed'?safe(x.detail):'Decoded'+(x.source==='SIMULATED'?' · simulation':'')}</small></div><time datetime="${new Date(x.at).toISOString()}" title="${safe(new Date(x.at).toLocaleString())}">${new Date(x.at).toLocaleTimeString([],{hour12:false})}</time></div>`).join(''):
+   `<div class="scanHistoryRow ${safe(x.status)}"><span aria-hidden="true">${x.status==='failed'?'✕':'✓'}</span><div class="scanResult"><strong>${x.status==='failed'?'Scan failed':x.letter?'Letter '+safe(x.letter):'Scan completed'}</strong><small>${x.status==='failed'?safe(x.detail):'Decoded'+(x.source==='SIMULATED'?' · simulation':'')}</small></div><time datetime="${new Date(x.at).toISOString()}" title="${safe(new Date(x.at).toLocaleString())}">${new Date(x.at).toLocaleTimeString([],{hour12:false})}</time></div>`).join(''):
    `<span class="emptyScan"><span aria-hidden="true">▥</span><strong>${scans.length?'No matching scans':'Waiting for the first scan'}</strong><small>${scans.length?'Try another filter or search.':'Decoded letters and rejected attempts will appear here.'}</small></span>`);
  }
 }
