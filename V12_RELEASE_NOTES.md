@@ -1,1 +1,0 @@
-V12 scanner-card cleanup, mapping-rejection diagnostics and normal-build IMU/collision enablement. See docs/V12/README.md. Downhill motor change is intentionally NOT active; see docs/V12/DOWNHILL_RAMP_IMPLEMENTATION_PROMPT.md. Do not flash without successful ARM build and bench STOP/collision tests.

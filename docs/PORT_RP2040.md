@@ -15,7 +15,7 @@ is absent. Each entry is one of three states:
 Validation dates and the profile used are given where they are known. The
 phase harnesses and the per-phase hardware logs that produced these results
 are not part of this release; see
-[Performance numbers](../README.md#performance-numbers) in the README.
+[Performance numbers](KERNEL_PORT.md#performance-numbers) in the kernel port README.
 
 > [!IMPORTANT]
 > "Qualified" in this port means a profile passed its full phase gate on

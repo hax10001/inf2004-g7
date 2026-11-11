@@ -4,7 +4,7 @@ Private/generated inputs are excluded from this comparison.
 
 | File | Change |
 |---|---|
-| [V15_RELEASE_NOTES.md](../../V15_RELEASE_NOTES.md) | new |
+| V15_RELEASE_NOTES.md (since merged into [docs/CHANGELOG.md](../CHANGELOG.md)) | new |
 | [app_program/app/nav_core.c](../../app_program/app/nav_core.c) | changed |
 | [app_program/app/nav_core.h](../../app_program/app/nav_core.h) | changed |
 | [app_program/app/task_controller.c](../../app_program/app/task_controller.c) | changed |

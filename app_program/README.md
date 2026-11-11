@@ -15,19 +15,22 @@ dependency is introduced by this restructure.
 | `app/tasks.c/.h` | Common task creation mechanism, not subsystem policy. |
 | `app/app_config.h` | Tested scheduling configuration. |
 | `board/board_config.h` | Wiring used by the working application. |
-| `drivers/` | Motor, IR and LSM303 access via BSP or kernel device calls. |
+| `app/nav_core.c/.h` | Host-testable junction/barcode navigation state machine. |
+| `drivers/` | Motor, encoder, IR and LSM303 access via BSP or kernel device calls. |
 | `modules/line_barcode/` | IR sampling, protected readings and line decisions. |
-| `modules/motion/` | Movement policy and motor-driver ownership. |
+| `modules/barcode_scanning/` | Code 39 capture (2 ms timer alarm) and decoding worker. |
+| `modules/motion/` | Movement policy, speed control, downhill governor, motor-driver ownership. |
+| `modules/obstacle/` | Ultrasonic/servo obstacle bypass (`APP_OBSTACLE_ENABLED`). |
 | `modules/terrain/` | IMU task lifecycle and measurement calculations. |
-| `modules/telemetry/` | Documented future subsystems. |
+| `modules/telemetry/` | MQTT wire protocol, bounded queues and telemetry/command task. |
 | `platform/console.c/.h` | Existing monitor state and UART fallback. |
 | `tests/` | Shared on-target reporting and excluded reference material. |
 
 There is no additional HAL. Each implemented feature has a lifecycle source
 and header, plus a separate source/header pair for each independent task.
 Line decisions are normal functions; there is no line-following task.
-Barcode decoding, encoders, telemetry
-detection and telemetry have not been invented or enabled during this move.
+(When this structure was introduced, barcode decoding, encoders and telemetry
+did not exist yet; they were added later as the modules above.)
 
 ## Template correspondence
 
@@ -48,26 +51,35 @@ their first eight characters. These are non-mutating on-target tests compiled
 only with `TEST=1`. Motion/controller behaviour is additionally covered by
 the host regression harness and its captured working-baseline traces.
 
-## Preserved configuration
+## Configuration
 
-- IR pins: left GP6, right GP2, barcode GP27.
-- Motor pins: GP8/9 left, GP10/11 right; left forward uses GP9.
-- PWM wrap: 12499; forward wheel speeds: 15 percent each.
-- Priorities: IR 5, controller 6, IMU 7; stack size 4096 bytes.
-- Controller interval: 50 ms; IR interval: 100 ms; maximum IR age: 200 ms.
-- Initial delay: 5000 ms; original console wait and settling delays remain.
-- Task creation order: IR, IMU, controller. IMU is created but stays dormant.
-- No CPU affinity is added; current RTOS scheduling policy is preserved.
+Pins are in `board/board_config.h`; timing and features in
+`app/app_config.h`. Current values:
 
-`APP_IMU_ENABLED` stays zero. Enabling it is a functional change requiring
-robot validation. IR pin configuration stays inside the sampling task's
-startup, preserving when GPIO accesses happen. The motion driver still
-initialises before task creation.
+- IR pins: left GP6, right GP2, barcode GP27 (analog). Motor pins: GP8/9
+  left, GP10/11 right. Encoders: left GP0/GP1, right GP7/GP28. Ultrasonic
+  TRIG GP4 / ECHO GP5, servo GP15. IMU I²C GP16/GP17.
+- PWM wrap: 12499 (`MOTOR_PWM_WRAP`). Line-following target 15 RPM.
+- Priorities: IR 5, controller 6, IMU 7, obstacle 6; stack size 4096 bytes.
+- Controller period 50 ms; IR period 1 ms; maximum IR age 200 ms; startup
+  delay 2000 ms (`APP_STARTUP_DELAY_MSEC`).
+- Start order in `app_main.c`: motion, IR (`line_barcode`), terrain (IMU),
+  obstacle, controller, barcode worker, then the telemetry task.
+- No CPU affinity is added.
+
+`APP_IMU_ENABLED` is 1 in normal builds and 0 in the `B1_BARCODE_TEST`
+(`G7_BARCODE_TEST=1`) profile, which keeps scanner-only capture timing. IMU
+collision stops are separately controlled by `APP_COLLISION_ENABLED` (default
+0); that threshold is uncalibrated and must be bench-tested with the wheels
+lifted before enabling. IR pin configuration stays inside the sampling task's
+startup. The motion driver initialises before task creation.
 
 ## Build and checks
 
-From `build_make/`, retain your existing SMP and console settings. A default
-UART build has no Pico SDK dependency:
+The robot firmware (Wi-Fi + MQTT) is built with `bash build_uf2.sh` from the
+project root; see the [root README](../README.md#3-build-the-firmware). For
+kernel-only or test builds from `build_make/`, retain your existing SMP and
+console settings. A default UART build has no Pico SDK dependency:
 
 ```sh
 make
@@ -100,8 +112,10 @@ Run from the repository root:
 python3 tools/format_app.py
 python3 tools/check_app_standard.py
 python3 tools/analyze_app.py --clang-tidy clang-tidy
-python3 tools/test_app.py --cc cc
+python3 tools/test_app.py --cc cc   # currently fails to compile; see root README
 ```
+
+The maintained host suite is `bash tools/run_host_tests.sh`.
 
 On Windows, use your Python executable and:
 
@@ -129,16 +143,3 @@ Mission Coordinator; it currently also executes line decisions and motor
 updates. The design instead separates those runtime responsibilities.
 See [the design-conformance audit](../docs/DESIGN_CONFORMANCE_REVIEW.md) for
 the existing-code differences, with unimplemented features excluded.
-
-
-## V12 IMU commissioning override
-
-The earlier configuration note above describes the historical baseline. In the
-V12 **normal MQTT/live build**, `APP_IMU_ENABLED` now defaults to **1** so the
-existing stationary LSM303 calibration, horizontal-jerk collision latch and
-controller STOP path are enabled. The special motor-free `B1_BARCODE_TEST`
-profile still disables the IMU task to preserve scanner-only capture timing.
-The collision threshold is uncalibrated for the actual robot and must be
-bench-tested with the wheels lifted and a physical motor power cutoff before
-on-floor driving; false positives can leave motion latched stopped. A robot
-restart may be required after a latched impact. This is not hardware-certified.
