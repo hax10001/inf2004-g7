@@ -1,3 +1,10 @@
+> **Historical (superseded).** This describes the earlier digital Code 39 scanner
+> that lived in `app_program/modules/line_barcode/` (`bc_config.h`, `bc_decode.c`,
+> `bc_scan.c`, `host/run_tests.py`). Those files no longer exist: since V7.7 the
+> barcode engine is `app_program/modules/barcode_scanning/` (buffered analog
+> capture on GP27). Kept for its design notes, calibration method and test rationale;
+> none of the commands below run on the current tree.
+
 # Digital Code 39 scanner
 
 This subsystem reads exactly one uppercase letter in a Code 39 frame such
