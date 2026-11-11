@@ -175,9 +175,9 @@ if [[ "$BARCODE_TEST" == "1" ]]; then
   echo "BARCODE TEST IMAGE: motors and obstacle detection compiled OUT."
   echo "Push the robot by hand; capture with tools/barcode_capture.py."
 elif [[ "$LIVE_CONTROL" == "1" ]]; then
-  echo "Obstacle detection and bypass enabled; ultrasonic GP4/GP5, servo GP15."
+  echo "Obstacle and collision stops follow APP_OBSTACLE_ENABLED / APP_COLLISION_ENABLED in app_config.h."
 else
-  echo "Obstacle detection and bypass enabled; ultrasonic GP4/GP5, servo GP15."
+  echo "Obstacle and collision stops follow APP_OBSTACLE_ENABLED / APP_COLLISION_ENABLED in app_config.h."
   echo "Live MQTT commands OFF: firmware may autonomously move."
 fi
 if [[ "$BARCODE_TEST" != "1" && "$LIVE_CONTROL" == "1" ]]; then

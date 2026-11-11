@@ -4,6 +4,9 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#ifndef APP_COLLISION_ENABLED
+#define APP_COLLISION_ENABLED 1 /* Also compiled with 0 to verify disabled mode. */
+#endif
 #include "modules/terrain/terrain.h"
 #include "modules/terrain/task_imu.c"
 #include "modules/terrain/tilt_math.c"
@@ -102,13 +105,19 @@ int main(void)
     imu_sample(&history,-1000); /* Fresh baseline ignores the STOP-time jerk. */
     assert(terrain_get_snapshot(&out)==E_OK && !out.b_collision);
     imu_sample(&history,1000); /* A new run-time horizontal impact still works. */
+#if APP_COLLISION_ENABLED
     assert(terrain_get_snapshot(&out)==E_OK && out.b_collision);
     assert(out.collision_sequence==4U && impact_logs==1U);
+#else
+    assert(terrain_get_snapshot(&out)==E_OK && !out.b_collision);
+    assert(out.collision_sequence==3U && impact_logs==0U);
+#endif
     assert(terrain_set_collision_enabled(false)==E_OK);
     assert(terrain_ack_collision(out.collision_sequence)==E_OK);
     imu_sample(&history,-1000);
     assert(terrain_get_snapshot(&out)==E_OK && !out.b_collision);
-    assert(out.collision_sequence==4U && impact_logs==1U);
+    assert(out.collision_sequence==(APP_COLLISION_ENABLED?4U:3U));
+    assert(impact_logs==(APP_COLLISION_ENABLED?1U:0U));
     assert(locks==0U);
     puts("PASS terrain collision: stopped handling ignored, run impacts latch, "
          "STOP acknowledgement, fresh rearm and late producer gated");

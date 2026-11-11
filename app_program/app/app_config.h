@@ -18,7 +18,11 @@
 #define APP_CONTROLLER_PRIORITY 6
 #define APP_IMU_PRIORITY 7
 #ifndef APP_OBSTACLE_ENABLED
-#define APP_OBSTACLE_ENABLED 1
+#define APP_OBSTACLE_ENABLED 0
+#endif
+/* Set to 1 to restore IMU impact-triggered stops. IMU telemetry stays on. */
+#ifndef APP_COLLISION_ENABLED
+#define APP_COLLISION_ENABLED 0
 #endif
 #define APP_OBSTACLE_PRIORITY 6
 #define APP_STARTUP_DELAY_MSEC 2000
@@ -198,7 +202,7 @@
  * lifts it this far sideways from the other, so height = this x sin(roll).
  */
 #define WHEEL_SPACING_MM 110
-/* V12 bench profile: IMU and existing collision detection enabled.
+/* IMU telemetry and calibration are independent of collision stops.
  * Calibrates only while the robot is stationary/level at boot. Missing or
  * invalid IMU must block motion rather than cause an unverified fallback.
  * The 5000 mg/s jerk threshold is NOT physically validated; keep wheels

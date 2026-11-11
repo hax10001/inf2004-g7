@@ -19,7 +19,7 @@
 #define IMU_CALIBRATION_CHANGE_MG 50
 #define IMU_CALIBRATION_RETRY_MSEC 500U
 /* Trial limit from turn/flick logs; validate normal braking and humps too. */
-#define IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC 5000
+#define IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC 12000
 
 /* Fraction of each new reading kept by the smoothing filter. Lower is
  * smoother but lags more and trims the peak; motor vibration needs some.
@@ -412,7 +412,8 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         /* Sensor X/Y are sideways/forward. Keep Z in the diagnostic log;
          * vertical jerk alone does not trigger this horizontal-impact rule.
          */
-        bool const collision_enabled = terrain_collision_enabled();
+        bool const collision_enabled = APP_COLLISION_ENABLED != 0 &&
+                                        terrain_collision_enabled();
         /* The first run sample establishes a fresh impact baseline. Handling
          * the car in STOP must neither count nor become a START-time impact. */
         if (collision_enabled && p_history->b_collision_enabled &&

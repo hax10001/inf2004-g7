@@ -7,6 +7,7 @@
 #define B1_ROBOT_APP 1
 #define B1_LIVE_COMMANDS 1
 #define APP_TEST 0
+#define APP_COLLISION_ENABLED 1 /* Exercise optional impact-stop behavior. */
 #define _PICO_RP2040_ 1
 #include "app_program/app/task_controller.c"
 

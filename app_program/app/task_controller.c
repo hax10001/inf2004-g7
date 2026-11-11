@@ -81,7 +81,7 @@ static robot_state_t handle_junction (controller_history_t * p_history);
 static bool collision_requires_stop(robot_state_t state, ER result,
                                     terrain_snapshot const *p_snapshot)
 {
-    return result >= E_OK && p_snapshot != NULL &&
+    return APP_COLLISION_ENABLED != 0 && result >= E_OK && p_snapshot != NULL &&
            p_snapshot->b_collision &&
            (state == ROBOT_LINE_FOLLOWING || state == ROBOT_OBSTACLE);
 }
@@ -229,7 +229,7 @@ uint8_t g7_controller_remote_blockers (void)
         tk_get_otm(&now) < E_OK ||
         (uint32_t)(now.lo - terrain.timestamp_msec) > APP_IR_MAX_AGE_MSEC)
         reason |= 8U;
-    if (terrain.b_collision) reason |= 64U;
+    if (APP_COLLISION_ENABLED != 0 && terrain.b_collision) reason |= 64U;
 #endif
     if (ir_shared_get_latest(&reading) < E_OK || !reading.b_valid)
     {
@@ -535,8 +535,9 @@ static robot_state_t controller_cycle(robot_state_t state,
         /* IDLE here is the startup check reached after authorized START.
          * Keep monitoring through run-time junction holds and bypasses. */
         (void)terrain_set_collision_enabled(
-            state == ROBOT_IDLE || state == ROBOT_LINE_FOLLOWING ||
-            state == ROBOT_AT_JUNCTION || state == ROBOT_OBSTACLE);
+            APP_COLLISION_ENABLED != 0 &&
+            (state == ROBOT_IDLE || state == ROBOT_LINE_FOLLOWING ||
+             state == ROBOT_AT_JUNCTION || state == ROBOT_OBSTACLE));
         /* Driving off the track round an obstacle passes floor edges and
          * marks that are not barcodes; do not start captures then.
          */
