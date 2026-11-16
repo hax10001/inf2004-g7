@@ -39,6 +39,17 @@ static obstacle_drive_t step(int32_t range,bool black,uint32_t now)
     return drive;
 }
 
+/* One period with each line sensor given, as obstacle_bypass_step does. */
+static obstacle_drive_t step_ir(bool left,bool right,uint32_t now)
+{
+    obstacle_drive_t drive={0};
+    side_mm=4000;++side_seq;
+    g_seq.b_ir_left=left;g_seq.b_ir_right=right;
+    run_phase(&g_seq,&drive,left||right,now);
+    g_seq.b_ir_left=0U;g_seq.b_ir_right=0U;
+    return drive;
+}
+
 static void passing(int32_t side)
 {
     flags=0U;front_mm=1000;fault_bits=0U;
@@ -64,7 +75,10 @@ static obstacle_drive_t finish_side(int32_t side)
     /* Rear bound: where the first empty ray crossed the object's side. */
     assert(g_seq.rear_x_mm >= g_seq.clear_rear_mm);
     assert(g_seq.end_x_mm >= g_seq.rear_x_mm);
-    assert(g_seq.end_x_mm < g_seq.rear_x_mm + OBS_SAFETY_MARGIN_MM);
+    /* No fixed extra run: only the body clearance for the return angle
+     * (under OBS_SAFETY_MARGIN_MM at 60 degrees, more turning square). */
+    assert(g_seq.end_x_mm <= g_seq.rear_x_mm + return_clearance_mm(&g_seq) +
+           OBS_SAFETY_MARGIN_MM);
     g_seq.pose.x_mm=g_seq.end_x_mm-1.0F;
     (void)step(-1,false,600);
     assert(g_seq.phase==OBS_PHASE_PASS_END);
@@ -132,18 +146,130 @@ int main(void)
     (void)step(4000,false,1100);
     assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
     g_seq.pose.y_mm=80.0F;
+#if OBS_RETURN_LINE_FOLLOW
+    /* Line seen on the 60 degree return: line following takes over at
+     * once and steers onto it; no odometry straightening turn. */
+    (void)step(4000,true,1200);
+    assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
+    drive=step(4000,true,1250);
+    assert(g_seq.phase==OBS_PHASE_VERIFY && g_seq.b_black_seen);
+    for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
+    {
+        drive=step(4000,false,1300U+i*50U);
+        if(i+1U<OBS_VERIFY_CYCLES) assert(drive.b_line_follow);
+    }
+    assert(drive.b_done && !g_seq.b_active);
+    puts("PASS line seen on the return: line following takes over");
+
+    /* Right bypass mirrors it. */
+    drive=finish_side(-1);
+    g_seq.pose.heading_rad=OBS_RETURN_DEG*OBS_RAD_PER_DEG;
+    (void)step(4000,false,1100);
+    g_seq.pose.y_mm=-80.0F;
+    (void)step(4000,true,1200);(void)step(4000,true,1250);
+    assert(g_seq.phase==OBS_PHASE_VERIFY);
+    puts("PASS right bypass return also hands over to line following");
+#else
     (void)step(4000,true,1200);(void)step(4000,true,1250);
     assert(g_seq.b_black_seen);
-    g_seq.pose.y_mm=20.0F;
+    g_seq.pose.y_mm=5.0F;
     (void)step(4000,false,1300);
-    assert(g_seq.phase==OBS_PHASE_ALIGN);
+    assert(g_seq.phase==OBS_PHASE_ALIGN && g_seq.turn_dir==1);
+    (void)step_ir(true,false,1350); /* leading (left) sensor crosses */
     g_seq.pose.heading_rad=0.0F;
-    (void)step(4000,true,1400);
+    (void)step(4000,false,1400);
     assert(g_seq.phase==OBS_PHASE_VERIFY);
     for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
         drive=step(4000,true,1500U+i*50U);
     assert(drive.b_done && !g_seq.b_active);
     puts("PASS full return, IR reacquisition, alignment and handback");
+
+    /* Issue: after the return the robot sometimes ended just beside the
+     * line and line following drove on along the white. Straightening up
+     * swept both sensors over it: the line is on the trailing (right)
+     * side, so rejoin towards it rather than hand back. */
+    {
+        float const y_before=80.0F;
+        drive=finish_side(1);
+        g_seq.pose.heading_rad=-OBS_RETURN_DEG*OBS_RAD_PER_DEG;
+        (void)step(4000,false,1100);
+        g_seq.pose.y_mm=y_before;
+        (void)step(4000,true,1200);(void)step(4000,true,1250);
+        g_seq.pose.y_mm=5.0F;
+        (void)step(4000,false,1300);
+        assert(g_seq.phase==OBS_PHASE_ALIGN && g_seq.b_line_past);
+        (void)step_ir(true,false,1350);
+        (void)step_ir(false,true,1400); /* trailing sensor too: swept over */
+        g_seq.pose.heading_rad=0.0F;
+        drive=step(4000,false,1450);
+        assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.b_seeking);
+        assert(g_seq.search_side==1 && g_seq.seek_legs==1U);
+        assert(g_seq.turn_target_ddeg==-OBS_SEEK_DEG*DDEG_PER_DEG);
+        assert(!drive.b_done);
+        puts("PASS line swept past both sensors: rejoin to the right");
+
+        /* Neither sensor reached it again: the line is on the leading
+         * (left) side. */
+        drive=finish_side(1);
+        g_seq.pose.heading_rad=-OBS_RETURN_DEG*OBS_RAD_PER_DEG;
+        (void)step(4000,false,1100);
+        g_seq.pose.y_mm=y_before;
+        (void)step(4000,true,1200);(void)step(4000,true,1250);
+        g_seq.pose.y_mm=5.0F;
+        (void)step(4000,false,1300);
+        g_seq.pose.heading_rad=0.0F;
+        drive=step(4000,false,1400);
+        assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.search_side==-1);
+        assert(g_seq.turn_target_ddeg==OBS_SEEK_DEG*DDEG_PER_DEG);
+        puts("PASS turn fell short of the line: rejoin to the left");
+
+        /* Right bypass mirrors: right sensor leads, left trails. */
+        drive=finish_side(-1);
+        g_seq.pose.heading_rad=OBS_RETURN_DEG*OBS_RAD_PER_DEG;
+        (void)step(4000,false,1100);
+        g_seq.pose.y_mm=-y_before;
+        (void)step(4000,true,1200);(void)step(4000,true,1250);
+        g_seq.pose.y_mm=-5.0F;
+        (void)step(4000,false,1300);
+        assert(g_seq.phase==OBS_PHASE_ALIGN && g_seq.turn_dir==-1);
+        (void)step_ir(false,true,1350);
+        g_seq.pose.heading_rad=0.0F;
+        (void)step(4000,false,1400);
+        assert(g_seq.phase==OBS_PHASE_VERIFY);
+        (void)finish_side(-1);
+        g_seq.pose.heading_rad=OBS_RETURN_DEG*OBS_RAD_PER_DEG;
+        (void)step(4000,false,1100);
+        g_seq.pose.y_mm=-y_before;
+        (void)step(4000,true,1200);(void)step(4000,true,1250);
+        g_seq.pose.y_mm=-5.0F;
+        (void)step(4000,false,1300);
+        (void)step_ir(true,true,1350);
+        g_seq.pose.heading_rad=0.0F;
+        (void)step(4000,false,1400);
+        assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.search_side==-1);
+        puts("PASS right bypass: leading sensor only hands back, both rejoin");
+    }
+#endif
+
+    /* The rejoin check is for the main return's large turn only: a seek
+     * leg's small straightening turn never starts another rejoin. */
+    {
+        drive=finish_side(1);
+        enter_phase(&g_seq,OBS_PHASE_SEARCH_LINE,0);
+        g_seq.b_seeking=true;g_seq.seek_legs=1U;g_seq.search_side=1;
+        g_seq.search_ddeg=-OBS_SEEK_DEG*DDEG_PER_DEG;
+        g_seq.pose.heading_rad=-OBS_SEEK_DEG*OBS_RAD_PER_DEG;
+        g_seq.pose.y_mm=-40.0F;
+        (void)step(4000,true,1050);(void)step(4000,true,1100);
+        g_seq.pose.y_mm=5.0F;
+        (void)step(4000,false,1150);
+        assert(g_seq.phase==OBS_PHASE_ALIGN && !g_seq.b_align_check);
+        (void)step_ir(true,true,1200); /* both crossed: not checked here */
+        g_seq.pose.heading_rad=0.0F;
+        (void)step(4000,false,1250);
+        assert(g_seq.phase==OBS_PHASE_VERIFY && g_seq.seek_legs==1U);
+        puts("PASS seek leg straightening is not second-guessed");
+    }
 
     passing(1);
     (void)step(240,false,100);(void)step(240,false,150);
@@ -235,7 +361,7 @@ int main(void)
     g_seq.pose.y_mm=150.0F;
     (void)step(4000,false,100);
     assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
-    g_seq.pose.y_mm=20.0F;
+    g_seq.pose.y_mm=5.0F;
     (void)step(4000,false,150);
     assert(g_seq.phase==OBS_PHASE_ALIGN && !g_seq.b_black_seen);
     puts("PASS return straightens up on the odometry line without seeing black");
@@ -263,7 +389,7 @@ int main(void)
     (void)step(4000,false,1150);
     assert(g_seq.phase==OBS_PHASE_ALIGN);
     g_seq.pose.heading_rad=0.0F;
-    (void)step(4000,true,1200);
+    (void)step_ir(true,false,1200);
     assert(g_seq.phase==OBS_PHASE_VERIFY);
     for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
         drive=step(4000,false,1250U+i*50U);
@@ -431,5 +557,6 @@ int main(void)
     (void)step(-1,false,200);
     assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
     puts("PASS echo after a default end resumes passing without flapping");
+
     return 0;
 }

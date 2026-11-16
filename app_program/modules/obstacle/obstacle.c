@@ -92,6 +92,15 @@ typedef struct
     unsigned int b_seeking:1;
     unsigned int seek_legs:3;   /**< 0..4. */
     unsigned int b_black_seen:1;
+    /* Line sensors this period, and which of them crossed the line while
+     * straightening up (ALIGN). b_line_past: the line was seen on the way
+     * in, so the sensors started ALIGN beyond it. */
+    unsigned int b_ir_left:1;
+    unsigned int b_ir_right:1;
+    unsigned int b_align_left:1;
+    unsigned int b_align_right:1;
+    unsigned int b_line_past:1;
+    unsigned int b_align_check:1; /**< Main-return ALIGN: check crossings. */
     uint32_t          enter_msec;
     int32_t           last_left;
     int32_t           last_right;
@@ -122,6 +131,10 @@ typedef struct
 
 #if OBS_SIDE_SEEN_HITS > 3U || OBS_SIDE_CLEAR_HITS > 7U || OBS_SEEK_LEGS > 7U
 #error Obstacle counter configuration exceeds its minimum-bit storage
+#endif
+
+#if (OBS_RETURN_DEG < 30) || (OBS_RETURN_DEG > 90)
+#error "OBS_RETURN_DEG must be 30..90 degrees."
 #endif
 
 #if (OBS_PASS_DEFAULT_MM <= 0) || (OBS_PASS_DEFAULT_MM >= OBS_PASS_MAX_MM) || \
@@ -193,6 +206,18 @@ static bool line_seen (obstacle_seq_t const * p_seq, bool b_black);
  */
 static void next_seek_leg (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                            uint32_t now_msec);
+/** @brief Start a search leg towards the line.
+ *  @param search_side 1 heads towards -y (the line is right of a robot
+ *  heading along it), -1 towards +y.
+ */
+static void seek_leg_towards (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                              uint32_t now_msec, int32_t search_side);
+/** @brief After straightening up, where the line is from which IR sensors
+ *  crossed it during the turn.
+ *  @return 0 between the sensors (or unknown), else the search_side that
+ *  heads back towards it.
+ */
+static int32_t align_line_side (obstacle_seq_t const * p_seq);
 /** @brief Heading that holds the passing offset from the line. */
 static int32_t offset_heading (obstacle_seq_t const * p_seq);
 /** @brief Black seen near where the IR sensors should meet the line. */
@@ -344,6 +369,9 @@ obstacle_drive_t obstacle_bypass_step (uint32_t line_left, uint32_t line_right,
         pose_update(p_seq, left_count, right_count);
 
         bool const b_black = (0U != line_left) || (0U != line_right);
+
+        p_seq->b_ir_left  = (0U != line_left) ? 1U : 0U;
+        p_seq->b_ir_right = (0U != line_right) ? 1U : 0U;
 
         run_phase(p_seq, &out, b_black, now_msec);
     }
@@ -588,7 +616,18 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                      * sweeps the IR across the line; it must see it again
                      * for the hand-back.
                      */
-                    p_seq->b_black_seen = false;
+                    p_seq->b_line_past   = p_seq->b_black_seen ? 1U : 0U;
+                    /* Only the main return's large turn sweeps the
+                     * sensors across the line in a way that says where
+                     * it is; a seek leg's small turn does not. */
+                    p_seq->b_align_check =
+                        ((!p_seq->b_seeking) &&
+                         ((heading >= (OBS_ALIGN_CHECK_DEG * DDEG_PER_DEG)) ||
+                          (heading <=
+                           -(OBS_ALIGN_CHECK_DEG * DDEG_PER_DEG)))) ? 1U : 0U;
+                    p_seq->b_black_seen  = false;
+                    p_seq->b_align_left  = 0U;
+                    p_seq->b_align_right = 0U;
                     enter_turn(p_seq, OBS_PHASE_ALIGN, 0, now_msec);
                 }
                 else if (guard_tripped(p_seq, true))
@@ -611,11 +650,41 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             case OBS_PHASE_ALIGN:
                 /* Turn along the line; line following finishes it. */
                 p_seq->b_black_seen = p_seq->b_black_seen || b_black;
+                p_seq->b_align_left  |= p_seq->b_ir_left;
+                p_seq->b_align_right |= p_seq->b_ir_right;
 
                 if (turn_step(p_seq, p_out))
                 {
-                    p_seq->verify_cycles = 0U;
-                    enter_phase(p_seq, OBS_PHASE_VERIFY, now_msec);
+                    int32_t const rejoin = align_line_side(p_seq);
+
+                    if (0 != OBS_DEBUG_LOG)
+                    {
+                        /* Values fit INT on the target; UB preserves the
+                         * string bytes. */
+                        tm_printf((UB *)"[OBS] Aligned: IR crossed L=%d "
+                                        "R=%d (line seen before: %d), "
+                                        "y=%d mm -> %s\n",
+                                  (INT)p_seq->b_align_left,
+                                  (INT)p_seq->b_align_right,
+                                  (INT)p_seq->b_line_past,
+                                  (INT)p_seq->pose.y_mm,
+                                  (0 == rejoin) ? (UB *)"on the line"
+                                  : (rejoin > 0)
+                                      ? (UB *)"line on the right, rejoin"
+                                      : (UB *)"line on the left, rejoin");
+                    }
+
+                    if (0 != rejoin)
+                    {
+                        /* Beside the line, not on it: line following
+                         * would drive on along the white. */
+                        seek_leg_towards(p_seq, p_out, now_msec, rejoin);
+                    }
+                    else
+                    {
+                        p_seq->verify_cycles = 0U;
+                        enter_phase(p_seq, OBS_PHASE_VERIFY, now_msec);
+                    }
                 }
             break;
 
@@ -1116,23 +1185,24 @@ static bool line_seen (obstacle_seq_t const * p_seq, bool b_black)
 static void next_seek_leg (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                            uint32_t now_msec)
 {
+    /* First leg carries on across, the way the return was going. */
+    int32_t const search_side =
+        p_seq->b_seeking ? -p_seq->search_side : p_seq->side;
+
+    seek_leg_towards(p_seq, p_out, now_msec, search_side);
+}
+
+static void seek_leg_towards (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                              uint32_t now_msec, int32_t search_side)
+{
     if (p_seq->seek_legs >= OBS_SEEK_LEGS)
     {
         raise_fault(p_seq, p_out, OBS_FAULT_LINE_LOST);
     }
     else
     {
-        if (!p_seq->b_seeking)
-        {
-            /* First leg carries on across, the way the return was going. */
-            p_seq->b_seeking   = true;
-            p_seq->search_side = p_seq->side;
-        }
-        else
-        {
-            p_seq->search_side = -p_seq->search_side;
-        }
-
+        p_seq->b_seeking   = true;
+        p_seq->search_side = (search_side > 0) ? 1 : -1;
         p_seq->seek_legs++;
         p_seq->b_black_seen = false;
         /* Values fit INT on the target; UB preserves the string bytes. */
@@ -1142,6 +1212,42 @@ static void next_seek_leg (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                    -p_seq->search_side * OBS_SEEK_DEG * DDEG_PER_DEG,
                    now_msec);
     }
+}
+
+static int32_t align_line_side (obstacle_seq_t const * p_seq)
+{
+    /* Straightening up sweeps the IR sensors back across the line, the
+     * sensor on the turn's side leading. Only the leading one crossing
+     * leaves the line between them. Both crossing leaves it on the
+     * trailing side; neither, when they started beyond it, on the leading
+     * side. turn_dir 1 is a left turn, so the left sensor leads, and a
+     * line on the right is reached with search_side 1 (towards -y).
+     */
+    bool const b_left_turn = p_seq->turn_dir > 0;
+    bool const b_lead  = b_left_turn ? (0U != p_seq->b_align_left)
+                                     : (0U != p_seq->b_align_right);
+    bool const b_trail = b_left_turn ? (0U != p_seq->b_align_right)
+                                     : (0U != p_seq->b_align_left);
+    int32_t    rejoin  = 0;
+
+    if (0U == p_seq->b_align_check)
+    {
+        /* Seek leg or small turn: VERIFY decides. */
+    }
+    else if (b_trail)
+    {
+        rejoin = p_seq->turn_dir;
+    }
+    else if ((!b_lead) && (0U != p_seq->b_line_past))
+    {
+        rejoin = -p_seq->turn_dir;
+    }
+    else
+    {
+        /* Between the sensors, or never seen: VERIFY decides. */
+    }
+
+    return rejoin;
 }
 
 static int32_t offset_heading (obstacle_seq_t const * p_seq)
@@ -1187,9 +1293,21 @@ static void line_found (obstacle_seq_t * p_seq, uint32_t now_msec)
     tm_printf((UB *)"[OBS] Line found; axle %d mm from it\n",
               (INT)(((float)p_seq->search_side) * p_seq->pose.y_mm));
 
-    if (OBS_PHASE_SEARCH_LINE != p_seq->phase)
+    if ((0 != OBS_RETURN_LINE_FOLLOW) && (!p_seq->b_seeking))
+    {
+        /* Main return: line following steers onto the line from here. */
+        /* UB views the same bytes; tm_printf does not modify them. */
+        tm_printf((UB *)"[OBS] Line following takes over on the return\n");
+        p_seq->verify_cycles = 0U;
+        enter_phase(p_seq, OBS_PHASE_VERIFY, now_msec);
+    }
+    else if (OBS_PHASE_SEARCH_LINE != p_seq->phase)
     {
         enter_phase(p_seq, OBS_PHASE_SEARCH_LINE, now_msec);
+    }
+    else
+    {
+        /* Already closing on the line. */
     }
 }
 

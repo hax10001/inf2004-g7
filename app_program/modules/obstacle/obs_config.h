@@ -15,6 +15,9 @@
 /* Ultrasonic ranging. */
 #define OBS_TRIG_PULSE_USEC 12U
 #define OBS_ECHO_TIMEOUT_MSEC 30U
+/* Before a trigger, wait this long at most for ECHO to fall from the last
+ * ping; still high counts as no echo (a stuck ECHO line is a fault). */
+#define OBS_ECHO_CLEAR_MSEC 50U
 #define OBS_PING_PERIOD_MSEC 60U
 #define OBS_MEDIAN_SAMPLES 3U
 #define OBS_FAR_MM 4000
@@ -50,14 +53,36 @@
 /* Wait at startup: the power-on position is unknown, so allow a full turn. */
 #define OBS_SERVO_HOME_MSEC 600U
 
-/* Panning scan. The step must be a multiple of 10 degrees. */
+/* Panning scan, from the right end to the left end. Outside
+ * +-OBS_SCAN_FINE_DEG it steps OBS_SCAN_STEP_DEG (a multiple of 10).
+ * Inside, where the object usually is, it steps OBS_SCAN_FINE_STEP_DEG (a
+ * multiple of 5 that divides the step), so the object's edges are found to
+ * half the step. Each extra point adds about 0.25 s to a scan.
+ * OBS_SCAN_FINE_DEG: a multiple of OBS_SCAN_STEP_DEG; 0 turns it off.
+ */
 #define OBS_SCAN_STEP_DEG 10
+#define OBS_SCAN_FINE_DEG 30
+#define OBS_SCAN_FINE_STEP_DEG 5
 /* Sweep each side of FRONT; never more than the servo limits above. */
 #define OBS_SCAN_LEFT_DEG OBS_SERVO_LEFT_LIMIT_DEG
 #define OBS_SCAN_RIGHT_DEG OBS_SERVO_RIGHT_LIMIT_DEG
-/* Equals the left plus right sweep divided by the step, plus one. */
+/* Fine points across the front zone, plus the coarse ones each side. */
 #define OBS_SCAN_POINTS \
-    ((OBS_SCAN_LEFT_DEG + OBS_SCAN_RIGHT_DEG) / OBS_SCAN_STEP_DEG + 1)
+    (((2 * OBS_SCAN_FINE_DEG) / OBS_SCAN_FINE_STEP_DEG) + 1 + \
+     ((OBS_SCAN_LEFT_DEG - OBS_SCAN_FINE_DEG) / OBS_SCAN_STEP_DEG) + \
+     ((OBS_SCAN_RIGHT_DEG - OBS_SCAN_FINE_DEG) / OBS_SCAN_STEP_DEG))
+/* Sweep direction. A servo settles a little short or past each target, the
+ * same way every time it is approached from the same side, which shifts
+ * every bearing of a one-way sweep and makes objects lean one way.
+ *   0 = both ways: right to left, then back; each bearing keeps the nearer
+ *       reading, so the two errors cancel and no echo is lost (twice the
+ *       scan time, about 16 s).
+ *   1 = right to left only; -1 = left to right only. Comparing the two in
+ *       the log shows how much the servo shifts the bearings.
+ */
+#ifndef OBS_SCAN_DIRECTION
+#define OBS_SCAN_DIRECTION 0
+#endif
 #define OBS_SCAN_PINGS 3U
 #define OBS_SCAN_RANGE_MM 600
 #define OBS_EDGE_JUMP_MM 80
@@ -112,7 +137,8 @@
 #define OBS_HEADING_TRIM_DIV 60
 #define OBS_HEADING_TRIM_MAX 5
 #define OBS_STOP_SETTLE_MSEC 250U
-#define OBS_SCAN_TIMEOUT_MSEC 12000U
+/* A one-way scan takes about 8-10 s, both ways about 16-20 s. */
+#define OBS_SCAN_TIMEOUT_MSEC ((0 == OBS_SCAN_DIRECTION) ? 30000U : 15000U)
 #define OBS_STATE_TIMEOUT_MSEC 30000U
 
 /* Sideways offset from the line while passing. The scan sets it; an object
@@ -156,15 +182,18 @@
  * plus half the robot width plus OBS_SAFETY_MARGIN_MM). The side needing
  * less wins. When both sides are clear and differ by no more than this, the
  * object is treated as centred and OBS_SIDE_DEFAULT is used. 0..255 mm.
- * At the 10 degree scan step each edge is only known to about half a step
- * (~22 mm at 250 mm range), so two edges can differ by ~40 mm from noise.
+ * The ultrasonic beam (about +-15..20 degrees) spreads the echoes well past
+ * a small object's real edges, so offsets of a few cm cannot be measured:
+ * near-centred objects differ by up to ~70 mm from noise alone. They count
+ * as centred and always take OBS_SIDE_DEFAULT; clearly offset objects and
+ * blocked corridors (100+ mm apart) still choose by the scan.
  *
  * OBS_SIDE_DEFAULT: side taken for a centred object, 1 left or -1 right.
  * If neither edge was seen, the farther outermost echo decides instead, and
  * this is used only when those are equal. OBS_PREFERRED_SIDE, if not 0,
  * overrides both.
  */
-#define OBS_SIDE_PREFERENCE_THRESHOLD_MM 40
+#define OBS_SIDE_PREFERENCE_THRESHOLD_MM 90
 #define OBS_SIDE_DEFAULT 1
 /* OBS_PASS_DEFAULT_MM: fallback length of the straight leg, as sensor travel
  * past the object's front face. If the side watch has not confirmed the end
@@ -225,8 +254,28 @@
  * periods. If neither IR sensor saw black since the straightening turn began,
  * the robot zig-zags across the expected line at OBS_SEEK_DEG, reversing
  * OBS_SEEK_BAND_MM beyond it, for up to OBS_SEEK_LEGS legs, then stops.
+ *
+ * OBS_RETURN_LINE_FOLLOW: 1 = on the main return, as soon as the IR
+ * sensors confirm the line, line following takes over and steers onto it
+ * (VERIFY, then hand-back); no odometry straightening turn. 0 = carry on
+ * to where odometry puts the line and straighten up there. Seek legs
+ * always straighten up by odometry.
+ *
+ * Straightening up on the main return (a turn of at least
+ * OBS_ALIGN_CHECK_DEG) sweeps the IR sensors back over the line. Only when
+ * the leading sensor alone crossed it is the line between them. If both
+ * did, or neither did after it was seen on the way in, the robot is beside
+ * the line, so a seek leg heads back to it (it counts towards
+ * OBS_SEEK_LEGS). Seek legs and small turns are not checked.
+ *
+ * OBS_RETURN_DEG: 30..90. 90 crosses the line square, but turns a full
+ * 90 degrees to straighten up and needs more travel past the object first.
  */
 #define OBS_RETURN_DEG 60
+#ifndef OBS_RETURN_LINE_FOLLOW
+#define OBS_RETURN_LINE_FOLLOW 1
+#endif
+#define OBS_ALIGN_CHECK_DEG 30
 #define OBS_LINE_CONFIRM_CYCLES 2U
 #define OBS_VERIFY_CYCLES 10U
 #define OBS_SEEK_DEG 30

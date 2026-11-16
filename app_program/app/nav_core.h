@@ -59,12 +59,17 @@ typedef struct {
      *  U-turn), ends on the first black reading after that, and faults
      *  past 135 degrees (225). 0: old timed, edge-confirmed turn. */
     uint32_t turn90_counts;
-    /** 0: a letter's action is used at the next junction only, after
-     *  which a junction with no new letter is a safety stop.
+    /** 0: a letter's action is used at the next junction only, then
+     *  discarded; a junction with no new letter goes straight or stops
+     *  (straight_default). Until used it survives an obstacle bypass.
      *  1: the action repeats at every junction until another barcode
      *  replaces it (a new letter overrides the queued one). Survives an
      *  obstacle bypass; cleared by STOP (nav_forget). */
     unsigned char repeat_action:1;
+    /** 1: a junction with no usable action (none queued, or a decode that
+     *  gave no letter) is crossed straight on. 0: safety stop there.
+     *  A junction too soon after a queued barcode still faults. */
+    unsigned char straight_default:1;
 } nav_config_t;
 typedef struct {
     uint32_t now_msec;

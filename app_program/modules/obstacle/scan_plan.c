@@ -12,15 +12,33 @@
  * always fits, so only another object beside the path makes a side unusable.
  * Both extreme bearings are included. The clear corridor needing the
  * smaller offset wins; offsets within OBS_SIDE_PREFERENCE_THRESHOLD_MM are a
- * tie and go to OBS_SIDE_DEFAULT. Two blocked corridors produce NO_ROUTE.
+ * tie and go to OBS_SIDE_DEFAULT. The comparison uses the measured needs:
+ * the OBS_MIN_LATERAL_MM floor only sets how far the chosen side drives.
+ * Two blocked corridors produce NO_ROUTE.
  * Integer maths is used because the RP2040 has no floating point unit.
  */
 #include "scan_plan.h"
 #include "obs_config.h"
 #include <stddef.h>
 
+#if ((OBS_SCAN_DIRECTION < -1) || (OBS_SCAN_DIRECTION > 1))
+#error "OBS_SCAN_DIRECTION must be 0 (both ways), 1 or -1."
+#endif
+
 #if ((OBS_SCAN_STEP_DEG % 10) != 0)
 #error "OBS_SCAN_STEP_DEG must be a multiple of 10 degrees."
+#endif
+
+#if ((OBS_SCAN_FINE_STEP_DEG <= 0) || ((OBS_SCAN_FINE_STEP_DEG % 5) != 0) || \
+     ((OBS_SCAN_STEP_DEG % OBS_SCAN_FINE_STEP_DEG) != 0))
+#error "OBS_SCAN_FINE_STEP_DEG must be a multiple of 5 dividing the step."
+#endif
+
+#if ((OBS_SCAN_FINE_DEG < 0) || \
+     ((OBS_SCAN_FINE_DEG % OBS_SCAN_STEP_DEG) != 0) || \
+     (OBS_SCAN_FINE_DEG > OBS_SCAN_LEFT_DEG) || \
+     (OBS_SCAN_FINE_DEG > OBS_SCAN_RIGHT_DEG))
+#error "OBS_SCAN_FINE_DEG must be a step multiple within the sweep."
 #endif
 
 #if ((OBS_SIDE_PREFERENCE_THRESHOLD_MM < 0) || \
@@ -45,6 +63,9 @@
 #define SEED_NONE_DEG 32767
 /* Largest value of the 12-bit need fields in scan_plan_sides_t. */
 #define NEED_LIMIT_MM 4095
+/* Range of the 12-bit signed edge field in scan_plan_side_info_t. */
+#define EDGE_MIN_MM (-2048)
+#define EDGE_MAX_MM 2047
 
 /* Packed plan layout: word A holds the first six fields, word B the rest. */
 #define RESULT_SHIFT 0U
@@ -77,6 +98,12 @@ typedef struct
     int32_t  need_mm;
     uint32_t angle_index;
     bool     b_ok;
+    uint32_t reason;  /**< SCAN_PLAN_NEED_*. */
+    int32_t  blocker; /**< Nearest corridor blocker index, or -1. */
+    /** The need before the OBS_MIN_LATERAL_MM floor, used to compare the
+     *  sides: the floor is a minimum drive, not a measurement, and one
+     *  sample crossing OBS_MIN_LATERAL_FROM_DEG must not decide the side. */
+    int32_t  compare_mm;
 } side_option_t;
 
 typedef struct
@@ -103,8 +130,11 @@ static bool is_near (scan_plan_point_t const * p_point);
 static int32_t point_x (scan_plan_point_t const * p_point);
 /** @brief Forward depth of a sample in mm. */
 static int32_t point_y (scan_plan_point_t const * p_point);
-/** @brief Half a scan step of lateral uncertainty at the sample range. */
-static int32_t edge_pad (scan_plan_point_t const * p_point);
+/** @brief Half the gap to the next sample, as lateral uncertainty at the
+ *  sample range.
+ *  @param gap_deg Bearing gap to that sample, a multiple of 5 degrees.
+ */
+static int32_t edge_pad (scan_plan_point_t const * p_point, int32_t gap_deg);
 /** @brief Outward lateral extent of an edge sample: the object may reach as
  *  far as the next, empty, ray at the edge sample's depth.
  *  @param dir 1 towards the left end of the samples, -1 towards the right.
@@ -116,14 +146,26 @@ static uint32_t to_cm (int32_t length_mm, int32_t limit_cm);
 /** @brief Find the run of near samples around the front. */
 static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
                           int32_t * p_low, int32_t * p_high);
-/** @brief True if another object sits in the corridor beside the edge. */
-static bool corridor_blocked (scan_plan_point_t const * p_points, int32_t count,
-                              int32_t low, int32_t high, int32_t outward_edge,
-                              int32_t limit_mm, int32_t sign);
+/** @brief Nearest other object in the corridor beside the edge.
+ *  @return Its sample index, or -1 if the corridor is clear.
+ */
+static int32_t corridor_blocker (scan_plan_point_t const * p_points,
+                                 int32_t count, int32_t low, int32_t high,
+                                 int32_t outward_edge, int32_t limit_mm,
+                                 int32_t sign);
 /** @brief Pick the smallest angle whose run clears the near face. */
 static uint32_t pick_angle (int32_t near_depth, int32_t need_mm);
-/** @brief Clamp a sideways need to the 12-bit report field. */
+/** @brief Clamp a sideways need or a range to a 12-bit report field. */
 static uint32_t need_field (int32_t need_mm);
+/** @brief Fill one side of the debug report.
+ *  @param edge_index Outermost object sample on that side.
+ *  @param first, last Samples beyond the edge on that side, inclusive.
+ */
+static void report_side (scan_plan_point_t const * p_points,
+                         int32_t edge_index, int32_t edge_mm, bool b_seen,
+                         int32_t first, int32_t last,
+                         side_option_t const * p_option,
+                         scan_plan_side_info_t * p_info);
 /** @brief Build a plan; prefer is 1 left, -1 right or 0 for the nearer edge.
  *  @param b_strict Never switch away from a non-zero preferred side.
  *  @param[out] p_sides Side comparison for the log; may be NULL.
@@ -169,6 +211,14 @@ int32_t scan_plan_angle_deg (uint32_t angle_index)
     return angle;
 }
 
+int32_t scan_plan_next_angle (int32_t angle_deg)
+{
+    bool const b_fine = (angle_deg >= -OBS_SCAN_FINE_DEG) &&
+                        (angle_deg < OBS_SCAN_FINE_DEG);
+
+    return angle_deg + (b_fine ? OBS_SCAN_FINE_STEP_DEG : OBS_SCAN_STEP_DEG);
+}
+
 void scan_plan_build (scan_plan_point_t const * p_points, int32_t count,
                       scan_plan_bypass_t * p_plan)
 {
@@ -186,7 +236,7 @@ static void build_plan (scan_plan_point_t const * p_points, int32_t count,
 
     if (NULL != p_sides)
     {
-        *p_sides = (scan_plan_sides_t){0U, 0U, 0U, 0U, 0U, 0U};
+        *p_sides = (scan_plan_sides_t){0};
     }
 
     if (find_cluster(p_points, count, &low, &high))
@@ -340,10 +390,15 @@ static int32_t point_y (scan_plan_point_t const * p_point)
 static int32_t edge_extent (scan_plan_point_t const * p_points, int32_t count,
                             int32_t index, int32_t dir)
 {
-    int32_t const pad    = point_x(&p_points[index]) +
-                           (dir * edge_pad(&p_points[index]));
+    int32_t const next = index + dir;
+    /* Gap to the next sample outward; past the sweep end, a full step. */
+    int32_t const gap_deg =
+        ((next >= 0) && (next < count))
+            ? abs_int(p_points[next].angle_deg - p_points[index].angle_deg)
+            : OBS_SCAN_STEP_DEG;
+    int32_t const pad = point_x(&p_points[index]) +
+                        (dir * edge_pad(&p_points[index], gap_deg));
     int32_t       extent = pad;
-    int32_t const next   = index + dir;
 
     if ((next >= 0) && (next < count))
     {
@@ -365,9 +420,17 @@ static int32_t edge_extent (scan_plan_point_t const * p_points, int32_t count,
     return extent;
 }
 
-static int32_t edge_pad (scan_plan_point_t const * p_point)
+static int32_t edge_pad (scan_plan_point_t const * p_point, int32_t gap_deg)
 {
-    return (p_point->range_mm * sine_milli(OBS_SCAN_STEP_DEG / HALF)) / MILLI;
+    int32_t const half_deg = gap_deg / HALF;
+    /* The sine table is in 5 degree steps. Half of a 5 degree gap is not
+     * in it, and sin(2.5) is within 0.1% of sin(5) / 2. */
+    int32_t const sine_m =
+        (0 == (half_deg % TRIG_STEP_DEG))
+            ? sine_milli(half_deg)
+            : (sine_milli(gap_deg) / HALF);
+
+    return (p_point->range_mm * sine_m) / MILLI;
 }
 
 static uint32_t to_cm (int32_t length_mm, int32_t limit_cm)
@@ -451,11 +514,12 @@ static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
     return b_found;
 }
 
-static bool corridor_blocked (scan_plan_point_t const * p_points, int32_t count,
-                              int32_t low, int32_t high, int32_t outward_edge,
-                              int32_t limit_mm, int32_t sign)
+static int32_t corridor_blocker (scan_plan_point_t const * p_points,
+                                 int32_t count, int32_t low, int32_t high,
+                                 int32_t outward_edge, int32_t limit_mm,
+                                 int32_t sign)
 {
-    bool b_blocked = false;
+    int32_t blocker = -1;
 
     for (int32_t index = 0; index < count; index++)
     {
@@ -467,14 +531,16 @@ static bool corridor_blocked (scan_plan_point_t const * p_points, int32_t count,
             int32_t const depth_y   = point_y(&p_points[index]);
 
             if ((outward_x >= outward_edge) && (outward_x <= limit_mm) &&
-                (depth_y <= OBS_LOOKAHEAD_MM))
+                (depth_y <= OBS_LOOKAHEAD_MM) &&
+                ((blocker < 0) ||
+                 (p_points[index].range_mm < p_points[blocker].range_mm)))
             {
-                b_blocked = true;
+                blocker = index;
             }
         }
     }
 
-    return b_blocked;
+    return blocker;
 }
 
 static uint32_t pick_angle (int32_t near_depth, int32_t need_mm)
@@ -514,16 +580,21 @@ static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
 {
     int32_t const half_mm = (OBS_ROBOT_WIDTH_MM / HALF) + OBS_SAFETY_MARGIN_MM;
     int32_t       need_mm = outward_edge + half_mm;
+    uint32_t      reason  = SCAN_PLAN_NEED_MEASURED;
 
     if (need_mm < half_mm)
     {
         need_mm = half_mm;
+        reason  = SCAN_PLAN_NEED_BODY;
     }
 
     if ((!b_edge_seen) && (need_mm < OBS_LATERAL_UNKNOWN_MM))
     {
         need_mm = OBS_LATERAL_UNKNOWN_MM;
+        reason  = SCAN_PLAN_NEED_UNSEEN;
     }
+
+    p_option->compare_mm = need_mm;
 
     /* The floor is only for an edge the scan may have cut short: a flat
      * face stops echoing at steep angles, so an echo boundary out there may
@@ -536,12 +607,16 @@ static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
         (need_mm < OBS_MIN_LATERAL_MM))
     {
         need_mm = OBS_MIN_LATERAL_MM;
+        reason  = SCAN_PLAN_NEED_MIN;
     }
 
-    p_option->need_mm = need_mm;
-    p_option->b_ok = !corridor_blocked(p_points, count, low, high, outward_edge,
-                                       need_mm + half_mm, sign);
-    p_option->angle_index      = pick_angle(near_depth, need_mm);
+    p_option->need_mm     = need_mm;
+    p_option->reason      = reason;
+    p_option->blocker     = corridor_blocker(p_points, count, low, high,
+                                             outward_edge, need_mm + half_mm,
+                                             sign);
+    p_option->b_ok        = p_option->blocker < 0;
+    p_option->angle_index = pick_angle(near_depth, need_mm);
 }
 
 static void choose_side (side_option_t const * p_left,
@@ -561,7 +636,8 @@ static void choose_side (side_option_t const * p_left,
              * two are close enough that the object counts as centred.
              * Needs are a few thousand mm at most, so this cannot overflow.
              */
-            int32_t const diff_mm = p_left->need_mm - p_right->need_mm;
+            int32_t const diff_mm =
+                p_left->compare_mm - p_right->compare_mm;
 
             if (abs_int(diff_mm) <= OBS_SIDE_PREFERENCE_THRESHOLD_MM)
             {
@@ -640,8 +716,8 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
     /* Samples are ordered right to left, so the ends are the sweep limits. */
     bool const    b_left_seen  = high < (count - 1);
     bool const    b_right_seen = low > 0;
-    side_option_t left         = {0, 0U, false};
-    side_option_t right        = {0, 0U, false};
+    side_option_t left         = {0, 0U, false, 0U, -1, 0};
+    side_option_t right        = {0, 0U, false, 0U, -1, 0};
 
     evaluate_side(p_points, count, low, high, left_x, b_left_seen, near_depth,
                   1, &left);
@@ -684,6 +760,60 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         p_sides->b_right_ok    = right.b_ok ? 1U : 0U;
         p_sides->b_tie         = b_tie ? 1U : 0U;
         p_sides->b_object      = 1U;
+        /* Bearings are -70..70 degrees, so they fit the 8-bit fields. */
+        p_sides->low_deg  = p_points[low].angle_deg;
+        p_sides->high_deg = p_points[high].angle_deg;
+        p_sides->near_mm  = need_field(near_depth);
+        p_sides->width_mm = need_field(width);
+        report_side(p_points, high, left_x, b_left_seen, high + 1, count - 1,
+                    &left, &p_sides->left);
+        report_side(p_points, low, -right_x, b_right_seen, 0, low - 1, &right,
+                    &p_sides->right);
+    }
+}
+
+static void report_side (scan_plan_point_t const * p_points,
+                         int32_t edge_index, int32_t edge_mm, bool b_seen,
+                         int32_t first, int32_t last,
+                         side_option_t const * p_option,
+                         scan_plan_side_info_t * p_info)
+{
+    int32_t edge    = edge_mm;
+    int32_t open_mm = OBS_FAR_MM;
+
+    if (edge < EDGE_MIN_MM)
+    {
+        edge = EDGE_MIN_MM;
+    }
+
+    if (edge > EDGE_MAX_MM)
+    {
+        edge = EDGE_MAX_MM;
+    }
+
+    for (int32_t index = first; index <= last; index++)
+    {
+        if (p_points[index].range_mm < open_mm)
+        {
+            open_mm = p_points[index].range_mm;
+        }
+    }
+
+    *p_info = (scan_plan_side_info_t){0};
+    /* Bearings fit 8 bits, edge is clamped to the 12-bit signed field. */
+    p_info->edge_deg    = p_points[edge_index].angle_deg;
+    p_info->edge_mm     = edge;
+    p_info->b_seen      = b_seen ? 1U : 0U;
+    p_info->reason      = p_option->reason & 0x3U;
+    p_info->open_mm     = need_field(open_mm);
+    p_info->angle_index = p_option->angle_index & 0x3U;
+    p_info->compare_mm  = need_field(p_option->compare_mm);
+
+    if (p_option->blocker >= 0)
+    {
+        p_info->b_blocked   = 1U;
+        p_info->blocker_deg = p_points[p_option->blocker].angle_deg;
+        p_info->blocker_mm  = need_field(p_points[p_option->blocker].range_mm);
     }
 }
 

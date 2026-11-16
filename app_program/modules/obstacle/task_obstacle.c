@@ -47,8 +47,27 @@ static void run_front_watch (void);
 static void leave_side_watch (side_watch_t * p_watch);
 /** @brief Cancel everything and park the servo. */
 static void abort_all (monitor_t * p_monitor, side_watch_t * p_watch);
-/** @brief Median of OBS_SCAN_PINGS pings; failures count as far. */
-static int32_t scan_range (void);
+/** @brief One sweep over the scan bearings.
+ *  @param[in] p_points Bearings to sample, ordered right to left.
+ *  @param[out] p_ranges_mm Range of each bearing, same order.
+ *  @param b_left_first Sweep left to right instead of right to left.
+ *  @return false if the scan was aborted.
+ */
+static bool scan_pass (scan_plan_point_t const * p_points,
+                       int32_t * p_ranges_mm, int32_t count,
+                       bool b_left_first);
+/** @brief Median of OBS_SCAN_PINGS pings; failures count as far.
+ *  @param angle_deg Bearing being sampled, for the debug log only.
+ */
+static int32_t scan_range (int32_t angle_deg);
+/** @brief Debug log: each sample tagged by side and by how the planner saw
+ *  it, then each side's edge, need and corridor, before the decision.
+ */
+static void log_scan_detail (scan_plan_point_t const * p_points,
+                             int32_t count, scan_plan_sides_t const * p_sides);
+/** @brief Debug log of one side of the scan. */
+static void log_side (UB const * p_name, unsigned int need_mm,
+                      scan_plan_side_info_t const * p_info);
 /** @brief Re-centre the servo if it is not at FRONT; old pings are dropped. */
 static void face_front (monitor_t * p_monitor);
 
@@ -182,31 +201,61 @@ static void judge_front (monitor_t * p_monitor)
 static void run_scan (void)
 {
     scan_plan_point_t points[OBS_SCAN_POINTS];
+    int32_t           first_mm[OBS_SCAN_POINTS];
+    int32_t           second_mm[OBS_SCAN_POINTS];
     int32_t           count = 0;
     bool              b_ok  = true;
-    /* Whole steps only, so every sample is taken where it is labelled. */
-    int32_t const right_steps =
-        SCAN_MIN(OBS_SCAN_RIGHT_DEG, servo_right_limit_deg()) /
-        OBS_SCAN_STEP_DEG;
-    int32_t const left_steps =
-        SCAN_MIN(OBS_SCAN_LEFT_DEG, servo_left_limit_deg()) /
-        OBS_SCAN_STEP_DEG;
+    /* Bearings the servo can reach; the rest of the sequence is skipped,
+     * so every sample is taken where it is labelled. */
+    int32_t const right_deg =
+        SCAN_MIN(OBS_SCAN_RIGHT_DEG, servo_right_limit_deg());
+    int32_t const left_deg =
+        SCAN_MIN(OBS_SCAN_LEFT_DEG, servo_left_limit_deg());
 
-    for (int32_t angle = -right_steps * OBS_SCAN_STEP_DEG;
-         (angle <= (left_steps * OBS_SCAN_STEP_DEG)) &&
-         (count < OBS_SCAN_POINTS) && b_ok;
-         angle += OBS_SCAN_STEP_DEG)
+    for (int32_t angle = -OBS_SCAN_RIGHT_DEG;
+         (angle <= OBS_SCAN_LEFT_DEG) && (count < OBS_SCAN_POINTS);
+         angle = scan_plan_next_angle(angle))
     {
-        if (0U != (obs_state_flags_read() & OBS_EVT_ABORT))
+        if ((angle >= -right_deg) && (angle <= left_deg))
         {
-            b_ok = false; /* The main loop handles the abort. */
-        }
-        else
-        {
-            tk_dly_tsk((RELTIM)servo_set_angle(angle));
             points[count].angle_deg = angle;
-            points[count].range_mm  = scan_range();
+            points[count].range_mm  = OBS_FAR_MM;
+            first_mm[count]         = OBS_FAR_MM;
+            second_mm[count]        = OBS_FAR_MM;
             count++;
+        }
+    }
+
+    /* The first pass runs the configured way; both-ways mode adds the
+     * opposite pass and keeps the nearer reading of each bearing. */
+    b_ok = scan_pass(points, first_mm, count, (OBS_SCAN_DIRECTION < 0));
+
+    if (b_ok && (0 == OBS_SCAN_DIRECTION))
+    {
+        b_ok = scan_pass(points, second_mm, count, true);
+    }
+
+    for (int32_t index = 0; (index < count) && b_ok; index++)
+    {
+        /* The nearer reading: an echo seen on either pass is kept, so no
+         * object is lost, and the two sweep-direction errors cancel. */
+        int32_t const range_mm = (second_mm[index] < first_mm[index])
+                                     ? second_mm[index]
+                                     : first_mm[index];
+
+        /* Readings are 0..4000 mm, so the 12-bit field holds them. */
+        points[index].range_mm = (unsigned int)range_mm;
+    }
+
+    if (b_ok && (0 == OBS_SCAN_DIRECTION) && (0 != OBS_DEBUG_LOG))
+    {
+        for (int32_t index = 0; index < count; index++)
+        {
+            /* Values fit INT on the target; UB preserves the bytes. */
+            tm_printf((UB *)"[OBS] Pass readings %d deg: R->L %d, L->R %d "
+                            "mm\n",
+                      (INT)points[index].angle_deg, (INT)first_mm[index],
+                      (INT)second_mm[index]);
         }
     }
 
@@ -215,14 +264,6 @@ static void run_scan (void)
         scan_plan_bypass_t plan = {0U, 0U};
 
         tk_dly_tsk((RELTIM)servo_set_angle(0));
-
-        for (int32_t index = 0; index < count; index++)
-        {
-            /* Values fit INT on the 32-bit target; UB preserves bytes. */
-            tm_printf((UB *)"[OBS] Scan point %d deg: %d mm\n",
-                      (INT)points[index].angle_deg,
-                      (INT)points[index].range_mm);
-        }
 
         /* An uncertain centre echo does not clear a previously
          * confirmed obstacle in front of the car.
@@ -239,11 +280,12 @@ static void run_scan (void)
             : (OBS_ROUTE_RIGHT == route) ? -1
                                          : 0;
 
-        scan_plan_sides_t sides = {0U, 0U, 0U, 0U, 0U, 0U};
+        scan_plan_sides_t sides = {0};
 
         scan_plan_build_side_report(points, count, last_mm, required_side,
                                     &plan, &sides);
         obs_state_plan_store(&plan);
+        log_scan_detail(points, count, &sides);
 
         if ((0 != OBS_DEBUG_LOG) && (0U != sides.b_object))
         {
@@ -338,7 +380,40 @@ static void abort_all (monitor_t * p_monitor, side_watch_t * p_watch)
     p_monitor->filled = 0U;
 }
 
-static int32_t scan_range (void)
+static bool scan_pass (scan_plan_point_t const * p_points,
+                       int32_t * p_ranges_mm, int32_t count,
+                       bool b_left_first)
+{
+    bool b_ok = true;
+
+    if (0 != OBS_DEBUG_LOG)
+    {
+        /* UB views the same string bytes; tm_printf does not modify. */
+        tm_printf((UB *)"[OBS] Scan pass %s\n",
+                  b_left_first ? (UB *)"left -> right"
+                               : (UB *)"right -> left");
+    }
+
+    for (int32_t step = 0; (step < count) && b_ok; step++)
+    {
+        int32_t const index = b_left_first ? (count - 1 - step) : step;
+        int32_t const angle = p_points[index].angle_deg;
+
+        if (0U != (obs_state_flags_read() & OBS_EVT_ABORT))
+        {
+            b_ok = false; /* The main loop handles the abort. */
+        }
+        else
+        {
+            tk_dly_tsk((RELTIM)servo_set_angle(angle));
+            p_ranges_mm[index] = scan_range(angle);
+        }
+    }
+
+    return b_ok;
+}
+
+static int32_t scan_range (int32_t angle_deg)
 {
     int32_t values[OBS_SCAN_PINGS];
 
@@ -367,7 +442,104 @@ static int32_t scan_range (void)
         values[slot] = key;
     }
 
+    if (0 != OBS_DEBUG_LOG)
+    {
+        /* Sorted pings, so a stray echo shows up at either end. Values fit
+         * INT on the 32-bit target; UB preserves the string bytes. */
+        tm_printf((UB *)"[OBS] Ping %d deg (%s):",
+                  (INT)angle_deg,
+                  (angle_deg > 0)   ? (UB *)"L"
+                  : (angle_deg < 0) ? (UB *)"R"
+                                    : (UB *)"front");
+
+        for (uint32_t index = 0U; index < OBS_SCAN_PINGS; index++)
+        {
+            tm_printf((UB *)" %d", (INT)values[index]);
+        }
+
+        tm_printf((UB *)" -> %d mm\n", (INT)values[OBS_SCAN_PINGS / 2U]);
+    }
+
     return values[OBS_SCAN_PINGS / 2U];
+}
+
+static void log_scan_detail (scan_plan_point_t const * p_points,
+                             int32_t count, scan_plan_sides_t const * p_sides)
+{
+    for (int32_t index = 0; index < count; index++)
+    {
+        int32_t const angle = p_points[index].angle_deg;
+        bool const    b_object =
+            (0U != p_sides->b_object) && (angle >= p_sides->low_deg) &&
+            (angle <= p_sides->high_deg);
+        bool const b_near = p_points[index].range_mm < OBS_SCAN_RANGE_MM;
+
+        /* Values fit INT on the 32-bit target; UB preserves bytes. */
+        tm_printf((UB *)"[OBS] Scan point %d deg (%s): %d mm %s\n",
+                  (INT)angle,
+                  (angle > 0)   ? (UB *)"L"
+                  : (angle < 0) ? (UB *)"R"
+                                : (UB *)"front",
+                  (INT)p_points[index].range_mm,
+                  b_object ? (UB *)"object"
+                  : b_near ? (UB *)"near (other object?)"
+                           : (UB *)"open");
+    }
+
+    if ((0 != OBS_DEBUG_LOG) && (0U != p_sides->b_object))
+    {
+        /* Fields are at most 12 bits, so INT holds them; UB preserves the
+         * string bytes. */
+        tm_printf((UB *)"[OBS] Object %d..%d deg, face %d mm ahead, "
+                        "width %d mm (near < %d mm)\n",
+                  (INT)p_sides->low_deg, (INT)p_sides->high_deg,
+                  (INT)p_sides->near_mm, (INT)p_sides->width_mm,
+                  (INT)OBS_SCAN_RANGE_MM);
+        log_side((UB *)"Left ", p_sides->left_need_mm, &p_sides->left);
+        log_side((UB *)"Right", p_sides->right_need_mm, &p_sides->right);
+        tm_printf((UB *)"[OBS] Measured need L-R = %d mm (tie within %d, "
+                        "default %s)\n",
+                  (INT)p_sides->left.compare_mm -
+                      (INT)p_sides->right.compare_mm,
+                  (INT)OBS_SIDE_PREFERENCE_THRESHOLD_MM,
+                  (OBS_SIDE_DEFAULT > 0) ? (UB *)"left" : (UB *)"right");
+    }
+}
+
+static void log_side (UB const * p_name, unsigned int need_mm,
+                      scan_plan_side_info_t const * p_info)
+{
+    static UB const * const reasons[] = {
+        (UB *)"edge + half body + margin",
+        (UB *)"half body + margin minimum",
+        (UB *)"edge beyond sweep: OBS_LATERAL_UNKNOWN_MM",
+        (UB *)"far-off edge: OBS_MIN_LATERAL_MM"};
+
+    /* Fields are at most 12 bits, so INT holds them; UB preserves bytes. */
+    tm_printf((UB *)"[OBS] %s: edge %d deg%s, %d mm out; need %d mm (%s); "
+                    "turn %d deg; open %d mm; ",
+              p_name, (INT)p_info->edge_deg,
+              (0U != p_info->b_seen) ? (UB *)"" : (UB *)" (sweep end)",
+              (INT)p_info->edge_mm, (INT)need_mm,
+              reasons[p_info->reason & 0x3U],
+              (INT)scan_plan_angle_deg(p_info->angle_index),
+              (INT)p_info->open_mm);
+
+    if (p_info->compare_mm != need_mm)
+    {
+        /* The floor sets the drive only; the sides compare measured. */
+        tm_printf((UB *)"compared as %d mm; ", (INT)p_info->compare_mm);
+    }
+
+    if (0U != p_info->b_blocked)
+    {
+        tm_printf((UB *)"BLOCKED by %d deg at %d mm\n",
+                  (INT)p_info->blocker_deg, (INT)p_info->blocker_mm);
+    }
+    else
+    {
+        tm_printf((UB *)"corridor clear\n");
+    }
 }
 
 static void face_front (monitor_t * p_monitor)

@@ -14,9 +14,43 @@ evidence for V9 onwards (test logs, size audits, checklists) is in
   and a seen object had no fallback at all. The new `OBS_PASS_DEFAULT_MM`
   (which replaces `OBS_UNSEEN_DEPTH_MM`) ends the leg in all of those cases,
   while a confirmed end still finishes earlier.
-- Bypass side choice: sides within `OBS_SIDE_PREFERENCE_THRESHOLD_MM` count as
-  centred and use `OBS_SIDE_DEFAULT`. `OBS_DEBUG_LOG` prints both side
+- Bypass side choice: sides within `OBS_SIDE_PREFERENCE_THRESHOLD_MM` (80 mm:
+  the ultrasonic beam cannot resolve offsets of a few cm) count as centred
+  and use `OBS_SIDE_DEFAULT`. `OBS_DEBUG_LOG` prints both side
   clearances, the choice, and how and where the straight leg ended.
+  The scan log now also shows each bearing's raw pings, tags every sample
+  L/R/front and object/near/open, and gives each side's edge, the floor that
+  set its need, the open space beyond it and any corridor blocker.
+- Junction with no barcode action queued (none read since START, or a
+  decode that gave no letter) is crossed straight on instead of a safety
+  stop (`APP_NAV_STRAIGHT_DEFAULT=1`; 0 restores the stop).
+- Junction actions are single-use by default (`APP_NAV_REPEAT_ACTION=0`):
+  a barcode's action is done at the next junction, then discarded. An action
+  not yet used now survives an obstacle bypass in single mode too.
+- Obstacle scan steps 5 degrees within +-30 degrees of the front
+  (`OBS_SCAN_FINE_DEG`, `OBS_SCAN_FINE_STEP_DEG`) and 10 degrees outside: 21
+  points instead of 15, so a small object's edges are found to half the
+  step. The edge padding uses the real gap to the next sample.
+- Side choice compares the measured needs: the `OBS_MIN_LATERAL_MM` floor
+  only sets how far the chosen side drives. One sample crossing
+  `OBS_MIN_LATERAL_FROM_DEG` used to add ~35 mm to one side and decide it.
+- Scan sweeps both ways by default (`OBS_SCAN_DIRECTION=0`) and keeps the
+  nearer reading of each bearing, cancelling servo backlash that shifted
+  every bearing one way; `1` / `-1` sweep one way (for comparison). The log
+  shows both passes. `OBS_SCAN_TIMEOUT_MSEC` allows for the longer scan.
+- Ultrasonic waits (up to `OBS_ECHO_CLEAR_MSEC`) for ECHO to fall before
+  triggering, so a clone that holds ECHO high after a missed echo cannot
+  have the tail of the old pulse timed as a range.
+- Bypass return: when straightening up left the IR sensors beside the line
+  (both swept over it, or neither reached it), line following drove on along
+  the white. The robot now makes a seek leg back towards the line instead.
+  `OBS_RETURN_DEG` accepts 30..90 and is checked at compile time.
+- Bypass return: once the IR sensors confirm the line on the main return,
+  line following takes over and steers onto it (`OBS_RETURN_LINE_FOLLOW=1`)
+  instead of an odometry straightening turn. The rejoin check now applies
+  only to the main return's straightening turn (at least
+  `OBS_ALIGN_CHECK_DEG`), never to seek legs, which had used up all the legs
+  on false rejoins and raised `FAULT 0x4`.
 
 - Repository cleanup: the root patch notes were merged into the
   [README](../README.md), [TROUBLESHOOTING](TROUBLESHOOTING.md),

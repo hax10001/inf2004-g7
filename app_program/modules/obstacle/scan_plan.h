@@ -30,6 +30,30 @@ typedef struct
     uint32_t word_b;
 } scan_plan_bypass_t;
 
+/* Why a side's sideways need is what it is (scan_plan_side_info_t). */
+#define SCAN_PLAN_NEED_MEASURED 0U /**< Edge offset plus clearance. */
+#define SCAN_PLAN_NEED_BODY 1U     /**< Raised to half body plus margin. */
+#define SCAN_PLAN_NEED_UNSEEN 2U   /**< Edge beyond sweep: UNKNOWN floor. */
+#define SCAN_PLAN_NEED_MIN 3U      /**< Far-off edge: MIN_LATERAL floor. */
+
+/** @brief One side of the scan, for the scanner task's debug log. */
+typedef struct
+{
+    /* Bearings are -70..70 degrees (8 signed bits). The edge offset is
+     * clamped to -2048..2047 mm (12 signed bits); ranges are clamped to
+     * 0..4095 mm (12 bits). Only the scanner task uses this local record. */
+    signed int   edge_deg:8;    /**< Outermost object sample on this side. */
+    signed int   edge_mm:12;    /**< Edge offset outward from the line. */
+    unsigned int b_seen:1;      /**< The edge is inside the sweep. */
+    unsigned int reason:2;      /**< SCAN_PLAN_NEED_*. */
+    unsigned int b_blocked:1;   /**< Another object sits in the corridor. */
+    signed int   blocker_deg:8; /**< Nearest blocking sample, if blocked. */
+    unsigned int blocker_mm:12;
+    unsigned int open_mm:12;    /**< Nearest echo beyond the edge. */
+    unsigned int angle_index:2; /**< Turn-out angle index for this side. */
+    unsigned int compare_mm:12; /**< Need before the MIN_LATERAL floor. */
+} scan_plan_side_info_t;
+
 /** @brief How the bypass side was chosen, for the scanner task's log. */
 typedef struct
 {
@@ -40,8 +64,15 @@ typedef struct
     unsigned int right_need_mm:12;
     unsigned int b_left_ok:1;  /**< Left corridor is clear. */
     unsigned int b_right_ok:1; /**< Right corridor is clear. */
-    unsigned int b_tie:1;      /**< Within OBS_SIDE_PREFERENCE_THRESHOLD_MM. */
+    unsigned int b_tie:1;      /**< Compared needs within the threshold. */
     unsigned int b_object:1;   /**< An object was found ahead. */
+    /* Object bearings -70..70 degrees; depth and width 0..4095 mm. */
+    signed int   low_deg:8;    /**< Rightmost object sample. */
+    signed int   high_deg:8;   /**< Leftmost object sample. */
+    unsigned int near_mm:12;   /**< Nearest face, forward of the sensor. */
+    unsigned int width_mm:12;  /**< Edge to edge across the line. */
+    scan_plan_side_info_t left;
+    scan_plan_side_info_t right;
 } scan_plan_sides_t;
 
 /** @brief Bypass heading change for an angle index.
@@ -49,6 +80,12 @@ typedef struct
  *  @return The angle in degrees.
  */
 int32_t scan_plan_angle_deg (uint32_t angle_index);
+
+/** @brief The bearing scanned after this one, going right to left: the
+ *  fine step inside +-OBS_SCAN_FINE_DEG, the normal step outside it.
+ *  @param angle_deg A bearing of the scan sequence.
+ */
+int32_t scan_plan_next_angle (int32_t angle_deg);
 
 /** @brief Find the object ahead, its edges, the clearer side and the path.
  *  @param[in] p_points Samples ordered from right to left.

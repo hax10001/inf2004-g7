@@ -45,9 +45,10 @@ void nav_start(nav_controller_t *nav, uint32_t now_msec)
     nav->edge_since = 0U;
     nav->decode_hold = 0U;
     nav->state_since = now_msec;
-    /* Repeat mode: the action before an obstacle bypass carries on. Its
-     * barcode is long passed, so no barcode clearance applies to it. */
-    if (nav->cfg.repeat_action && nav->held)
+    /* An action not yet used (single mode) or still repeating survives an
+     * obstacle bypass. Its barcode is long passed, so no barcode clearance
+     * applies to it. */
+    if (nav->held)
     {
         nav->pending = 1U;
         nav->letter = nav->held_letter;
@@ -55,11 +56,16 @@ void nav_start(nav_controller_t *nav, uint32_t now_msec)
         nav->barcode_counts = 0U;
     }
 }
-/* A junction action finished. Single mode: it is used up. Repeat mode:
- * it stays queued for the next junction until a new barcode replaces it. */
+/* A junction action finished. Single mode: it is used up and forgotten,
+ * so the next junction needs a new barcode. Repeat mode: it stays queued
+ * for the next junction until a new barcode replaces it. */
 static void nav_action_done(nav_controller_t *nav)
 {
-    if (!(nav->cfg.repeat_action && nav->held)) nav->pending = 0U;
+    if (!(nav->cfg.repeat_action && nav->held))
+    {
+        nav->pending = 0U;
+        nav->held = 0U;
+    }
 }
 int nav_barcode(nav_controller_t *nav, uint8_t letter, uint8_t action,
                 uint16_t seq, uint32_t ms, uint32_t traveled)
@@ -85,12 +91,11 @@ int nav_barcode(nav_controller_t *nav, uint8_t letter, uint8_t action,
     if (nav->pending != 0U && !nav->cfg.repeat_action) return -1;
     nav->pending = 1U;
     if (nav->decode_hold) nav->hold_letter = 1U;
-    if (nav->cfg.repeat_action)
-    {
-        nav->held = 1U;
-        nav->held_letter = letter;
-        nav->held_action = action;
-    }
+    /* Remembered until used (single) or replaced (repeat), so an obstacle
+     * bypass between the barcode and its junction does not lose it. */
+    nav->held = 1U;
+    nav->held_letter = letter;
+    nav->held_action = action;
     nav->letter = letter;
     nav->action = action;
     nav->barcode_counts = traveled;
@@ -146,6 +151,14 @@ static void nav_take_junction(nav_controller_t *nav, uint32_t now,
     result->event = NAV_EVENT_JUNCTION;
     result->value = nav->action;
 }
+/* Confirmed junction with no usable action: cross it straight on. Nothing
+ * is queued, so the remembered repeat action (none) is left untouched. */
+static void nav_take_straight(nav_controller_t *nav, uint32_t now,
+                              nav_result_t *result)
+{
+    nav->action = NAV_STRAIGHT;
+    nav_take_junction(nav, now, result);
+}
 static void nav_fault(nav_controller_t *nav, uint8_t reason,
                       nav_result_t *result)
 {
@@ -188,6 +201,12 @@ static void nav_decode_hold(nav_controller_t *nav, const nav_sample_t *s,
             /* Decode failed: carry on with the remembered action. */
             nav->black_since = 0U;
             nav_take_junction(nav, s->now_msec, result);
+        }
+        else if (nav->cfg.straight_default)
+        {
+            /* No letter and nothing remembered: go straight on. */
+            nav->black_since = 0U;
+            nav_take_straight(nav, s->now_msec, result);
         }
         else nav_fault(nav, 5U, result); /* decode gave no usable letter */
     }
@@ -261,6 +280,11 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
                  * is not barcode ink; the capture is the junction tape
                  * passing the barcode sensor (logged), and is ignored. The
                  * clearance is measured from where the barcode ended. */
+                else if (!nav->pending && nav->cfg.straight_default)
+                {
+                    /* No barcode action for this junction: go straight. */
+                    nav_take_straight(nav, s->now_msec, &result);
+                }
                 else if (!nav->pending ||
                     (uint32_t)(s->travel_counts - nav->barcode_counts) <
                     nav->cfg.min_after_barcode_counts)

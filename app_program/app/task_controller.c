@@ -439,7 +439,8 @@ void task_controller_task (INT start_code, void * p_context)
             APP_NAV_CENTRE_COUNTS,
             APP_NAV_CENTRE_MAX_MSEC,
             APP_NAV_TURN90_COUNTS,
-            APP_NAV_REPEAT_ACTION
+            APP_NAV_REPEAT_ACTION,
+            APP_NAV_STRAIGHT_DEFAULT
         };
         nav_init(&g_navigation, &cfg);
     }

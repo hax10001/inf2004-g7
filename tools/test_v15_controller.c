@@ -144,7 +144,7 @@ static void obstacle_handoff(void)
 {
     controller_history_t history={0};
     nav_init(&g_navigation,
-        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U});
+        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U});
     nav_start(&g_navigation,1U);
     assert(nav_barcode(&g_navigation,0U,NAV_LEFT,1U,1U,0U)==1);
     g_obstacle_blocked=true;
@@ -165,7 +165,9 @@ static void obstacle_handoff(void)
     assert(g_last_action==LINE_FORWARD);
     g_bypass_drive=(obstacle_drive_t){0,0,false,false,true,false};
     assert(handle_obstacle(&history)==ROBOT_LINE_FOLLOWING);
-    assert(g_navigation.state==NAV_FOLLOW && !g_navigation.pending);
+    /* The unused turn survives the bypass (single mode). */
+    assert(g_navigation.state==NAV_FOLLOW && g_navigation.pending &&
+           g_navigation.action==NAV_LEFT);
     assert(g_last_action==LINE_UNCERTAIN);
 
     g_bypass_drive=(obstacle_drive_t){0,0,false,false,false,true};
@@ -218,7 +220,7 @@ static void v15_cycles(void)
     controller_history_t history={0};
     robot_state_t state=ROBOT_REMOTE_HOLD;
     nav_config_t repeat={10U,50U,2500U,1800U,120U,96U,1500U,
-                          8000U,1500U,0U,0U,0U,1U};
+                          8000U,1500U,0U,0U,0U,1U,0U};
     nav_init(&g_navigation,&repeat);
     g_force_busy=false;g_connected=1U;g_obstacle_fault=false;
     g_obstacle_blocked=false;g_ir_left=0U;g_ir_right=0U;
@@ -421,7 +423,7 @@ int main(void)
     assert(g7_controller_mission_state() == 2U);
     /* A confirmed navigation failure is a safe, recoverable STOP state.
      * No START can pass until operator STOP clears the navigation fault. */
-    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U});
+    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U});
     g_navigation.state = NAV_FAULT;
     remote_publish_state(ROBOT_NAV_SAFETY_STOP);
     assert(g7_controller_remote_ready() == 0U);

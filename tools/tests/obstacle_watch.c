@@ -19,9 +19,15 @@ static unsigned int plan_count;
 
 INT tm_printf(UB const *format, ...) {(void)format;return 0;}
 ER tk_dly_tsk(UINT delay) {clock_ms+=delay;return E_OK;}
+/* Simulated servo lag: it stops lag_deg short of each target, so the
+ * real bearing depends on the direction it arrived from. */
+static int32_t lag_deg, move_dir, lag_lo=-10, lag_hi=10;
+static unsigned int left_moves, right_moves;
 uint32_t servo_set_angle(int32_t angle)
 {
     unsigned movement=(unsigned)abs(angle-current_angle);
+    if(angle>current_angle) {move_dir=1;++left_moves;}
+    if(angle<current_angle) {move_dir=-1;++right_moves;}
     current_angle=angle;
     if(angle<min_angle) min_angle=angle;
     if(angle>max_angle) max_angle=angle;
@@ -31,6 +37,13 @@ int32_t obs_state_watch_angle_get(void) {return watch_angle;}
 ultrasonic_result_t ultrasonic_ping(int32_t *range)
 {
     clock_ms+=OBS_ECHO_TIMEOUT_MSEC;
+    if(lag_deg!=0)
+    {
+        int32_t const actual=current_angle-move_dir*lag_deg;
+        if(actual<lag_lo || actual>lag_hi) return ULTRASONIC_OUT_OF_RANGE;
+        *range=240;
+        return ULTRASONIC_OK;
+    }
     *range=current_angle==0?front_range:240;
     return echo_result;
 }
@@ -144,5 +157,23 @@ int main(void)
            !(worker_flags&OBS_EVT_SCAN_REQ));
     assert(clock_ms-scan_started<OBS_SCAN_TIMEOUT_MSEC);
     puts("PASS real scan worker covers both servo extremes within its timeout");
+
+#if (0 == OBS_SCAN_DIRECTION)
+    /* Both ways: the sweep runs right to left, then back. */
+    assert(left_moves>0U && right_moves>1U);
+    /* A centred object and a servo that lags 5 degrees: one-way it would
+     * lean (edges -5..15 or -15..5); both ways keep -15..15, so the sides
+     * stay equal whichever way the servo lags. */
+    for(int32_t sign=-1;sign<=1;sign+=2)
+    {
+        lag_deg=5*sign;
+        worker_flags=OBS_EVT_SCAN_REQ;
+        run_scan();
+        assert(scan_plan_result(&stored_plan)==SCAN_PLAN_ROUTE);
+        assert(scan_plan_side_is_left(&stored_plan)==(OBS_SIDE_DEFAULT>0));
+    }
+    lag_deg=0;
+    puts("PASS two-way scan cancels a servo lag in either direction");
+#endif
     return 0;
 }

@@ -164,7 +164,9 @@
  * mapped action. No letter (failed decode) still ends in a safety stop. */
 /* JUNCTION ACTION MODE
  *   0 = single action: a barcode's action is done at the next junction
- *       only; a later junction with no new barcode is a safety stop.
+ *       only, then discarded; a later junction with no new barcode goes
+ *       straight (APP_NAV_STRAIGHT_DEFAULT) or is a safety stop. An action
+ *       not yet used survives an obstacle bypass; STOP clears it.
  *   1 = repeat action: the action is done at EVERY junction until another
  *       barcode replaces it. It survives an obstacle bypass; STOP (or MQTT
  *       loss) clears it, so each START begins with no action queued.
@@ -172,6 +174,13 @@
  * for that letter; in repeat mode a failed decode falls back to the
  * remembered action instead of a safety stop. */
 #define APP_NAV_REPEAT_ACTION 1U
+/* Junction with no usable action (no barcode read since START, or a decode
+ * that gave no letter with nothing remembered):
+ *   1 = drive straight across it and carry on line following.
+ *   0 = navigation safety stop (the previous behaviour).
+ * A junction confirmed too soon after a queued barcode
+ * (APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS) still stops either way. */
+#define APP_NAV_STRAIGHT_DEFAULT 1U
 #define APP_NAV_DECODE_WAIT_MSEC 8000U
 #define APP_NAV_DECODE_GRACE_MSEC 1500U
 /* Junction turns (left, right, U-turn) pivot on the spot with the wheel

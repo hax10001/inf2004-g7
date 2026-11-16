@@ -30,6 +30,10 @@
 #define US_SOUND_NUM 343
 #define US_SOUND_DEN 2000
 
+/** @brief Wait up to OBS_ECHO_CLEAR_MSEC for ECHO to be low.
+ *  @return false if ECHO is still high: the last pulse has not ended.
+ */
+static bool wait_echo_low (void);
 /** @brief Raise TRIG for OBS_TRIG_PULSE_USEC; the only busy wait. */
 static void send_trigger (void);
 /** @brief Convert counted microseconds to millimetres. */
@@ -63,23 +67,34 @@ ultrasonic_result_t ultrasonic_ping (int32_t * p_mm)
     ultrasonic_result_t result  = ULTRASONIC_NO_ECHO;
     UW                  ticks   = 0U;
     bool                b_ended = false;
+    /* Some HC-SR04 clones hold ECHO high long after a missed echo; a
+     * trigger then would time the tail of the old pulse. */
+    bool const          b_clear = wait_echo_low();
 
-    out_w(US_REG_CTR, 0U);
-    send_trigger();
-
-    for (uint32_t waited = 0U; (waited < OBS_ECHO_TIMEOUT_MSEC) && (!b_ended);
-         waited++)
+    if (b_clear)
     {
-        tk_dly_tsk(1);
-        ticks = in_w(US_REG_CTR) & US_COUNT_MASK;
+        out_w(US_REG_CTR, 0U);
+        send_trigger();
 
-        if ((ticks > 0U) && (0U == gpio_get_val(BOARD_US_ECHO_PIN)))
+        for (uint32_t waited = 0U;
+             (waited < OBS_ECHO_TIMEOUT_MSEC) && (!b_ended); waited++)
         {
-            b_ended = true;
+            tk_dly_tsk(1);
+            ticks = in_w(US_REG_CTR) & US_COUNT_MASK;
+
+            if ((ticks > 0U) && (0U == gpio_get_val(BOARD_US_ECHO_PIN)))
+            {
+                b_ended = true;
+            }
         }
     }
 
-    if (ticks > 0U)
+    if (!b_clear)
+    {
+        /* ECHO stuck high: the sensor is still busy or faulty. */
+        result = ULTRASONIC_NO_ECHO;
+    }
+    else if (ticks > 0U)
     {
         int32_t const range_mm = ticks_to_mm(ticks);
 
@@ -131,6 +146,20 @@ int32_t ultrasonic_median_of_three (int32_t first, int32_t second,
     }
 
     return mid;
+}
+
+static bool wait_echo_low (void)
+{
+    bool b_low = (0U == gpio_get_val(BOARD_US_ECHO_PIN));
+
+    for (uint32_t waited = 0U; (waited < OBS_ECHO_CLEAR_MSEC) && (!b_low);
+         waited++)
+    {
+        tk_dly_tsk(1);
+        b_low = (0U == gpio_get_val(BOARD_US_ECHO_PIN));
+    }
+
+    return b_low;
 }
 
 static void send_trigger (void)

@@ -56,9 +56,14 @@ static void cal_visual_sweep (void);
 static void cal_find_limits (void);
 #endif
 
+/* The fixtures are plain 10 degree samples; the planner takes any bearing
+ * sequence up to OBS_SCAN_POINTS long. */
+#define TEST_POINTS \
+    ((OBS_SCAN_LEFT_DEG + OBS_SCAN_RIGHT_DEG) / OBS_SCAN_STEP_DEG + 1)
+
 void test_obs_run (void)
 {
-    scan_plan_point_t  points[OBS_SCAN_POINTS];
+    scan_plan_point_t  points[TEST_POINTS];
     scan_plan_bypass_t plan = {0U, 0U};
     int32_t const      zero = OBS_SCAN_RIGHT_DEG / OBS_SCAN_STEP_DEG;
     uint32_t const     word = obs_state_status_pack(
@@ -74,7 +79,7 @@ void test_obs_run (void)
                (TEST_PLAN_WIDTH_CM == obs_state_status_width_cm(word)));
 
     fill(points, 1500);
-    scan_plan_build(points, OBS_SCAN_POINTS, &plan);
+    scan_plan_build(points, TEST_POINTS, &plan);
     report("empty scan is clear", SCAN_PLAN_CLEAR == scan_plan_result(&plan));
 
     /* A narrow object straight ahead: three samples around 0 degrees. */
@@ -82,7 +87,7 @@ void test_obs_run (void)
     points[zero - 1].range_mm = 254;
     points[zero].range_mm     = 250;
     points[zero + 1].range_mm = 254;
-    scan_plan_build(points, OBS_SCAN_POINTS, &plan);
+    scan_plan_build(points, TEST_POINTS, &plan);
     report("narrow object gives a route",
            SCAN_PLAN_ROUTE == scan_plan_result(&plan));
     /* Values are non-negative; UINT matches %u on the 32-bit target. */
@@ -93,7 +98,7 @@ void test_obs_run (void)
 
     /* Filling the sweep hides both edges, so the widest offset is used. */
     fill(points, 200);
-    scan_plan_build(points, OBS_SCAN_POINTS, &plan);
+    scan_plan_build(points, TEST_POINTS, &plan);
     report("object filling the sweep uses the unknown-edge offset",
            (SCAN_PLAN_ROUTE == scan_plan_result(&plan)) &&
                ((scan_plan_lateral_cm(&plan) * 10) >= OBS_LATERAL_UNKNOWN_MM));
@@ -105,7 +110,7 @@ void test_obs_run (void)
     points[zero].range_mm     = 250;
     points[zero + 1].range_mm = 254;
     points[zero + 2].range_mm = 400;
-    scan_plan_build(points, OBS_SCAN_POINTS, &plan);
+    scan_plan_build(points, TEST_POINTS, &plan);
     report("objects on both sides give no route",
            SCAN_PLAN_NO_ROUTE == scan_plan_result(&plan));
 
