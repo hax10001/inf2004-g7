@@ -68,8 +68,13 @@ typedef struct {
     unsigned char repeat_action:1;
     /** 1: a junction with no usable action (none queued, or a decode that
      *  gave no letter) is crossed straight on. 0: safety stop there.
-     *  A junction too soon after a queued barcode still faults. */
+     *  A junction too soon after a queued barcode still faults, unless
+     *  clearance_straight is set. */
     unsigned char straight_default:1;
+    /** 1: a junction confirmed too soon after a queued barcode (closer
+     *  than min_after_barcode_counts) is crossed straight on and that
+     *  suspect action is dropped. 0: safety stop there (fault 1). */
+    unsigned char clearance_straight:1;
 } nav_config_t;
 typedef struct {
     uint32_t now_msec;
@@ -105,6 +110,9 @@ typedef struct {
     unsigned int held_letter:5;
     unsigned int held_action:2;
     unsigned int have_barcode:1; /* zero is a valid wrapped sequence */
+    /** Set when a too-close action was dropped (clearance_straight); the
+     *  caller reports it and clears it. */
+    unsigned int clearance_dropped:1;
     uint32_t hold_since;
     uint32_t decode_idle_since; /* 0 while the scanner is still decoding */
     uint32_t state_since;

@@ -30,6 +30,10 @@ for commands; without it, requests get HTTP 401.
 - **Overview**: robot connection, mapping state, START readiness, sensor-feed
   freshness and the last scan. A live MQTT heartbeat is shown separately from
   sensor freshness, because a connected robot can still have stale sensors.
+  **Lifted height** is the firmware's accelerometer estimate of how far the
+  robot is off the floor; it also appears under Map & robot and in the
+  Console sensor pane, with whether the lift stop has fired
+  (see [robot operation](ROBOT_OPERATION.md#lift-stop)).
 - **Map & robot**: robot-acknowledged letter assignments, barcode detection
   order, an odometry-estimated route (only when `ODOM` packets arrive) and an
   illustrative 3D chassis. It is not a SLAM map.

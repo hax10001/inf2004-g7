@@ -33,7 +33,8 @@ typedef enum
     ROBOT_NAV_SAFETY_STOP, /**< Recoverable ONLY after explicit STOP. */
     ROBOT_ERROR, /**< Hardware/OS error: stays latched until reset. */
     ROBOT_REMOTE_HOLD,
-    ROBOT_OBSTACLE
+    ROBOT_OBSTACLE,
+    ROBOT_LIFTED /**< Picked up: motors off until placed back down. */
 } robot_state_t;
 
 typedef struct
@@ -41,13 +42,20 @@ typedef struct
     line_follow_action_t previous_action;
     bool                 b_have_previous_action;
     uint32_t             junction_count;
-    uint32_t             junction_cycles; /**< Periods since stopping. */
-    uint32_t             settle_cycles;   /**< Periods back on a line. */
+    /* Both stop counting at their limits (5 and 3 periods by default). */
+    uint8_t              junction_cycles; /**< Periods since stopping. */
+    uint8_t              settle_cycles;   /**< Periods back on a line. */
     bool                 b_rearmed;       /**< Both black after the hold. */
 } controller_history_t;
+#if (JUNCTION_HOLD_CYCLES > 255U) || (JUNCTION_SETTLE_CYCLES > 255U)
+#error Junction hold/settle periods no longer fit their 8-bit counters
+#endif
 static uint32_t g_collision_seen;
 #if APP_IMU_ENABLED
 static uint32_t g_imu_last_good_msec;
+/* When the robot was first seen standing on the floor again while
+ * ROBOT_LIFTED; 0 while it is not. Controller task only. */
+static uint32_t g_lift_floor_since;
 #endif
 /* Single-controller ownership; the remote mutex protects published copies. */
 static struct
@@ -77,6 +85,15 @@ static robot_state_t handle_obstacle (controller_history_t * p_history);
  * steady line reading after that resumes following.
  */
 static robot_state_t handle_junction (controller_history_t * p_history);
+#if APP_IMU_ENABLED && APP_LIFT_STOP_ENABLED && APP_LIFT_RESUME_ENABLED
+/** @brief While lifted, resume once standing on the floor long enough.
+ * @param b_on_floor This period's fresh IMU and IR say it is on the floor.
+ * @return ROBOT_IDLE to resume (IDLE rechecks IR before following), or
+ * ROBOT_LIFTED to keep waiting.
+ */
+static robot_state_t lift_try_resume (bool b_on_floor, uint32_t now_msec,
+                                      controller_history_t * p_history);
+#endif
 /* Preserve V14's distinction between holding and driving states. */
 static bool collision_requires_stop(robot_state_t state, ER result,
                                     terrain_snapshot const *p_snapshot)
@@ -130,6 +147,9 @@ static void nav_report(nav_event_t kind, uint8_t value)
  * angle is its growth over the track. Called once per controller period.
  */
 static uint32_t g_nav_path_counts = 0U;
+/* Nonzero while the barcode handoff to navigation could not be enabled
+ * mid-run; retried every period while following. Controller task only. */
+static uint8_t g_nav_handoff_retry = 0U;
 /* Forward travel at the last period a barcode capture was active. */
 static uint32_t g_capture_end_travel = 0U;
 static int32_t g_nav_last_left = 0;
@@ -149,6 +169,26 @@ static uint32_t nav_path_counts(void)
     g_nav_path_counts += (dl > INT32_MAX ? 0U - dl : dl) +
                          (dr > INT32_MAX ? 0U - dr : dr);
     return g_nav_path_counts;
+}
+
+/** @brief Mid-run: enable the barcode handoff to navigation.
+ * @return true to carry on line following. With APP_NAV_SCAN_FAIL_STOP 0 a
+ * failure is retried each period while the robot keeps following (no
+ * barcodes reach navigation until it succeeds); with 1 it stops.
+ */
+static bool nav_handoff_continue (void)
+{
+    if (g7_nav_continue_run())
+    {
+        g_nav_handoff_retry = 0U;
+        return true;
+    }
+
+    tm_printf((UB *)"[NAV] Barcode handoff failed; %s\n",
+              (APP_NAV_SCAN_FAIL_STOP != 0) ? "-> STOPPED" :
+              "continuing without barcodes, retrying");
+    g_nav_handoff_retry = 1U;
+    return APP_NAV_SCAN_FAIL_STOP == 0;
 }
 
 ER g7_controller_remote_init (void)
@@ -187,6 +227,7 @@ uint8_t g7_controller_mission_state (void)
         case ROBOT_NAV_SAFETY_STOP: return 5U; /* Navigation safe stop */
         case ROBOT_ERROR: return 7U;
         case ROBOT_REMOTE_HOLD: return 6U;
+        case ROBOT_LIFTED: return 4U; /* Paused; resumes when put down. */
         default: return 1U;
     }
 }
@@ -358,9 +399,17 @@ static robot_state_t remote_reset_after_stop(robot_state_t prior)
     return (prior == ROBOT_ERROR) ? ROBOT_ERROR : ROBOT_REMOTE_HOLD;
 }
 
-/** @brief Read queued requests without blocking the motor owner.
- * If the mutex is briefly unavailable, force a stop without clearing
- * the pending request; a later iteration will consume it safely.
+/* Consecutive periods the request mailbox could not be read. */
+static uint8_t g_remote_lock_misses = 0U;
+#if (APP_REMOTE_LOCK_MISS_LIMIT < 1) || (APP_REMOTE_LOCK_MISS_LIMIT > 255)
+#error APP_REMOTE_LOCK_MISS_LIMIT must be 1..255
+#endif
+
+/** @brief Read queued requests, waiting at most APP_REMOTE_LOCK_WAIT_MSEC.
+ * The telemetry task holds this mutex briefly several times per period, so
+ * a single miss is normal contention, not a STOP: the pending request stays
+ * queued and is read next period. Only APP_REMOTE_LOCK_MISS_LIMIT misses
+ * in a row (a stuck mailbox) force a stop.
  */
 static void remote_take_requests (uint8_t * p_stop, uint8_t * p_start,
                                   robot_state_t state)
@@ -369,11 +418,25 @@ static void remote_take_requests (uint8_t * p_stop, uint8_t * p_start,
     *p_start = 0U;
     g_control.request_ok = 0U;
     if (g_remote_mutex <= E_OK ||
-        tk_loc_mtx(g_remote_mutex, TMO_POL) < E_OK)
+        tk_loc_mtx(g_remote_mutex, (TMO)APP_REMOTE_LOCK_WAIT_MSEC) < E_OK)
     {
-        *p_stop = 1U;
+        if (g_remote_lock_misses < (uint8_t)APP_REMOTE_LOCK_MISS_LIMIT)
+        {
+            ++g_remote_lock_misses;
+        }
+        if (g_remote_lock_misses >= (uint8_t)APP_REMOTE_LOCK_MISS_LIMIT)
+        {
+            if ((uint8_t)APP_REMOTE_LOCK_MISS_LIMIT == g_remote_lock_misses)
+            {
+                tm_printf((UB *)"[CTRL] Command mailbox unavailable for %u "
+                                "periods -> motors STOPPED\n",
+                          (UINT)g_remote_lock_misses);
+            }
+            *p_stop = 1U;
+        }
         return;
     }
+    g_remote_lock_misses = 0U;
     *p_stop = g_stop_pending;
     g_control.request_ok = 1U;
     *p_start = g_start_pending;
@@ -409,6 +472,8 @@ static void report_fault(uint8_t reason)
     }
 #else
     (void)reason;
+    /* Unused in the motor-free barcode capture profile (no IMU either). */
+    (void)g_control;
 #endif
 }
 
@@ -440,7 +505,8 @@ void task_controller_task (INT start_code, void * p_context)
             APP_NAV_CENTRE_MAX_MSEC,
             APP_NAV_TURN90_COUNTS,
             APP_NAV_REPEAT_ACTION,
-            APP_NAV_STRAIGHT_DEFAULT
+            APP_NAV_STRAIGHT_DEFAULT,
+            (APP_NAV_SCAN_FAIL_STOP != 0) ? 0U : 1U
         };
         nav_init(&g_navigation, &cfg);
     }
@@ -480,7 +546,8 @@ static robot_state_t controller_cycle(robot_state_t state,
             explicit_stop = (uint8_t)(stop_request && g_control.request_ok);
             /* Network failure must never resume a stopped robot. */
             if ((state == ROBOT_LINE_FOLLOWING || state == ROBOT_OBSTACLE ||
-                 state == ROBOT_IDLE || state == ROBOT_AT_JUNCTION) &&
+                 state == ROBOT_IDLE || state == ROBOT_AT_JUNCTION ||
+                 state == ROBOT_LIFTED) &&
                 !b1_mqtt_connected())
             {
                 stop_request = 1U;
@@ -524,6 +591,7 @@ static robot_state_t controller_cycle(robot_state_t state,
                 {
                     if (g7_nav_begin_run())
                     {
+                        g_nav_handoff_retry = 0U;
                         nav_start(&g_navigation, started.lo);
                         state = ROBOT_IDLE;
                         tm_printf((UB *)"[CTRL] Remote START accepted\n");
@@ -557,6 +625,16 @@ static robot_state_t controller_cycle(robot_state_t state,
             g_imu_last_good_msec = snapshot.timestamp_msec;
             g_control.imu_seen = 1U;
         }
+        /* The line sensors read black in the air, so a fresh reading with
+         * either one white means the robot stands on the floor. The IMU
+         * task uses this to zero its lifted-height estimate. */
+        ir_shared_snapshot_t ir_floor = {0};
+        bool const b_floor = imu_clock_ok &&
+            ir_shared_get_latest(&ir_floor) >= E_OK && ir_floor.b_valid &&
+            (uint32_t)(terrain_now.lo - ir_floor.timestamp_msec) <=
+                APP_IR_MAX_AGE_MSEC &&
+            !(ir_floor.left && ir_floor.right);
+        (void)terrain_set_floor_contact(b_floor);
 #endif
         if (state == ROBOT_LINE_FOLLOWING || state == ROBOT_OBSTACLE)
         {
@@ -598,6 +676,42 @@ static robot_state_t controller_cycle(robot_state_t state,
             tm_printf((UB *)"[CTRL] SAFE STOP: IMU unavailable\n");
             report_fault(10U);
         }
+#if APP_LIFT_STOP_ENABLED
+        /* Picked up while it may drive: cut the motors at once. With
+         * APP_LIFT_RESUME_ENABLED the robot pauses and carries on line
+         * following once it is put back down; otherwise the stop is
+         * latched like the other safety stops (STOP, then START). */
+        if (imu_fresh && snapshot.b_lifted &&
+            (state == ROBOT_IDLE || state == ROBOT_LINE_FOLLOWING ||
+             state == ROBOT_AT_JUNCTION || state == ROBOT_OBSTACLE))
+        {
+            motion_stop_now();
+            /* A bypass or capture in progress is meaningless once moved. */
+            obstacle_abort();
+#ifdef B1_LIVE_COMMANDS
+            g7_nav_clear_decoded();
+#endif
+            tm_printf((UB *)"[CTRL] %s: lifted about %u mm (limit %u mm)\n",
+                      APP_LIFT_RESUME_ENABLED ? "LIFTED, paused" :
+                                                "SAFE STOP",
+                      (UINT)snapshot.lift_height_mm,
+                      (UINT)APP_LIFT_STOP_HEIGHT_MM);
+            state = APP_LIFT_RESUME_ENABLED ? ROBOT_LIFTED : ROBOT_STOPPED;
+            g_lift_floor_since = 0U;
+            report_fault(14U);
+        }
+#if APP_LIFT_RESUME_ENABLED
+        else if (state == ROBOT_LIFTED)
+        {
+            state = lift_try_resume(imu_fresh &&
+                                        (b_floor || snapshot.b_resting) &&
+                                        !snapshot.b_lifted &&
+                                        (snapshot.lift_height_mm <
+                                         APP_LIFT_STOP_HEIGHT_MM),
+                                    terrain_now.lo, p_history);
+        }
+#endif
+#endif
 #else
         (void)terrain_error;
 #endif
@@ -621,6 +735,11 @@ static robot_state_t controller_cycle(robot_state_t state,
 
             case ROBOT_REMOTE_HOLD:
                 /* STOP is latched until a new explicit authorised START. */
+                motion_apply(LINE_UNCERTAIN);
+            break;
+
+            case ROBOT_LIFTED:
+                /* Held off until lift_try_resume() sees the floor. */
                 motion_apply(LINE_UNCERTAIN);
             break;
 
@@ -650,6 +769,59 @@ static robot_state_t controller_cycle(robot_state_t state,
 #endif
     return state;
 }
+
+#if APP_IMU_ENABLED && APP_LIFT_STOP_ENABLED && APP_LIFT_RESUME_ENABLED
+static robot_state_t lift_try_resume (bool b_on_floor, uint32_t now_msec,
+                                      controller_history_t * p_history)
+{
+    if (!b_on_floor)
+    {
+        /* Still in the air, or a hand under a sensor: start over. */
+        g_lift_floor_since = 0U;
+        return ROBOT_LIFTED;
+    }
+
+    if (0U == g_lift_floor_since)
+    {
+        /* Zero means "not on the floor", so never store it as a time. */
+        g_lift_floor_since = (0U != now_msec) ? now_msec : 1U;
+        tm_printf((UB *)"[CTRL] Put down -> resuming if it stays down\n");
+    }
+
+    if ((uint32_t)(now_msec - g_lift_floor_since) < APP_LIFT_RESUME_MSEC)
+    {
+        return ROBOT_LIFTED;
+    }
+
+#ifdef B1_LIVE_COMMANDS
+    /* The scanner was cancelled at the lift and rearms by itself; it may
+     * finish while driving, as after an obstacle bypass. */
+    if (!nav_handoff_continue())
+    {
+        g_lift_floor_since = 0U;
+        return ROBOT_STOPPED;
+    }
+
+    nav_start(&g_navigation, now_msec);
+#endif
+    /* Line touches latched while carried are not steering. */
+    {
+        bool b_left = false;
+        bool b_right = false;
+        bool b_seen = false;
+
+        (void)ir_shared_take_junction(&b_seen);
+        (void)ir_shared_take_sides(&b_left, &b_right);
+        (void)ir_shared_take_both_gap(&b_seen);
+    }
+    p_history->b_have_previous_action = false;
+    g_lift_floor_since = 0U;
+    /* Let the next lift be reported again. */
+    g_control.fault = 0U;
+    tm_printf((UB *)"[CTRL] Back on the floor -> resuming line following\n");
+    return ROBOT_IDLE;
+}
+#endif
 
 static robot_state_t handle_idle (void)
 {
@@ -817,6 +989,11 @@ static robot_state_t handle_following (controller_history_t * p_history)
         uint8_t scan_pending = 1U;
         int received;
         bool b_gap = false;
+        if ((0U != g_nav_handoff_retry) && g7_nav_continue_run())
+        {
+            g_nav_handoff_retry = 0U;
+            tm_printf((UB *)"[NAV] Barcode handoff restored\n");
+        }
         /* Was both-black broken by white between these 50 ms reads? A
          * failed read is not worth stopping the robot for: treat it as a
          * gap, which only restarts the junction distance measurement. */
@@ -869,7 +1046,10 @@ static robot_state_t handle_following (controller_history_t * p_history)
         }
         else if (received < 0)
         {
-            nav_report(NAV_EVENT_SCAN_REJECTED, 2U);
+            /* -1 a letter outside the route mapping (or none loaded),
+             * -2 no letter decoded, -3 an unread result overwritten. */
+            nav_report(NAV_EVENT_SCAN_REJECTED, (received == -3) ? 3U : 2U);
+#if APP_NAV_SCAN_FAIL_STOP
             if (received == -1 || received == -3)
             {
                 motion_brake();
@@ -882,8 +1062,41 @@ static robot_state_t handle_following (controller_history_t * p_history)
                 report_fault(received == -1 ? 13U : 12U);
                 return ROBOT_NAV_SAFETY_STOP;
             }
+#else
+            /* Treated like a failed decode: no action is queued and line
+             * following carries on. At the next junction the robot goes
+             * straight or repeats its remembered action (app_config.h). */
+            if (received == -1)
+            {
+                tm_printf((UB *)"[NAV] letter=%c not in route mapping; "
+                                "ignored, continuing seq=%u\n",
+                          (INT)('A' + letter), (UINT)sequence);
+            }
+            else if (received == -3)
+            {
+                /* The overflow mark stays on the handoff until it is
+                 * reset, which would reject every later barcode too. */
+                tm_printf((UB *)"[NAV] scan result lost (handoff "
+                                "overflow); ignored, continuing seq=%u\n",
+                          (UINT)sequence);
+                /* Without APP_NAV_SCAN_FAIL_STOP this branch is compiled,
+                 * so a failure here keeps following and retries. */
+                (void)nav_handoff_continue();
+            }
+            else
+            {
+                /* No letter decoded: nothing to do, as before. */
+            }
+#endif
         }
         decision = nav_step(&g_navigation, &sample);
+        if (0U != g_navigation.clearance_dropped)
+        {
+            g_navigation.clearance_dropped = 0U;
+            tm_printf((UB *)"[NAV] Barcode too close to the junction; "
+                            "action dropped, crossing straight now=%u\n",
+                      (UINT)now.lo);
+        }
 #if APP_JUNCTION_DEBUG_LOG
         {
             /* What the 1 ms sampler saw over this 50 ms period, printed
@@ -1017,16 +1230,20 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
         (void)ir_shared_take_sides(&b_left, &b_right);
         p_history->b_have_previous_action = false;
 #ifdef B1_LIVE_COMMANDS
-        /* The scanner was cancelled when the obstacle was confirmed and has
-         * rearmed while suppressed during the bypass. Do not cancel it again
-         * here: that made it not ready on the very next check, so every
-         * bypass ended STOPPED. g7_nav_begin_run() resets mailbox ownership.
-         */
-        if (!g7_nav_begin_run())
+        /* The scanner was cancelled when the obstacle was confirmed and
+         * usually rearms while suppressed during the bypass. If it is still
+         * rearming, keep driving: it finishes on the move, as after every
+         * barcode, and hands over the next capture it starts. A barcode
+         * passed before it is armed is not read. Do not cancel it again. */
+        if (!bc_wave_is_ready())
         {
             /* UB views the same string bytes; tm_printf does not modify. */
-            tm_printf((UB *)"[CTRL] Bypass done but barcode scanner not "
-                            "armed -> STOPPED\n");
+            tm_printf((UB *)"[CTRL] Bypass done; barcode scanner still "
+                            "rearming, continuing\n");
+        }
+        if (!nav_handoff_continue())
+        {
+            motion_apply(LINE_UNCERTAIN);
             return ROBOT_STOPPED;
         }
         nav_start(&g_navigation, now.lo);

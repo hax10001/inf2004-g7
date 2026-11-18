@@ -15,7 +15,11 @@ int g7_nav_take_decoded(uint8_t *letter, uint8_t *action, uint16_t *sequence);
 int g7_nav_take_scan(uint8_t *letter, uint8_t *action, uint16_t *sequence,
                      uint32_t *captured_msec, uint32_t *completed_msec,
                      uint8_t *pending);
+/** START only: 1 when the scanner is armed and the handoff is enabled. */
 int g7_nav_begin_run(void);
+/** Mid-run (after a bypass or a lift): enable the handoff even while the
+ *  scanner is still rearming. 1 on success, 0 if the handoff failed. */
+int g7_nav_continue_run(void);
 #endif
 /*** end of file ***/
 

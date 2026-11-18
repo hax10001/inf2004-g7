@@ -285,7 +285,7 @@ dialog p,.mapping label,.tokenlabel { color:#5D6D7D; }
 
 /* V7.4: intentional, compact Overview. Mission events and sensor diagnostics live in their own views. */
 #view-overview{display:flex;flex-direction:column;gap:17px}
-#view-overview .metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:0}
+#view-overview .metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:0}
 #view-overview .metric{min-height:122px;padding:19px 22px}
 #view-overview .metric strong{font-variant-numeric:tabular-nums}
 #view-overview .overviewgrid{display:block;margin:0}
@@ -328,7 +328,6 @@ dialog p,.mapping label,.tokenlabel { color:#5D6D7D; }
 @media(max-width:760px){
  #view-overview .overviewgrid .stack{grid-template-columns:1fr;grid-template-rows:auto}
  #view-overview .metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
- #view-overview .metric:last-child{grid-column:1/-1}
  #view-overview .metric{padding:15px 17px;min-height:110px}
  .overviewHealth{padding:14px 16px;gap:13px}
  .overviewHealthItem{flex:1 1 calc(50% - 14px);min-width:0}

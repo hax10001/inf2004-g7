@@ -43,8 +43,62 @@ gives a recoverable safety stop. Turns use measured encoder counts
 `APP_NAV_DECODE_WAIT_MSEC` (8000) for a decode before a junction.
 
 Two line sensors cannot tell every junction from a barcode stripe or a lifted
-robot, so a both-black reading without a pending mapped action stops safely.
-Changing that needs measured traces or more sensors, not looser limits.
+robot. A both-black run without a pending mapped action is crossed straight
+(`APP_NAV_STRAIGHT_DEFAULT 1`).
+
+No barcode problem stops a running robot by default
+(`APP_NAV_SCAN_FAIL_STOP 0`). Each is logged and the robot carries on:
+
+| Problem | What the robot does |
+|---|---|
+| Barcode not decoded | Nothing queued; next junction straight (or the remembered action) |
+| Letter not in the route mapping, or no mapping loaded | Ignored as above (`[NAV] letter=X not in route mapping`) |
+| Result lost (an unread result was overwritten) | Ignored; the handoff is reset |
+| Barcode read too close to the junction (`APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS`) | That action is dropped and the junction crossed straight (`[NAV] Barcode too close to the junction`) |
+| Scanner still rearming after a bypass or lift | Keeps following; the scanner finishes rearming on the move |
+| Barcode handoff to navigation fails | Keeps following without barcodes, retrying every period |
+
+`APP_NAV_SCAN_FAIL_STOP 1` turns the last four back into safety stops. START
+still needs an accepted mapping and an armed scanner, so a run always begins
+able to read its first barcode.
+
+### Lift stop
+
+Picking the robot up while it may drive cuts the motors at once
+(`[CTRL] LIFTED, paused: lifted about N mm`, fault 14; mission state 4,
+"LIFTED (PAUSED)" on the dashboard). Once it is put back down with a line
+sensor seeing the floor for `APP_LIFT_RESUME_MSEC`, it carries on line
+following by itself (`[CTRL] Back on the floor -> resuming line following`),
+keeping any queued barcode action. STOP, or losing MQTT, while it is lifted
+ends the run instead. Put down on a junction, where both sensors read black
+as they do in the air, it resumes once it has been still and level for
+`APP_LIFT_REST_MSEC` (3 s); a hand is never that steady.
+Settings in `app/app_config.h`:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `APP_LIFT_STOP_ENABLED` | 1 | 0 keeps the height readout but never stops |
+| `APP_LIFT_STOP_HEIGHT_MM` | 40 | Height off the floor (1..1022 mm) that counts as lifted |
+| `APP_LIFT_RESUME_ENABLED` | 1 | 0 latches the stop instead: put down, press STOP, then START |
+| `APP_LIFT_RESUME_MSEC` | 1000 | How long it must stand on the floor before moving again |
+| `APP_LIFT_REST_MSEC` | 3000 | Still and level this long counts as on the floor even with both sensors black |
+
+While a line sensor sees the floor the height is held at 0, and the estimate
+resets after 100 ms of floor (`LIFT_MATH_FLOOR_SAMPLES`). Before this,
+vibration while driving could build up a false height that appeared the
+moment the robot stopped on a junction.
+
+There is no downward range sensor, so the height is an **estimate**: the IMU
+task integrates the acceleration beyond gravity twice
+(`modules/terrain/lift_math.c`). Expect tens of millimetres of error. "Lifted"
+also requires both line sensors to have lost the floor (they read black in
+the air), so bumps, humps and motor vibration on the track cannot trigger it.
+The estimate returns to zero once a line sensor has seen the floor for half a
+second. A very slow, gentle lift is below what the accelerometer can detect;
+the junction time limits above then stop the robot within a few seconds
+instead. The dashboard shows the height on the Overview, Map & robot and
+Console sensor panels. Tune the detection thresholds in `lift_math.h` on the real
+robot with `APP_IMU_DEBUG_LOG 1` (`LIFT:` lines).
 
 ## Barcode scanning
 
@@ -61,6 +115,7 @@ decoder (`APP_BARCODE_LAYOUT_ENABLED`) decides.
 | `BC_CAL_MIN_BARCODE_UNITS` / `MAX` (`bc_cal.h`) | 1300 / 4800 | A real minimum-width gate: prints that are too small cannot pass |
 | `BC_CAL_TEST_IGNORE_INPUT_ERRORS`, `BC_CAL_TEST_RELAXED_CAPTURE` | 1, 1 | **Bench relaxations.** Review before production navigation |
 | `BC_WAVE_WHITE_SAMPLES` (`bc_wave.c`) | 250 | Consecutive white samples (~0.5 s) before rearming for the next barcode |
+| `APP_BARCODE_KEEP_STARTUP_WHITE` (`app_config.h`) | 1 | Reuse the white learned at the first arming after boot after every barcode, instead of re-learning it. A floor that no longer matches that white uses its own reading for that pass. Dashboard "Recalibrate barcode" replaces the reference. 0 re-learns after every barcode |
 
 The worker publishes one transaction (sequence, capture, decode, result) under
 one semaphore. Navigation consumes it independently of the telemetry ACK. A

@@ -3,6 +3,7 @@
  */
 #include "task_imu.h"
 #include "terrain.h"
+#include "lift_math.h"
 #include "drivers/lsm303.h"
 #include "app/app_config.h"
 #include "platform/console.h"
@@ -46,26 +47,52 @@
 #define HUMP_LEVEL_CONFIRM_SAMPLES 15U
 /* Drop below the peak that counts as descending, ignoring jitter. */
 #define HUMP_DESCENT_MM 1.5F
+#if (HUMP_LEVEL_CONFIRM_SAMPLES > 15U) || (HUMP_TILT_CONFIRM_SAMPLES > 3U)
+#error Hump confirmation counts exceed their bit-field widths
+#endif
+/* Hump heights are published in seven bits (terrain_snapshot). */
+#define HUMP_PUBLISH_MAX_MM 127U
+#if WHEEL_SPACING_MM > 127
+#error Hump height fields hold at most 127 mm; widen terrain_snapshot
+#endif
+#if (APP_LIFT_STOP_HEIGHT_MM < 1) || (APP_LIFT_STOP_HEIGHT_MM > 1022)
+#error APP_LIFT_STOP_HEIGHT_MM must be 1..1022 mm
+#endif
 
 typedef struct
 {
-    float              filtered[3];  /**< Smoothed axes, mg. */
-    bool               b_filter_ready;
-    int32_t            gravity_mg;   /**< Total acceleration at rest. */
-    uint16_t           rejected;     /**< Shoved samples since last log. */
-    bool               b_on_hump;
-    terrain_hump_phase phase;
-    uint8_t            level_count;
-    uint8_t            tilted_count; /**< Samples in a row above start. */
-    float              tilt_deg;     /**< Size of the roll, degrees. */
-    float              height_mm;
-    float              peak_mm;      /**< Highest point of this hump. */
-    uint16_t           last_peak_mm;
-    uint16_t           max_peak_mm;
+    float    filtered[3]; /**< Smoothed axes, mg. */
+    float    tilt_deg;    /**< Size of the roll, degrees. */
+    float    height_mm;
+    float    peak_mm;     /**< Highest point of this hump. */
+    int16_t  gravity_mg;  /**< Total acceleration at rest: 800..1200. */
+    uint16_t rejected;    /**< Shoved samples since last log. */
+    /* IMU-task owned, so packing needs no lock. Phase is 0..2; the counts
+     * stop at HUMP_LEVEL_CONFIRM_SAMPLES and HUMP_TILT_CONFIRM_SAMPLES. */
+    unsigned int b_filter_ready:1;
+    unsigned int b_on_hump:1;
+    unsigned int phase:2;        /**< A terrain_hump_phase value. */
+    unsigned int level_count:4;
+    unsigned int tilted_count:2; /**< Samples in a row above start. */
+    uint8_t            last_peak_mm; /**< 0..127, as published. */
+    uint8_t            max_peak_mm;  /**< 0..127, as published. */
     uint8_t            hump_count;
 } hump_state_t;
 
 static hump_state_t g_hump = {0};
+/* Owned by the IMU task alone. */
+static lift_math_state_t g_lift = {0};
+/* Nonzero while the lifted state has been logged, so it prints once. */
+static uint8_t g_lift_reported = 0U;
+/* Samples in a row still and level, up to IMU_REST_SAMPLES. */
+#define IMU_REST_SAMPLES (APP_LIFT_REST_MSEC / IMU_SAMPLE_PERIOD_MSEC)
+#if (IMU_REST_SAMPLES < 1) || (IMU_REST_SAMPLES > 65535)
+#error APP_LIFT_REST_MSEC must be 20..1310700 ms
+#endif
+static uint16_t g_rest_samples = 0U;
+/* Last valid relative tilt, for the level test (only roll, pitch and
+ * b_valid are used). IMU task only. */
+static terrain_snapshot g_rest_tilt = {0};
 
 typedef struct
 {
@@ -114,8 +141,11 @@ static void log_tilt(terrain_snapshot const *p_snapshot);
 static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes);
 /** @brief Update hump start, climb, descent and end from a valid tilt. */
 static void update_hump (terrain_snapshot const * p_snapshot);
-/** @brief Round a non-negative height to whole millimetres. */
-static uint16_t round_mm (float height_mm);
+/** @brief Round a non-negative hump height to 0..127 whole millimetres. */
+static uint8_t round_mm (float height_mm);
+/** @brief Advance the lifted-height estimate and publish it. */
+static void update_lift (imu_sample_t const * p_sample,
+                         uint32_t elapsed_msec, terrain_snapshot * p_snapshot);
 
 void task_imu_task (INT start_code, void * p_context)
 {
@@ -256,7 +286,8 @@ static bool calibrate_sensor (ID h_device)
     g_hump.filtered[1]    = (float)avg_y;
     g_hump.filtered[2]    = (float)avg_z;
     g_hump.b_filter_ready = true;
-    g_hump.gravity_mg     = terrain_magnitude(avg_x, avg_y, avg_z);
+    /* Calibration accepted only 800..1200 mg, so this fits int16_t. */
+    g_hump.gravity_mg     = (int16_t)terrain_magnitude(avg_x, avg_y, avg_z);
 
     if (error < E_OK)
     {
@@ -395,6 +426,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         {
             uint32_t elapsed_msec =
                 now_msec - p_history->previous_time_msec;
+            update_lift(&sample, elapsed_msec, &snapshot);
             /* Rate of change of the total acceleration magnitude. */
             sample.jerk = terrain_jerk(sample.magnitude,
                 p_history->previous_magnitude,
@@ -446,6 +478,9 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         {
             snapshot.b_valid = true;
         }
+        g_rest_tilt.roll_deg  = snapshot.roll_deg;
+        g_rest_tilt.pitch_deg = snapshot.pitch_deg;
+        g_rest_tilt.b_valid   = snapshot.b_valid;
 
         if (snapshot.b_valid)
         {
@@ -484,6 +519,12 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                       (INT)(g_hump.peak_mm * 10.0F),
                       (UINT)g_hump.hump_count, (UINT)g_hump.rejected,
                       (INT)(snapshot.heading_deg * 1000.0F));
+            tm_printf((UB *)"LIFT: height_mm=%u lifted=%u excess_mg=%d "
+                            "bias_mg=%d\n",
+                      (UINT)snapshot.lift_height_mm,
+                      (UINT)snapshot.b_lifted,
+                      (INT)(sample.magnitude - g_hump.gravity_mg),
+                      (INT)g_lift.bias_mg);
 #endif
             g_hump.rejected = 0U;
             p_history->last_log_msec = now_msec;
@@ -643,7 +684,7 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         return;
     }
 
-    uint16_t const peak_mm = round_mm(g_hump.peak_mm);
+    uint8_t const peak_mm = round_mm(g_hump.peak_mm);
 
     g_hump.b_on_hump    = false;
     g_hump.phase        = TERRAIN_HUMP_LEVEL;
@@ -663,9 +704,61 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 #endif
 }
 
-static uint16_t round_mm (float height_mm)
+static uint8_t round_mm (float height_mm)
 {
-    return (uint16_t)(height_mm + 0.5F);
+    float const rounded = height_mm + 0.5F;
+
+    if (rounded >= (float)HUMP_PUBLISH_MAX_MM)
+    {
+        return (uint8_t)HUMP_PUBLISH_MAX_MM;
+    }
+
+    /* Non-negative and below 127 here, so the value fits uint8_t. */
+    return (uint8_t)rounded;
+}
+
+static void update_lift (imu_sample_t const * p_sample,
+                         uint32_t elapsed_msec, terrain_snapshot * p_snapshot)
+{
+    bool const b_ir_floor = terrain_floor_contact();
+    /* Previous sample's tilt: this sample's is computed after. A robot
+     * sitting still and level on a junction (both line sensors black, as
+     * in the air) is standing on the floor; a hand is never that steady
+     * for long, and a real pickup breaks the stillness at once. */
+    bool const b_level = terrain_is_level(&g_rest_tilt);
+    if (lift_math_is_still(&g_lift) && b_level)
+    {
+        if (g_rest_samples < (uint16_t)IMU_REST_SAMPLES)
+        {
+            g_rest_samples++;
+        }
+    }
+    else
+    {
+        g_rest_samples = 0U;
+    }
+    bool const b_resting = (g_rest_samples >= (uint16_t)IMU_REST_SAMPLES);
+    bool const b_floor = b_ir_floor || b_resting;
+    /* 12-bit axes bound the magnitude to 3547 mg, so the difference from
+     * the calibrated gravity fits int16_t. */
+    int16_t const excess_mg =
+        (int16_t)(p_sample->magnitude - g_hump.gravity_mg);
+    uint16_t const height_mm =
+        lift_math_step(&g_lift, excess_mg, elapsed_msec, b_floor);
+    bool const b_lifted = lift_math_is_active(&g_lift) && (!b_floor) &&
+                          (height_mm >= (uint16_t)APP_LIFT_STOP_HEIGHT_MM);
+
+    if (b_lifted && (0U == g_lift_reported))
+    {
+        /* UB views read-only string bytes; UINT matches %u. */
+        tm_printf((UB *)"[IMU] Lifted: about %u mm off the floor\n",
+                  (UINT)height_mm);
+    }
+
+    g_lift_reported            = b_lifted ? 1U : 0U;
+    p_snapshot->lift_height_mm = height_mm;
+    p_snapshot->b_lifted       = b_lifted ? 1U : 0U;
+    p_snapshot->b_resting      = b_resting ? 1U : 0U;
 }
 
 static void log_tilt(terrain_snapshot const *p_snapshot)

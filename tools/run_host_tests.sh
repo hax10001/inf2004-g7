@@ -34,6 +34,11 @@ for SIGN in 1 -1; do
     -lm -o "$TMP/motion-$SIGN"
   "$TMP/motion-$SIGN"
 done
+# Lifted-height estimator (pure arithmetic).
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -Iapp_program \
+  app_program/modules/terrain/lift_math.c tools/tests/test_lift_math.c \
+  -o "$TMP/lift-math"
+"$TMP/lift-math"
 python3 tools/check_app_standard.py
 python3 tools/test_network_owner_boundary.py
 bash tools/test_precision_ranges.sh
@@ -58,10 +63,25 @@ cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   app_program/modules/line_barcode/line_follow.c \
   -o tmp/v15/controller
 tmp/v15/controller
+# Same production controller with the previous stopping behaviour: lift
+# stop latched, and unmapped/lost barcodes as navigation safety stops.
+cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+  -fdata-sections "$GC" -Itools/tests/stubs -I. -Iapp_program \
+  -DAPP_LIFT_RESUME_ENABLED=0 -DAPP_NAV_SCAN_FAIL_STOP=1 \
+  tools/test_v15_controller.c app_program/app/nav_core.c \
+  app_program/modules/line_barcode/line_follow.c \
+  -o tmp/v15/controller_lift_latched
+tmp/v15/controller_lift_latched
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   tools/test_scanner_ready.c -o tmp/v15/scanner_ready
 tmp/v15/scanner_ready
+# Same real scanner, re-learning white after every barcode (setting off).
+cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+  -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
+  -DAPP_BARCODE_KEEP_STARTUP_WHITE=0 \
+  tools/test_scanner_ready.c -o tmp/v15/scanner_ready_relearn
+tmp/v15/scanner_ready_relearn
 for SIGN in 0 1 -1; do
   cc -std=c99 -O2 -Wall -Wextra -Werror -Itools/tests/stubs -Iapp_program \
     -DAPP_DOWNHILL_NOSE_DOWN_SIGN="$SIGN" \

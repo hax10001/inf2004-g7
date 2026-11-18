@@ -49,6 +49,14 @@ int g7_nav_begin_run(void)
     if (!bc_wave_is_ready()) return 0;
     return bc_port_nav_enable(1U) >= E_OK;
 }
+int g7_nav_continue_run(void)
+{
+    /* The robot keeps driving while the scanner rearms, as it already does
+     * after every barcode. Only a capture that begins after this call is
+     * owned by the run (scan_handoff_begin), so a result from before the
+     * bypass or lift can never be handed to navigation. */
+    return bc_port_nav_enable(1U) >= E_OK;
+}
 int g7_nav_take_scan(uint8_t *letter, uint8_t *action, uint16_t *sequence,
                      uint32_t *captured_msec, uint32_t *completed_msec,
                      uint8_t *pending)

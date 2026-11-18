@@ -5,7 +5,8 @@ const controllerFaults={1:'collision detected',2:'stale IR',3:'IR read failure',
  4:'controller clock failure',5:'obstacle sensor fault',6:'decode timeout',
  7:'no usable action or junction clearance',8:'turn timeout or angle limit',
  9:'downhill overspeed',10:'IMU unavailable',11:'stale downhill IMU',
- 12:'scan handoff overflow',13:'unmapped barcode'};
+ 12:'scan handoff overflow',13:'unmapped barcode',
+ 14:'robot lifted off the floor'};
 const eventNames={1:'Barcode decoded',2:'Junction detected',3:'Hump detected',4:'Obstacle detected',5:'Bypass chosen',6:'Line reacquired',7:'Safety fault',8:'Line lost',9:'Hump finished',10:'Mission state',11:'IMU calibration requested (simulation)',12:'Navigation action queued',13:'Junction confirmed',14:'Turn started',15:'Turn completed',16:'Line reacquired',17:'Line following resumed',18:'Navigation safety stop',19:'Scan not queued',20:'Stopped at junction: waiting for barcode decode'};
 const scanFailureReasons=['Reason unavailable (firmware reported 0)',
   'Invalid sensor input','Barcode element width mismatch','Capture buffer overflow',
@@ -62,13 +63,16 @@ class RobotState {
     if(!line)return false;
     const decoded=line.match(/\[BARCODE\]\s+Decoded:\s*([A-Z])\b/i)||
       line.match(/\[BC RESULT\]\s+([A-Z])\b/i);
-    const matchSensor=line.match(/^\[SENS\] IR L=(\d+) R=(\d+) B=(\d+) roll_cd=(-?\d+) pitch_cd=(-?\d+) heading_cd=(\d+) hump=(\d+) sonar=(\d+) phase=(\d+) encL=(-?\d+) encR=(-?\d+) valid=(\d+)/);
+    const matchSensor=line.match(/^\[SENS\] IR L=(\d+) R=(\d+) B=(\d+) roll_cd=(-?\d+) pitch_cd=(-?\d+) heading_cd=(\d+) hump=(\d+) sonar=(\d+) phase=(\d+) encL=(-?\d+) encR=(-?\d+) valid=(\d+)(?: lift=(\d+))?/);
     if(matchSensor){
-      const v=matchSensor.slice(1).map(Number),mask=v[11];
+      const v=matchSensor.slice(1,13).map(Number),mask=v[11];
+      const lift=matchSensor[13]===undefined?null:Number(matchSensor[13]);
       this.serialSensor={valid:mask,ir:(mask&1)?v[0]|v[1]<<1|v[2]<<2:null,
         rollDeg:(mask&2)?v[3]/100:null,pitchDeg:(mask&2)?v[4]/100:null,
         headingDeg:(mask&16)?v[5]/100:null,ultrasonicCm:(mask&4)&&v[7]!==65535?v[7]:null,
-        humpMm:(mask&2)?v[6]:null,obstaclePhase:(mask&4)?v[8]:null,
+        humpMm:(mask&2)?v[6]:null,
+        liftMm:(mask&2)&&lift!==null&&lift!==1023?lift:null,lifted:null,
+        obstaclePhase:(mask&4)?v[8]:null,
         leftEncoder:(mask&8)?v[9]:null,rightEncoder:(mask&8)?v[10]:null,
         source:'USB SERIAL',received:Date.now()};
       this.log('serial',line);
@@ -113,6 +117,8 @@ class RobotState {
     if(f.flags&1)this.uncertain=true;
     if(msg.kind==='status'){
       if(msg.ready && msg.remoteHold)this.controllerFault=null;
+      /* A lift pause that resumed by itself is over. */
+      if(msg.running && this.controllerFault?.code===14)this.controllerFault=null;
       const prev=this.robotStatus;
       this.robotStatus={...msg,source:origin,received:Date.now(),
         commandToken:f.ms>>>0,commandSession:f.session};
@@ -123,7 +129,8 @@ class RobotState {
          ((prev.pwmLeft||0)>0)!==((msg.pwmLeft||0)>0) ||
          ((prev.pwmRight||0)>0)!==((msg.pwmRight||0)>0)){
         const blockers=readinessReasons(msg.readinessBlockers);
-        const note=msg.mission===5?'NAVIGATION SAFETY STOP — press STOP once to reset, then wait for READY before START':
+        const note=msg.mission===4?'LIFTED — motors stopped; resumes line following once put back on the line':
+          msg.mission===5?'NAVIGATION SAFETY STOP — press STOP once to reset, then wait for READY before START':
           msg.mission===7?'CONTROLLER FAULT — physical inspection and reboot required; STOP cannot reset':
           !msg.mappingLoaded?'ROUTE MAPPING NOT LOADED; send mapping before Start':
           msg.running?'Robot reports RUNNING':
@@ -143,7 +150,11 @@ class RobotState {
         this.routeMapping={...this.routeMapping,state:'INVALIDATED',note:'Robot reports mapping not loaded; send it again'};
       }
     } else if(msg.kind==='sensor'){
+      const wasLifted=!!this.sensor?.lifted;
       this.sensor={...msg,source:origin,received:Date.now()};
+      if(!!msg.lifted!==wasLifted)this.log('imu',msg.lifted?
+        `ROBOT LIFTED about ${msg.liftMm} mm - motors stop while running`:
+        'Robot back on the floor','warn');
       if(origin==='LIVE'){
         const n=v=>v==null?'n/a':String(v);
         const bits=msg.ir;
@@ -153,7 +164,8 @@ class RobotState {
           `returnWait=${d.waitReason}`:'';
         this.log('telemetry',`IR L=${bits==null?'?':bits&1?1:0} R=${bits==null?'?':bits&2?1:0} B=${bits==null?'?':bits&4?1:0} | `+
           `IMU roll=${n(msg.rollDeg)}° pitch=${n(msg.pitchDeg)}° heading=${n(msg.headingDeg)}° `+
-          `cal=${msg.imuCalibrated?1:0} hump=${n(msg.humpPhase)} | `+
+          `cal=${msg.imuCalibrated?1:0} hump=${n(msg.humpPhase)} `+
+          `lift=${n(msg.liftMm)} mm${msg.lifted?' LIFTED':''} | `+
           `encL=${n(msg.leftEncoder)} encR=${n(msg.rightEncoder)} | `+
           `sonar=${n(msg.ultrasonicCm)} cm obstaclePhase=${n(msg.obstaclePhase)}`+bypass);
       }
@@ -217,7 +229,9 @@ class RobotState {
         this.controllerFault={code:msg.value,
           reason:controllerFaults[msg.value]||`unknown fault ${msg.value}`,
           ms:f.ms,source:origin};
-        this.log('mission',`SAFE STOP: ${this.controllerFault.reason}`,'error');
+        if(msg.value===14)this.log('mission','LIFTED: motors stopped '+
+          '(robot lifted off the floor)','warn');
+        else this.log('mission',`SAFE STOP: ${this.controllerFault.reason}`,'error');
       }
       const sample=this.points.slice().reverse().find(p=>p.ms<=f.ms)||this.points[0];
       const name=eventNames[msg.eventKind]||`Event ${msg.eventKind}`;
@@ -227,7 +241,8 @@ class RobotState {
       if(this.events.length>200)this.events.pop();
       const navNames=['Straight','Left','Right','U-turn'];
       const detail=msg.eventKind===1 && msg.value<=25?`letter=${String.fromCharCode(65+msg.value)}`:
-        msg.eventKind===19 && msg.value===2?'letter not in current four-letter mapping, or mapping not loaded':
+        msg.eventKind===19 && msg.value===2?'letter not in current four-letter mapping, or mapping not loaded; ignored, robot continues':
+        msg.eventKind===19 && msg.value===3?'scan result lost (unread result overwritten); ignored, robot continues':
         msg.eventKind===19 && msg.value===1?'navigation state rejected action or prior single-use action is pending':
         msg.eventKind>=12&&msg.eventKind<=17&&msg.value<=3?`action=${navNames[msg.value]}`:
         `value=${msg.value}`;

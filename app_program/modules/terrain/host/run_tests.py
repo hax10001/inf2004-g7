@@ -18,7 +18,8 @@ def main():
     subprocess.run([args.cc, "-std=c99", "-Wall", "-Wextra", "-Werror",
                     "-I" + str(ROOT / "tools/tests/stubs"), "-I" + str(APP),
                     *[str(APP / "modules/terrain" / name) for name in
-                      ("task_imu.c", "terrain.c", "tilt_math.c")],
+                      ("task_imu.c", "terrain.c", "tilt_math.c",
+                       "lift_math.c")],
                     str(HERE / "test_calibration.c"), "-lm", "-o", str(exe)],
                    check=True)
     for case in ("steady", "read_failure", "movement", "magnitude", "persistent"):

@@ -42,14 +42,20 @@ python3 tools/audit_v15_fields.py --build-log path/to/full-build.txt \
 | scan.sequence | 0..65535, modulo, zero valid | 16 bits | Source event identity; no reserved-zero shortcut |
 | scan.captured_msec/completed_msec | Full modulo kernel clock | 32 bits each | Capture provenance and deadline decisions across scheduling delays |
 | controller staged event | 0..21 | 5 bits | Single controller writer |
-| staged value/fault | 0..13 each | 4 bits each | Single writer, remote mutex around copied publication |
+| staged value/fault | 0..14 each | 4 bits each | Single writer, remote mutex around copied publication |
 | staged sequence | Modulo 0..65535 | 16 bits | Existing diagnostic event identity |
 | request_ok/capture_known/imu_seen | 0/1 each | 1 bit each | Controller owner; complete staged word is 32 bits |
 | terrain.collision_sequence / observed sequence | Full modulo event count | 32 bits each | Snapshot mutex; compare-before-ACK prevents stale reset |
 | last valid IMU timestamp | Full modulo kernel clock | 32 bits | Controller owner; bounds sign-disabled stale-data operation |
 | motion downhill percent/engaged/fault/pitch | 0 or 65..100 / 0..1 / 0..2 / -900..900 deci-deg | 7 / 1 / 2 / 11 bits | Published under motion mutex, within existing alignment space |
 | cancel request | 0/1 | 1 logical bit in an 8-bit object | Independent atomic byte access across worker/controller tasks; no packed shared RMW |
-| EVENT kind 21 reason | 1..13; 0 none | 4 semantic bits | Existing v1 event-value carrier remains 16 bits for wire compatibility |
+| terrain hump heights (current/last/max) | 0..110 mm (wheel spacing); saturate at 127 | 7 bits each | Snapshot mutex; were 16 bits each |
+| terrain.lift_height_mm / b_lifted | 0..1022 mm (1023 unavailable on the wire) / 0..1 | 10 bits / 1 bit | Snapshot mutex; share the hump heights' 32-bit word, so `terrain_snapshot` stays 28 bytes |
+| SENSOR frame lift word | height 10 bits + lifted 1 bit, 5 reserved zero | 16 bits (2 octets) | Appended to the 24/32-octet payload; decoder rejects reserved bits |
+| lift estimator counts | start 0..3, still 0..25, floor 0..25, active 0..1 | 2 / 5 / 5 / 1 bits | IMU task owner only |
+| hump state flags/counts | filter/on-hump 0..1, phase 0..2, level 0..15, tilted 0..3 | 1 / 1 / 2 / 4 / 2 bits | IMU task owner only; gravity 800..1200 mg in 16 bits (was 32) |
+| pivot PWM / brake and log countdowns | 750..3875 / 0..4 / 0..10 | 16 / 8 / 8 bits (were 32) | Controller owner; compile-time range guards |
+| EVENT kind 21 reason | 1..14 (14 = lifted); 0 none | 4 semantic bits | Existing v1 event-value carrier remains 16 bits for wire compatibility |
 
 The scan transaction is 12 bytes: 64 timestamp bits + 16 sequence bits + 10
 letter/flag bits, rounded to addressable bytes/alignment. Timestamp and event

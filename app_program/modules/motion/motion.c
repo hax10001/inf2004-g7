@@ -39,7 +39,7 @@
 #define MOTION_MAX_PERCENT 100.0f
 
 /* Driving speed on a straight. 40 RPM is about 140 mm/s. */
-#define MOTION_TARGET_RPM 15.0f
+#define MOTION_TARGET_RPM 25.0f
 /* Largest change in the base speed per period, when starting or stopping. */
 #define MOTION_RAMP_RPM 8.0f
 /* Largest growth in steer per period; lower is smoother, but too low lags
@@ -88,15 +88,26 @@
 #define MOTION_PIVOT_PWM_STEP 125U
 #define MOTION_PIVOT_PWM_MIN 750U
 #define MOTION_PIVOT_PWM_MAX 3750U   /* 30 % */
-/* Nonzero while pivoting: the larger wheel duty (motion_brake reads it). */
-static uint32_t g_turn_pwm = 0U;
-static uint32_t g_pivot_pwm[ENCODER_WHEEL_COUNT];
+/* Nonzero while pivoting: the larger wheel duty (motion_brake reads it).
+ * Pivot duties stay within MOTION_PIVOT_PWM_MIN..MAX, so 16 bits hold
+ * them. */
+#if (MOTION_PIVOT_PWM_MAX + MOTION_PIVOT_PWM_STEP) > 65535U
+#error Pivot PWM no longer fits 16 bits
+#endif
+#if MOTION_PIVOT_PWM_MIN < MOTION_PIVOT_PWM_STEP
+#error Pivot PWM minimum must be at least one step
+#endif
+static uint16_t g_turn_pwm = 0U;
+static uint16_t g_pivot_pwm[ENCODER_WHEEL_COUNT];
 static int32_t g_pivot_last[ENCODER_WHEEL_COUNT];
 static uint8_t g_pivot_action = 0U;
 /* Stop periods left to hold the short brake before releasing to coast. */
 #define MOTION_BRAKE_CYCLES \
     (APP_JUNCTION_BRAKE_MSEC / APP_CONTROLLER_PERIOD_MSEC)
-static uint32_t g_brake_cycles = 0U;
+#if MOTION_BRAKE_CYCLES > 255U
+#error Brake hold no longer fits its 8-bit counter
+#endif
+static uint8_t g_brake_cycles = 0U;
 
 typedef struct
 {
@@ -115,7 +126,7 @@ static motion_wheel_t g_wheels[ENCODER_WHEEL_COUNT];
 static steering_t     g_steering;
 static float          g_base_rpm = 0.0f; /**< Ramped speed of both wheels. */
 static float          g_steer    = 0.0f; /**< Rate-limited steer applied. */
-static uint32_t       g_log_countdown = 0U;
+static uint8_t        g_log_countdown = 0U; /**< 0..MOTION_LOG_EVERY. */
 /* Controller task is the sole writer; no shared RMW or extra mutex. */
 static downhill_governor_t g_downhill = {0};
 /* A bounded brake pulse, never indefinite H-bridge shorting on a fault. */
@@ -286,7 +297,7 @@ void motion_brake (void)
      * already braking or stopped must not restart the hold. */
     if ((g_base_rpm > 0.0f) || (0U != g_turn_pwm))
     {
-        g_brake_cycles = MOTION_BRAKE_CYCLES;
+        g_brake_cycles = (uint8_t)MOTION_BRAKE_CYCLES;
     }
 #endif
     motion_apply(LINE_UNCERTAIN);
@@ -459,7 +470,7 @@ static void drive_wheels (line_follow_action_t action)
 
     if (0U == g_log_countdown)
     {
-        g_log_countdown = MOTION_LOG_EVERY;
+        g_log_countdown = (uint8_t)MOTION_LOG_EVERY;
         /* STEER is in percent. Truncation to INT is for display only;
          * UB preserves the string bytes.
          */
@@ -520,9 +531,11 @@ void motion_apply_maneuver (uint8_t mapped_action)
         {
             int32_t const m = (moved[w] < 0) ? -moved[w] : moved[w];
             if (m < MOTION_PIVOT_COUNTS)
-                g_pivot_pwm[w] += MOTION_PIVOT_PWM_STEP;
+                g_pivot_pwm[w] =
+                    (uint16_t)(g_pivot_pwm[w] + MOTION_PIVOT_PWM_STEP);
             else if (m > MOTION_PIVOT_COUNTS + (MOTION_PIVOT_COUNTS / 4))
-                g_pivot_pwm[w] -= MOTION_PIVOT_PWM_STEP;
+                g_pivot_pwm[w] =
+                    (uint16_t)(g_pivot_pwm[w] - MOTION_PIVOT_PWM_STEP);
             if (g_pivot_pwm[w] > MOTION_PIVOT_PWM_MAX)
                 g_pivot_pwm[w] = MOTION_PIVOT_PWM_MAX;
             if (g_pivot_pwm[w] < MOTION_PIVOT_PWM_MIN)
@@ -533,8 +546,8 @@ void motion_apply_maneuver (uint8_t mapped_action)
     g_pivot_last[ENCODER_RIGHT] = right.count;
     left_pwm = (int32_t)g_pivot_pwm[ENCODER_LEFT];
     right_pwm = (int32_t)g_pivot_pwm[ENCODER_RIGHT];
-    g_turn_pwm = (left_pwm > right_pwm) ? (uint32_t)left_pwm :
-                                           (uint32_t)right_pwm;
+    g_turn_pwm = (left_pwm > right_pwm) ? (uint16_t)left_pwm :
+                                           (uint16_t)right_pwm;
     /* Left and U-turn spin anticlockwise (left wheel back), right turns
      * clockwise (right wheel back). */
     if (mapped_action == 2U) right_pwm = -right_pwm;

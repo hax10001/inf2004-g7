@@ -10,6 +10,7 @@
 #include "modules/terrain/terrain.h"
 #include "modules/terrain/task_imu.c"
 #include "modules/terrain/tilt_math.c"
+#include "modules/terrain/lift_math.c"
 
 static uint32_t sample_time;
 static int16_t sample_x;
@@ -118,8 +119,37 @@ int main(void)
     assert(terrain_get_snapshot(&out)==E_OK && !out.b_collision);
     assert(out.collision_sequence==(APP_COLLISION_ENABLED?4U:3U));
     assert(impact_logs==(APP_COLLISION_ENABLED?1U:0U));
+    /* Lift rest detection (real IMU task code): on a junction the line
+     * sensors report no floor, but still and level for APP_LIFT_REST_MSEC
+     * counts as standing on it; a pickup ends that at once. */
+    assert(terrain_calibrate(0,0,1000)==E_OK);
+    g_hump.gravity_mg=1000;g_hump.b_filter_ready=1U;
+    g_hump.filtered[0]=0.0F;g_hump.filtered[1]=0.0F;g_hump.filtered[2]=1000.0F;
+    lift_math_reset(&g_lift);g_rest_samples=0U;
+    assert(terrain_set_floor_contact(false)==E_OK);
+    for (unsigned int i=0U; i<IMU_REST_SAMPLES; ++i)
+    {
+        imu_sample(&history,0);
+        assert(terrain_get_snapshot(&out)==E_OK && !out.b_lifted);
+    }
+    for (unsigned int i=0U; i<40U; ++i) imu_sample(&history,0);
+    assert(terrain_get_snapshot(&out)==E_OK);
+    assert(out.b_resting && !out.b_lifted && out.lift_height_mm==0U);
+    /* Picked up: +77 mg breaks the stillness. Rest is judged from the
+     * previous sample, so it ends one 20 ms sample later. */
+    imu_sample(&history,400);
+    imu_sample(&history,400);
+    assert(terrain_get_snapshot(&out)==E_OK && !out.b_resting);
+    /* Tilted (not level), even if still, is not resting. */
+    lift_math_reset(&g_lift);g_rest_samples=0U;
+    for (unsigned int i=0U; i<IMU_REST_SAMPLES+40U; ++i) imu_sample(&history,0);
+    assert(terrain_get_snapshot(&out)==E_OK && out.b_resting);
+    g_rest_tilt.roll_deg=5.0F;
+    imu_sample(&history,0);
+    assert(terrain_get_snapshot(&out)==E_OK && !out.b_resting);
     assert(locks==0U);
     puts("PASS terrain collision: stopped handling ignored, run impacts latch, "
-         "STOP acknowledgement, fresh rearm and late producer gated");
+         "STOP acknowledgement, fresh rearm and late producer gated; lift "
+         "rest: still and level counts as floor, pickup or tilt ends it");
     return 0;
 }

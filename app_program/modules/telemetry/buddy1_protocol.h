@@ -28,6 +28,13 @@
 #define B1_CMD_RECAL_IMU 5u
 #define B1_CMD_RECAL_BARCODE 6u   /* stopped only: relearn barcode white */
 #define B1_CMD_LAST B1_CMD_RECAL_BARCODE
+/* Sensor detail: 24 bytes, or 32 with obstacle diagnostics. Each may be
+ * followed by one 16-bit lift word: height 0..1022 mm in bits 0..9 (1023
+ * unavailable), lifted flag in bit 10, bits 11..15 zero. */
+#define B1_SENSOR_V1 24u
+#define B1_SENSOR_DIAG 32u
+#define B1_SENSOR_LIFT (B1_SENSOR_V1 + 2u)
+#define B1_SENSOR_DIAG_LIFT (B1_SENSOR_DIAG + 2u)
 /* Barcode diagnostics: 28 bytes (V7.5), 42 with scanner state/white. */
 #define B1_BARCODE_DIAG_V1 28u
 #define B1_BARCODE_DIAG_V2 42u

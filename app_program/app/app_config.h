@@ -26,6 +26,12 @@
 #endif
 #define APP_OBSTACLE_PRIORITY 6
 #define APP_STARTUP_DELAY_MSEC 2000
+/* Live control: the controller waits at most this long each period for the
+ * STOP/START mailbox, which the telemetry task holds briefly. If it still
+ * cannot read it this many periods in a row, it stops as a fail-safe. One
+ * busy period only delays a STOP by one period (50 ms). */
+#define APP_REMOTE_LOCK_WAIT_MSEC 2
+#define APP_REMOTE_LOCK_MISS_LIMIT 4
 #define APP_CONTROLLER_PERIOD_MSEC 50U
 #define APP_IR_MAX_AGE_MSEC 200U
 /* The IR task prints "[IR] Task stalled N ms" when its 1 ms loop goes this
@@ -56,6 +62,18 @@
 /* Experimental waveform decoder. Legacy decoder remains the comparison. */
 #ifndef APP_BARCODE_BUFFERED_ENABLED
 #define APP_BARCODE_BUFFERED_ENABLED 1
+#endif
+/* White reference for the barcode sensor:
+ *   1 = learn white once, at the first arming after boot, and reuse that
+ *       reference after every barcode instead of re-learning it. If the
+ *       floor no longer reads as that white, that pass uses its own
+ *       reading so the scanner cannot lock up triggering on the floor.
+ *       "Recalibrate barcode" on the dashboard replaces the reference.
+ *   0 = re-learn white after every barcode (the previous behaviour).
+ * Rearming still waits for ~0.5 s of white after each barcode (and takes
+ * a fresh reading to compare), so a barcode is never read twice. */
+#ifndef APP_BARCODE_KEEP_STARTUP_WHITE
+#define APP_BARCODE_KEEP_STARTUP_WHITE 1
 #endif
 /* The proven V7.7 scan-speed baseline is 15 RPM. Change only after
  * measuring print width, encoder counts and small-barcode success rates. */
@@ -179,8 +197,22 @@
  *   1 = drive straight across it and carry on line following.
  *   0 = navigation safety stop (the previous behaviour).
  * A junction confirmed too soon after a queued barcode
- * (APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS) still stops either way. */
+ * (APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS) is set by
+ * APP_NAV_SCAN_FAIL_STOP below: crossed straight (0) or a stop (1). */
 #define APP_NAV_STRAIGHT_DEFAULT 1U
+/* Barcode problems while running:
+ *   - a letter that is not in the route mapping (or no mapping loaded),
+ *   - a result lost because an unread one was overwritten,
+ *   - a barcode read too close to the junction it would apply to
+ *     (APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS),
+ *   - the barcode handoff to navigation failing to start.
+ *   0 = never stop: ignore the barcode (cross that junction straight) and
+ *       carry on line following; a failed handoff is retried every period.
+ *   1 = navigation safety stop (the previous behaviour): STOP, then START.
+ * A barcode that could not be decoded never stops the robot. */
+#ifndef APP_NAV_SCAN_FAIL_STOP
+#define APP_NAV_SCAN_FAIL_STOP 0
+#endif
 #define APP_NAV_DECODE_WAIT_MSEC 8000U
 #define APP_NAV_DECODE_GRACE_MSEC 1500U
 /* Junction turns (left, right, U-turn) pivot on the spot with the wheel
@@ -220,6 +252,47 @@
 #define APP_IMU_ENABLED 0 /* Motor-free barcode capture profile. */
 #else
 #define APP_IMU_ENABLED 1 /* Normal MQTT/live robot profile. */
+#endif
+/* LIFT STOP: halt the motors when the robot is picked up.
+ *   APP_LIFT_STOP_ENABLED   1 = stop when lifted, 0 = only report height.
+ *   APP_LIFT_STOP_HEIGHT_MM height off the floor, in mm (1..1022), at
+ *                           which the robot counts as lifted. CHANGE THIS
+ *                           to make the stop more or less sensitive.
+ * There is no downward range sensor: the height is ESTIMATED from the
+ * accelerometer (see modules/terrain/lift_math.h) and shown on the
+ * dashboard. "Lifted" also needs both line sensors to have lost the floor
+ * (they read black in the air), so bumps and humps cannot trigger it.
+ * What happens after the stop is set by APP_LIFT_RESUME_ENABLED below.
+ * A very slow, gentle lift is below what the accelerometer can see; the
+ * junction time limits then stop the robot instead. */
+#ifndef APP_LIFT_STOP_ENABLED
+#define APP_LIFT_STOP_ENABLED 1
+#endif
+#ifndef APP_LIFT_STOP_HEIGHT_MM
+#define APP_LIFT_STOP_HEIGHT_MM 40
+#endif
+/* After a lift stop:
+ *   APP_LIFT_RESUME_ENABLED 1 = carry on line following once the robot is
+ *                           put back down; 0 = stay stopped until STOP,
+ *                           then START, like the other safety stops.
+ *   APP_LIFT_RESUME_MSEC    how long it must stand on the floor (a line
+ *                           sensor seeing white) before it moves again.
+ * STOP or an MQTT loss while lifted still ends the run. Put down on a
+ * junction (both sensors black, as in the air), it resumes once it has
+ * been still and level for APP_LIFT_REST_MSEC. */
+#ifndef APP_LIFT_RESUME_ENABLED
+#define APP_LIFT_RESUME_ENABLED 1
+#endif
+#ifndef APP_LIFT_RESUME_MSEC
+#define APP_LIFT_RESUME_MSEC 1000U
+#endif
+/* Still (accelerometer within 16 mg) and level (within 2 degrees) for this
+ * long counts as standing on the floor even where both line sensors read
+ * black, such as a junction; a hand is never that steady. Lets a paused
+ * robot put down on a junction resume, and stops a still robot on a
+ * junction being taken for lifted. */
+#ifndef APP_LIFT_REST_MSEC
+#define APP_LIFT_REST_MSEC 3000U
 #endif
 /* Periodic IMU sample lines, for tuning only. Printing blocks interrupts,
  * and with both cores printing the encoders lose pulses, so wheel speed

@@ -8,6 +8,62 @@ evidence for V9 onwards (test logs, size audits, checklists) is in
 
 ## Unreleased
 
+- Mid-run stops with no STOP and MQTT connected (logged 13:40–13:41): the
+  controller treated one busy period on its STOP/START mailbox as a STOP
+  and ended the run silently. It now waits up to 2 ms
+  (`APP_REMOTE_LOCK_WAIT_MSEC`) and stops only after 4 busy periods in a
+  row (`APP_REMOTE_LOCK_MISS_LIMIT`), with a log line.
+- False lift stop on a junction (fired 10 ms after stopping there): the
+  height estimate could build up while driving and show the moment both
+  line sensors went black. It is now held at 0 while a sensor sees the
+  floor and resets after 100 ms of floor. Still and level for
+  `APP_LIFT_REST_MSEC` (3 s) counts as on the floor, so a robot paused on a
+  junction can resume.
+
+- No barcode problem stops a running robot by default: a barcode read too
+  close to its junction now drops that action and crosses straight, and a
+  failed barcode handoff keeps line following and retries each period.
+  `APP_NAV_SCAN_FAIL_STOP 1` restores all the barcode safety stops
+  (`nav_config_t.clearance_straight` carries it into `nav_core`).
+
+- Barcode white reference: the scanner learns white once, at the first
+  arming after boot, and reuses it after every barcode
+  (`APP_BARCODE_KEEP_STARTUP_WHITE 1`; 0 restores re-learning each time).
+  A floor that no longer reads as that white uses its own reading for that
+  pass, so the scanner cannot lock up triggering on the floor. "Recalibrate
+  barcode" replaces the reference.
+
+- A barcode whose letter is not in the route mapping (or with no mapping
+  loaded), or a scan result lost to a handoff overflow, no longer causes a
+  navigation safety stop: it is ignored like a failed decode and line
+  following continues (the overflow mark is reset so later barcodes are
+  still read). `APP_NAV_SCAN_FAIL_STOP 1` restores the stop.
+
+- The robot no longer stops when the barcode scanner is still rearming at
+  the end of an obstacle bypass, or when it is put down after a lift: it
+  carries on line following and the scanner finishes rearming on the move,
+  as it already did after every barcode (`g7_nav_continue_run()`). Only a
+  failed barcode handoff still stops it. START still waits for an armed
+  scanner, so the first barcode of a run is always captured.
+
+- Lift stop: picking the robot up while it may drive cuts the motors
+  (fault 14) and pauses it (mission state 4, "LIFTED (PAUSED)"). Put back on
+  the line, it resumes line following after `APP_LIFT_RESUME_MSEC` (1000) on
+  the floor; STOP or an MQTT loss while lifted ends the run.
+  `APP_LIFT_RESUME_ENABLED 0` latches the stop instead (STOP, then START).
+  `APP_LIFT_STOP_HEIGHT_MM` (default 40) sets the height that counts as
+  lifted and `APP_LIFT_STOP_ENABLED` turns the stop off. The height is an
+  accelerometer estimate (`modules/terrain/lift_math.c`), confirmed by both
+  line sensors losing the floor, and is shown on the dashboard (Overview,
+  Map & robot and Console sensor panels). The SENSOR frame grows by one 16-bit word
+  (10-bit height + lifted flag); 24/32-byte frames still decode.
+- Minimum-width storage: hump heights are 7 bits each and share one word
+  with the 10-bit lifted height, so `terrain_snapshot` stays 28 bytes on
+  ARM; hump state, pivot PWM and the brake/log/junction counters narrowed,
+  each with a compile-time range guard.
+- `modules/terrain/host/run_tests.py` links again (missing `tk_slp_tsk`
+  stub).
+
 - Obstacle bypass: the straight leg could overshoot to the 1200 mm
   `OBS_PASS_MAX_MM` fault whenever the side watch could not confirm the
   object's end. A single unconfirmed echo turned off the never-seen fallback,

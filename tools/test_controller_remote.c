@@ -72,8 +72,10 @@ ID tk_cre_mtx(const T_CMTX *config)
 ER tk_loc_mtx(ID id, TMO timeout)
 {
     assert(id == 42);
-    assert(timeout == TMO_POL || timeout == TMO_FEVR);
-    if (g_force_busy && timeout == TMO_POL) return E_TMOUT;
+    assert(timeout == TMO_POL || timeout == TMO_FEVR ||
+           timeout == (TMO)APP_REMOTE_LOCK_WAIT_MSEC);
+    /* Busy models contention for any bounded wait, never TMO_FEVR. */
+    if (g_force_busy && timeout != TMO_FEVR) return E_TMOUT;
     assert(!g_lock_held);
     g_lock_held = true;
     return E_OK;
@@ -103,6 +105,7 @@ ER terrain_acknowledge_collision(void)
 }
 ER terrain_ack_collision(uint32_t seq)
 {(void)seq;return terrain_acknowledge_collision();}
+ER terrain_set_floor_contact(bool contact) {(void)contact;return E_OK;}
 ER terrain_get_snapshot(terrain_snapshot *s)
 {
     *s=(terrain_snapshot){.b_valid=1U,.timestamp_msec=99U,
@@ -117,6 +120,7 @@ uint8_t motion_downhill_fault(void)
 {return (uint8_t)motion_downhill_faulted();}
 uint8_t bc_wave_capture_active(void) {return 0U;}
 int g7_nav_begin_run(void) {return 1;}
+int g7_nav_continue_run(void) {return 1;}
 int g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
                      uint32_t *ms,uint32_t *done,uint8_t *pending)
 {*ms=0U;*done=100U;*pending=0U;return g7_nav_take_decoded(l,a,s);}
@@ -132,7 +136,7 @@ static void obstacle_handoff(void)
 {
     controller_history_t history={0};
     nav_init(&g_navigation,
-        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U});
+        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U});
     nav_start(&g_navigation,1U);
     assert(nav_barcode(&g_navigation,0U,NAV_LEFT,1U,1U,0U)==1);
     g_obstacle_blocked=true;
@@ -221,11 +225,25 @@ int main(void)
     assert(stop == 0U && start == 1U); /* Explicit later START. */
     assert(g7_controller_remote_command(B1_CMD_STOP,NULL) == B1_OK);
     g_force_busy = true;
+    /* Brief contention is not a STOP: keep running, request stays queued. */
+    for (unsigned miss = 1U; miss < APP_REMOTE_LOCK_MISS_LIMIT; ++miss)
+    {
+        remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
+        assert(stop == 0U && start == 0U && !g_control.request_ok);
+    }
+    /* A mailbox stuck for the limit is the fail-safe stop. */
     remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
     assert(stop == 1U && start == 0U); /* Fail-safe on busy mutex. */
     g_force_busy = false;
     remote_take_requests(&stop,&start,ROBOT_REMOTE_HOLD);
     assert(stop == 1U && start == 0U); /* Pending STOP preserved. */
+    /* One miss, then a clean read: the miss count starts over. */
+    g_force_busy = true;
+    remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
+    assert(stop == 0U);
+    g_force_busy = false;
+    remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
+    assert(stop == 0U && g_remote_lock_misses == 0U);
     g_connected = 0U;
     assert(g7_controller_remote_ready() == 0U);
     assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_NOT_READY);
@@ -235,7 +253,7 @@ int main(void)
     assert(g7_controller_mission_state() == 2U);
     /* A confirmed navigation failure is a safe, recoverable STOP state.
      * No START can pass until operator STOP clears the navigation fault. */
-    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U});
+    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U});
     g_navigation.state = NAV_FAULT;
     remote_publish_state(ROBOT_NAV_SAFETY_STOP);
     assert(g7_controller_remote_ready() == 0U);

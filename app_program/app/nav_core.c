@@ -285,6 +285,18 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
                     /* No barcode action for this junction: go straight. */
                     nav_take_straight(nav, s->now_msec, &result);
                 }
+                else if (nav->pending && nav->cfg.clearance_straight &&
+                    (uint32_t)(s->travel_counts - nav->barcode_counts) <
+                    nav->cfg.min_after_barcode_counts)
+                {
+                    /* Too close to have been meant for this junction (most
+                     * likely the crossing tape read as a barcode): drop it
+                     * and cross straight on rather than stop. */
+                    nav->pending = 0U;
+                    nav->held = 0U;
+                    nav->clearance_dropped = 1U;
+                    nav_take_straight(nav, s->now_msec, &result);
+                }
                 else if (!nav->pending ||
                     (uint32_t)(s->travel_counts - nav->barcode_counts) <
                     nav->cfg.min_after_barcode_counts)

@@ -57,11 +57,12 @@ function loop(){if(!sim.ready)return;
  if(running&&t===87)event(3,3,45);if(running&&t===125)event(3,9,67);
  if(cycle%3===0)send(TYPES.SNAPSHOT,snap(phase));
  if(cycle%10===0){
-   const sensor=Buffer.alloc(24);sensor[0]=27;sensor[1]=phase===1?7:2;
+   const sensor=Buffer.alloc(26);sensor[0]=27;sensor[1]=phase===1?7:2;
    sensor.writeInt16LE(phase===2?150:0,2);sensor.writeInt16LE(phase===2?100:0,4);
    sensor.writeUInt16LE(12345,6);sensor[10]=phase===2?1:0;sensor[11]=1;
    sensor.writeInt32LE(left,12);sensor.writeInt32LE(right,16);
-   sensor[20]=255;send(TYPES.SENSOR,sensor);
+   sensor[20]=255;sensor.writeUInt16LE(0,24); /* on the floor, not lifted */
+   send(TYPES.SENSOR,sensor);
    send(TYPES.STATUS,Buffer.from([mappingReady?1:0,1,running?1:0,23,running?2:6]));
    /* Simulated scanner status (42-byte barcode diagnostic). */
    const d=Buffer.alloc(42);d[0]=2;d[28]=simScannerState;

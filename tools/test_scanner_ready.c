@@ -21,7 +21,25 @@ INT tm_printf(UB const *f,...) {(void)f;return 0;}
 uint32_t encoder_now_usec(void) {return now;}
 ER bc_port_nav_begin(uint32_t ms) {(void)ms;++captures;return E_OK;}
 ER bc_port_nav_captured(uint32_t ms) {(void)ms;return E_OK;}
+/* bc_wave_poll() is called only with no capture to decode, so the decoder
+ * is never reached; these satisfy the linker and fail loudly if it is. */
+bc_code_result_t bc_code_decode(uint32_t const *w,uint32_t m)
+{(void)w;(void)m;assert(0 && "no decode expected");
+ return (bc_code_result_t){0};}
+void bc_layout_begin(uint32_t n,bc_layout_read_t r,uint8_t l)
+{(void)n;(void)r;(void)l;assert(0 && "no decode expected");}
+uint8_t bc_layout_poll(void) {assert(0 && "no decode expected");return 1U;}
+uint8_t bc_scan_init(bc_scan_t *s,bc_scan_config_t const *c)
+{(void)s;(void)c;return 1U;}
+uint8_t bc_scan_feed(bc_scan_t *s,uint8_t b,uint32_t u,uint32_t ms,uint8_t v)
+{(void)s;(void)b;(void)u;(void)ms;(void)v;return 0U;}
+uint8_t bc_scan_take(bc_scan_t *s,uint32_t *w,uint8_t *e,uint32_t *ts)
+{(void)s;(void)w;(void)e;(void)ts;return 0U;}
 
+static unsigned int captures_seen;
+/* Captures started since the last call. */
+static unsigned int captures_since(void)
+{unsigned int const n=captures-captures_seen;captures_seen=captures;return n;}
 static void sample(uint16_t adc, int32_t count)
 {
     now += BC_FAST_PERIOD_USEC;
@@ -53,6 +71,43 @@ int main(void)
     assert(g_phase==BC_WAVE_CLEAR && !bc_wave_is_ready());
     for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++) sample(200U,1);
     assert(bc_wave_is_ready());
+#if APP_BARCODE_KEEP_STARTUP_WHITE
+    assert(g_startup_white_valid && g_startup_white_mean==200U);
+#endif
+    (void)captures_since(); /* Only count captures from here on. */
+    /* After a barcode the same floor reads slightly differently: the
+     * startup reference is kept (or re-learned with the setting off). */
+    g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
+    wave_rearm_completed_capture();
+    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++) sample(210U,1);
+    assert(bc_wave_is_ready());
+    assert(g_white_mean==(APP_BARCODE_KEEP_STARTUP_WHITE ? 200U : 210U));
+    /* A floor that no longer matches uses its own reading, so the scanner
+     * cannot lock up triggering on it; the startup reference survives. */
+    g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
+    wave_rearm_completed_capture();
+    for(unsigned i=0;i<BC_WAVE_CLEAR_MAX_SAMPLES+BC_WAVE_WHITE_SAMPLES+10U;i++)
+        sample(400U,1);
+    assert(bc_wave_is_ready() && g_white_mean==400U && !captures_since());
+#if APP_BARCODE_KEEP_STARTUP_WHITE
+    assert(g_startup_white_mean==200U);
+#endif
+    /* Back on the original floor: the startup reference applies again. */
+    g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
+    wave_rearm_completed_capture();
+    for(unsigned i=0;i<BC_WAVE_CLEAR_MAX_SAMPLES+BC_WAVE_WHITE_SAMPLES+10U;i++)
+        sample(205U,1);
+    assert(bc_wave_is_ready());
+    assert(g_white_mean==(APP_BARCODE_KEEP_STARTUP_WHITE ? 200U : 205U));
+    /* An explicit recalibration replaces the startup reference. */
+    bc_wave_request_relearn();
+    bc_wave_poll();
+    assert(g_phase==BC_WAVE_LEARN);
+    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES;i++) sample(300U,1);
+    assert(bc_wave_is_ready() && g_white_mean==300U);
+#if APP_BARCODE_KEEP_STARTUP_WHITE
+    assert(g_startup_white_valid && g_startup_white_mean==300U);
+#endif
     bc_wave_request_cancel();
     assert(!bc_wave_is_ready());
     bc_wave_status(&status);
@@ -67,7 +122,11 @@ int main(void)
     bc_wave_status(&status);
     assert(rejections==1U && !status.last_valid && status.sequence==7U);
     assert(status.last_reason==BC_WAVE_REASON_IGNORED);
-    puts("PASS real scanner: persistent held READY, first-stripe capture, "
-         "CLEAR/DONE/cancel/relearn cannot authorize START");
+    puts(APP_BARCODE_KEEP_STARTUP_WHITE ?
+         "PASS real scanner: persistent held READY, first-stripe capture, "
+         "startup white kept across rearms, drifted floor and recalibration, "
+         "CLEAR/DONE/cancel/relearn cannot authorize START" :
+         "PASS real scanner (re-learn white each rearm): held READY, "
+         "first-stripe capture, CLEAR/DONE/cancel/relearn gating");
     return 0;
 }

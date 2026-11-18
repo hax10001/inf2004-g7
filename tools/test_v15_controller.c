@@ -42,6 +42,9 @@ static uint16_t g_output_pwm;
 void motor_last_command(uint16_t *l,uint16_t *r)
 {*l=g_output_pwm;*r=g_output_pwm;}
 ER terrain_get_snapshot(terrain_snapshot *s) {*s=g_terrain;return E_OK;}
+static bool g_floor_contact;
+ER terrain_set_floor_contact(bool contact)
+{g_floor_contact=contact;return E_OK;}
 ER terrain_ack_collision(uint32_t seq)
 {
     if (seq != g_terrain.collision_sequence) return E_OBJ;
@@ -75,6 +78,10 @@ void g7_nav_clear_decoded(void)
 {++g_decoded_clears;if(g_model_cancel)g_cancel_pending=true;}
 int g7_nav_begin_run(void)
 {return (g_model_cancel&&(g_cancel_pending||!g_barcode_ready))?0:1;}
+/* Mid-run handoff: does not wait for the scanner. */
+static bool g_handoff_fail = false;
+static unsigned int g_continue_calls = 0U;
+int g7_nav_continue_run(void) {++g_continue_calls;return g_handoff_fail?0:1;}
 int g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
                      uint32_t *ms,uint32_t *done,uint8_t *pending)
 {
@@ -113,8 +120,10 @@ ID tk_cre_mtx(const T_CMTX *config)
 ER tk_loc_mtx(ID id, TMO timeout)
 {
     assert(id == 42);
-    assert(timeout == TMO_POL || timeout == TMO_FEVR);
-    if (g_force_busy && timeout == TMO_POL) return E_TMOUT;
+    assert(timeout == TMO_POL || timeout == TMO_FEVR ||
+           timeout == (TMO)APP_REMOTE_LOCK_WAIT_MSEC);
+    /* Busy models contention for any bounded wait, never TMO_FEVR. */
+    if (g_force_busy && timeout != TMO_FEVR) return E_TMOUT;
     assert(!g_lock_held);
     g_lock_held = true;
     return E_OK;
@@ -144,7 +153,7 @@ static void obstacle_handoff(void)
 {
     controller_history_t history={0};
     nav_init(&g_navigation,
-        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U});
+        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U});
     nav_start(&g_navigation,1U);
     assert(nav_barcode(&g_navigation,0U,NAV_LEFT,1U,1U,0U)==1);
     g_obstacle_blocked=true;
@@ -197,13 +206,43 @@ static void obstacle_handoff(void)
     g_bypass_drive=(obstacle_drive_t){0,0,false,false,true,false};
     assert(handle_obstacle(&history)==ROBOT_LINE_FOLLOWING);
     assert(!g_cancel_pending && g_navigation.state==NAV_FOLLOW);
-    /* A scanner that is genuinely not armed still stops safely. */
-    g_barcode_ready=0U;
+    /* A scanner still rearming does not stop the robot: it carries on
+     * line following and the scanner finishes rearming on the move. */
+    g_barcode_ready=0U;g_cancel_pending=true;
+    {
+        unsigned int const calls=g_continue_calls;
+        nav_stop(&g_navigation);
+        assert(handle_obstacle(&history)==ROBOT_LINE_FOLLOWING);
+        assert(g_continue_calls==calls+1U);
+        assert(g_navigation.state==NAV_FOLLOW);
+    }
+    g_handoff_fail=true;
+#if APP_NAV_SCAN_FAIL_STOP
+    /* Previous behaviour: a failed handoff stops safely. */
     assert(handle_obstacle(&history)==ROBOT_STOPPED);
     assert(g_last_action==LINE_UNCERTAIN);
-    g_barcode_ready=1U;g_model_cancel=false;
-    puts("Obstacle handoff: armed scanner resumes line following after a "
-         "bypass");
+#else
+    /* A failed handoff keeps line following and is retried each period
+     * until it succeeds. */
+    assert(handle_obstacle(&history)==ROBOT_LINE_FOLLOWING);
+    assert(g_nav_handoff_retry==1U);
+    {
+        unsigned int const calls=g_continue_calls;
+        g_scan_result=0;
+        assert(handle_following(&history)==ROBOT_LINE_FOLLOWING);
+        assert(g_nav_handoff_retry==1U && g_continue_calls==calls+1U);
+        g_handoff_fail=false;
+        assert(handle_following(&history)==ROBOT_LINE_FOLLOWING);
+        assert(g_nav_handoff_retry==0U && g_continue_calls==calls+2U);
+        assert(handle_following(&history)==ROBOT_LINE_FOLLOWING);
+        assert(g_continue_calls==calls+2U); /* No retry once restored. */
+        motion_apply(LINE_UNCERTAIN); /* Leave the motor model stopped. */
+    }
+#endif
+    g_handoff_fail=false;
+    g_barcode_ready=1U;g_cancel_pending=false;g_model_cancel=false;
+    puts("Obstacle handoff: bypass resumes line following whether or not "
+         "the scanner has rearmed yet");
     puts("Obstacle handoff: preemption, RPM, stop, reacquisition, "
          "fault and stale IR PASS");
 }
@@ -220,7 +259,7 @@ static void v15_cycles(void)
     controller_history_t history={0};
     robot_state_t state=ROBOT_REMOTE_HOLD;
     nav_config_t repeat={10U,50U,2500U,1800U,120U,96U,1500U,
-                          8000U,1500U,0U,0U,0U,1U,0U};
+                          8000U,1500U,0U,0U,0U,1U,0U,0U};
     nav_init(&g_navigation,&repeat);
     g_force_busy=false;g_connected=1U;g_obstacle_fault=false;
     g_obstacle_blocked=false;g_ir_left=0U;g_ir_right=0U;
@@ -334,11 +373,49 @@ static void v15_cycles(void)
     g_ir_left=g_ir_right=1U;state=cycle(state,&history);
     g_encoder_count+=100;g_now+=50;state=cycle(state,&history);
     assert(g_navigation.state==NAV_TURN && g_maneuver==NAV_LEFT);
-    /* A configuration error is an immediate safe stop, not a guessed turn. */
     nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
+    g_ir_left=g_ir_right=0U;
+#if APP_NAV_SCAN_FAIL_STOP
+    /* A configuration error is an immediate safe stop, not a guessed turn. */
     g_scan_result=-1;g_scan_letter=25U;g_now+=50;
     state=cycle(ROBOT_LINE_FOLLOWING,&history);
     assert(state==ROBOT_NAV_SAFETY_STOP && g_last_action==LINE_UNCERTAIN);
+#else
+    /* An unmapped letter is ignored like a failed decode: no action is
+     * queued, no fault, and line following carries on. */
+    {
+        uint16_t const seq_before=(uint16_t)g_control.sequence;
+        g_control.fault=0U;
+        g_scan_result=-1;g_scan_letter=25U;g_now+=50;
+        state=cycle(ROBOT_LINE_FOLLOWING,&history);
+        assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+        assert(g_navigation.state==NAV_FOLLOW && !g_navigation.pending);
+        assert(g_control.fault==0U);
+        assert(g_control.event==NAV_EVENT_SCAN_REJECTED &&
+               g_control.value==2U && g_control.sequence!=seq_before);
+    }
+    /* A lost (overwritten) result also carries on, and the handoff is
+     * reset so later barcodes are not all rejected. */
+    {
+        unsigned int const calls=g_continue_calls;
+        g_scan_result=-3;g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+        assert(g_continue_calls==calls+1U && g_control.value==3U);
+        assert(g_control.fault==0U);
+        /* If that reset fails it still carries on, retrying the handoff. */
+        g_handoff_fail=true;g_scan_result=-3;g_now+=50;
+        state=cycle(state,&history);
+        assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+        assert(g_nav_handoff_retry==1U);
+        g_handoff_fail=false;g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LINE_FOLLOWING && g_nav_handoff_retry==0U);
+    }
+    /* A failed decode (no letter) never stopped and still does not. */
+    g_scan_result=-2;g_now+=50;
+    nav_start(&g_navigation,g_now);
+    state=cycle(ROBOT_LINE_FOLLOWING,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+#endif
     assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
     state=cycle(state,&history);
     /* Readiness is rechecked at execution, not trusted from an old ACK. */
@@ -372,6 +449,256 @@ static void v15_cycles(void)
     assert(state==ROBOT_STOPPED && g_last_action==LINE_UNCERTAIN);
     puts("V15 production controller: ten START/STOP cycles, twenty G/LEFT "
          "junctions, idle-before-consume, faults and restart gating PASS");
+}
+/* Mailbox contention mid-run: brief misses keep the run going; only a
+ * mailbox stuck for APP_REMOTE_LOCK_MISS_LIMIT periods stops it. */
+static void mailbox_contention(void)
+{
+    controller_history_t history={0};
+    robot_state_t state=ROBOT_LINE_FOLLOWING;
+    g_connected=1U;g_obstacle_fault=false;g_obstacle_blocked=false;
+    g_governor_fault=0U;g_scan_result=0;g_guard=0U;g_barcode_ready=1U;
+    g_terrain=(terrain_snapshot){.b_valid=true};
+    g_ir_left=g_ir_right=0U;g_remote_lock_misses=0U;
+    nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
+    remote_publish_state(state);
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+    /* Logged: a single busy period used to end the run silently. */
+    for (unsigned run=0U;run<20U;run++)
+    {
+        g_force_busy=true;g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+        g_force_busy=false;g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+    }
+    /* A STOP sent while the mailbox is busy is applied once it is read. */
+    assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
+    g_force_busy=true;g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING);
+    g_force_busy=false;g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_REMOTE_HOLD && g_output_pwm==0U);
+    /* A mailbox stuck for the limit stops as a fail-safe. */
+    state=ROBOT_LINE_FOLLOWING;nav_start(&g_navigation,g_now);
+    g_force_busy=true;
+    for (unsigned i=1U;i<APP_REMOTE_LOCK_MISS_LIMIT;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LINE_FOLLOWING);
+    }
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_REMOTE_HOLD && g_output_pwm==0U);
+    g_force_busy=false;g_remote_lock_misses=0U;
+    motion_apply(LINE_UNCERTAIN);
+    puts("Mailbox contention: brief misses keep running, queued STOP still "
+         "applied, stuck mailbox stops PASS");
+}
+
+/* Common start: running on the floor with the line between the sensors. */
+static robot_state_t lift_run(controller_history_t *history)
+{
+    robot_state_t state;
+    g_connected=1U;g_obstacle_fault=false;g_obstacle_blocked=false;
+    g_governor_fault=0U;g_scan_result=0;g_guard=0U;g_barcode_ready=1U;
+    g_model_cancel=false;g_cancel_pending=false;
+    g_terrain=(terrain_snapshot){.b_valid=true};
+    g_ir_left=g_ir_right=0U;g_control.fault=0U;
+    nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
+    g_now+=50;state=cycle(ROBOT_LINE_FOLLOWING,history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_floor_contact);
+    return state;
+}
+/* Lifted in the air: both line sensors black, IMU reports the lift. */
+static void lift_up(void)
+{
+    g_ir_left=g_ir_right=1U;
+    g_terrain.lift_height_mm=60U;g_terrain.b_lifted=1U;
+}
+/* Put down with the line between the sensors; the estimate is zero. */
+static void lift_down(void)
+{
+    g_ir_left=g_ir_right=0U;
+    g_terrain.lift_height_mm=0U;g_terrain.b_lifted=0U;
+}
+
+/* Lifted robot: motors cut at once. Resume mode carries on line following
+ * after standing on the floor for APP_LIFT_RESUME_MSEC; latched mode
+ * waits for STOP, then START. */
+static void lift_stop(void)
+{
+    controller_history_t history={0};
+    robot_state_t state=lift_run(&history);
+    unsigned int const aborts=g_obstacle_aborts;
+    unsigned int const settle=APP_LIFT_RESUME_MSEC/50U;
+    /* A height below the limit is reported but does not stop the run. */
+    g_terrain.lift_height_mm=APP_LIFT_STOP_HEIGHT_MM-1U;
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_control.fault==0U);
+    /* Both line sensors black: the floor is no longer reported. */
+    g_ir_left=g_ir_right=1U;
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && !g_floor_contact);
+    lift_up();
+    g_now+=50;state=cycle(state,&history);
+    assert(g_last_action==LINE_UNCERTAIN && g_output_pwm==0U);
+    assert(g_control.fault==14U && g_obstacle_aborts==aborts+1U);
+#if APP_LIFT_RESUME_ENABLED
+    assert(state==ROBOT_LIFTED && g7_controller_mission_state()==4U);
+    assert(!g7_controller_remote_hold_applied());
+    /* Carried around: stays paused, motors off. */
+    for (unsigned i=0U;i<40U;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
+    }
+    /* A hand under one sensor briefly is not being put down: the wait
+     * restarts once it is lifted clear again. */
+    g_ir_left=0U;g_terrain.b_lifted=0U;
+    for (unsigned i=0U;i+2U<settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
+    }
+    lift_up();g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LIFTED);
+    /* Put down: waits the full settle time, then resumes following. */
+    lift_down();
+    for (unsigned i=0U;i<settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
+    }
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_control.fault==0U);
+    assert(g_navigation.state==NAV_FOLLOW);
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+    /* A second lift is reported and paused again. */
+    lift_up();g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LIFTED && g_control.fault==14U);
+    /* Put down on a junction (both black): the line sensors cannot tell
+     * the floor from the air, so it waits... */
+    g_terrain.lift_height_mm=0U;g_terrain.b_lifted=0U;
+    for (unsigned i=0U;i<3U*settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
+    }
+    /* ...until the IMU reports it still and level (resting): then it
+     * resumes after the normal settle time, on the junction. */
+    g_terrain.b_resting=1U;
+    for (unsigned i=0U;i<settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
+    }
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING);
+    g_terrain.b_resting=0U;
+    lift_up();g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LIFTED);
+    g_terrain.lift_height_mm=0U;g_terrain.b_lifted=0U;
+    /* Scanner still rearming after the lift's cancel: resume anyway after
+     * the normal settle time; the scanner finishes rearming on the move. */
+    g_model_cancel=true;g_cancel_pending=true;g_barcode_ready=0U;
+    lift_down();
+    for (unsigned i=0U;i<settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
+    }
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING);
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+    g_model_cancel=false;g_cancel_pending=false;g_barcode_ready=1U;
+    /* A failed handoff at resume still resumes, retrying the handoff. */
+    lift_up();g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LIFTED);
+    g_handoff_fail=true;lift_down();
+    for (unsigned i=0U;i<=settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+    }
+#if APP_NAV_SCAN_FAIL_STOP
+    assert(state==ROBOT_STOPPED && g_output_pwm==0U);
+#else
+    assert(state==ROBOT_LINE_FOLLOWING && g_nav_handoff_retry==1U);
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LINE_FOLLOWING && g_output_pwm!=0U);
+#endif
+    g_handoff_fail=false;
+    assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_REMOTE_HOLD);
+    state=lift_run(&history);
+    /* Stale IMU while lifted: never resume on old data. */
+    lift_up();g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LIFTED);
+    lift_down();
+    for (unsigned i=0U;i<3U*settle;i++)
+    {
+        g_now+=50;g_ir_timestamp=g_now;
+        g_terrain.timestamp_msec=g_now-500U;
+        state=controller_cycle(state,&history);
+        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
+    }
+    /* MQTT loss while lifted ends the run: no resume when put down. */
+    g_connected=0U;g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_REMOTE_HOLD);
+    g_connected=1U;
+    for (unsigned i=0U;i<3U*settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_REMOTE_HOLD && g_output_pwm==0U);
+    }
+    /* Explicit STOP while lifted also ends it. */
+    state=lift_run(&history);lift_up();
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_LIFTED);
+    assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_REMOTE_HOLD && g_control.fault==0U);
+    lift_down();
+    for (unsigned i=0U;i<3U*settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_REMOTE_HOLD && g_output_pwm==0U);
+    }
+#else
+    assert(state==ROBOT_STOPPED);
+    /* Putting it down again must not restart the motors. */
+    lift_down();
+    for (unsigned i=0U;i<3U*settle;i++)
+    {
+        g_now+=50;state=cycle(state,&history);
+        assert(state==ROBOT_STOPPED && g_output_pwm==0U);
+    }
+    assert(g_floor_contact);
+    /* Explicit STOP acknowledges it. */
+    assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
+    g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_REMOTE_HOLD && g_control.fault==0U);
+#endif
+    /* A held robot ignores being lifted. */
+    lift_up();g_now+=50;state=cycle(state,&history);
+    assert(state==ROBOT_REMOTE_HOLD && g_control.fault==0U);
+    /* START while still in the air is stopped on its first period. */
+    state=cycle(ROBOT_IDLE,&history);
+    assert(state==(APP_LIFT_RESUME_ENABLED ? ROBOT_LIFTED : ROBOT_STOPPED));
+    assert(g_control.fault==14U && g_output_pwm==0U);
+    /* Stale IR is not proof of floor contact. */
+    g_terrain=(terrain_snapshot){.b_valid=true};
+    g_ir_left=g_ir_right=0U;g_now+=50;
+    g_terrain.timestamp_msec=g_now;g_ir_timestamp=g_now-500U;
+    (void)controller_cycle(ROBOT_REMOTE_HOLD,&history);
+    assert(!g_floor_contact);
+    puts(APP_LIFT_RESUME_ENABLED ?
+         "Lift stop (resume): immediate stop, pause while carried, settle "
+         "time, resume while scanner rearms, junction/stale-IMU waits, STOP "
+         "and MQTT loss end the run PASS" :
+         "Lift stop (latched): immediate stop, no restart on landing, "
+         "STOP reset and hold immunity PASS");
 }
 ER tk_get_otm(SYSTIM *out)
 {
@@ -409,11 +736,25 @@ int main(void)
     assert(stop == 0U && start == 1U); /* Explicit later START. */
     assert(g7_controller_remote_command(B1_CMD_STOP,NULL) == B1_OK);
     g_force_busy = true;
+    /* Brief contention is not a STOP: keep running, request stays queued. */
+    for (unsigned miss = 1U; miss < APP_REMOTE_LOCK_MISS_LIMIT; ++miss)
+    {
+        remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
+        assert(stop == 0U && start == 0U && !g_control.request_ok);
+    }
+    /* A mailbox stuck for the limit is the fail-safe stop. */
     remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
     assert(stop == 1U && start == 0U); /* Fail-safe on busy mutex. */
     g_force_busy = false;
     remote_take_requests(&stop,&start,ROBOT_REMOTE_HOLD);
     assert(stop == 1U && start == 0U); /* Pending STOP preserved. */
+    /* One miss, then a clean read: the miss count starts over. */
+    g_force_busy = true;
+    remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
+    assert(stop == 0U);
+    g_force_busy = false;
+    remote_take_requests(&stop,&start,ROBOT_LINE_FOLLOWING);
+    assert(stop == 0U && g_remote_lock_misses == 0U);
     g_connected = 0U;
     assert(g7_controller_remote_ready() == 0U);
     assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_NOT_READY);
@@ -423,7 +764,7 @@ int main(void)
     assert(g7_controller_mission_state() == 2U);
     /* A confirmed navigation failure is a safe, recoverable STOP state.
      * No START can pass until operator STOP clears the navigation fault. */
-    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U});
+    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U});
     g_navigation.state = NAV_FAULT;
     remote_publish_state(ROBOT_NAV_SAFETY_STOP);
     assert(g7_controller_remote_ready() == 0U);
@@ -452,6 +793,8 @@ int main(void)
     assert(g_unlock_count > 0U);
     obstacle_handoff();
     v15_cycles();
+    mailbox_contention();
+    lift_stop();
     puts("Controller handoff: STOP priority, no missed STOP, "
          "START gating and mutex-busy fail-safe PASS");
     return 0;

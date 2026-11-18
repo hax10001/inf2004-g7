@@ -4,7 +4,7 @@ const safe=x=>String(x??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':
 window.lastAckTime=0;window.lastCommandIssue=0;
 let telemetryUpdated=0,ledgerUpdated='',routeUpdated='';
 let view=null,connected=false,zoom=1,drag=null,offset={x:0,y:0},activeView='overview',logPaused=false,pausedLogs=[],logUpdated=0,lastClearedLogId=0;
-const missionNames=['IDLE','SELF-CHECK','RUNNING','OBSTACLE BYPASS','LEGACY/UNUSED','NAV SAFETY STOP','STOPPED','FAULT'];
+const missionNames=['IDLE','SELF-CHECK','RUNNING','OBSTACLE BYPASS','LIFTED (PAUSED)','NAV SAFETY STOP','STOPPED','FAULT'];
 const actions=['STRAIGHT','LEFT','RIGHT','U-TURN'];
 const scanFailureNames=['Reason unavailable (firmware reported 0)','Invalid sensor input','Barcode width mismatch',
   'Capture buffer overflow','Capture timed out','Invalid encoder travel',
@@ -16,6 +16,7 @@ const readyBits=[[1,'MQTT offline'],[2,'not in safe hold'],[4,'command pending']
  [8,'IMU uncalibrated'],[16,'IR unavailable'],[32,'IR stale'],[64,'controller unavailable or obstacle sensor fault'],[128,'barcode scanner not armed; wait for scanner ready']];
 function readyDetail(status){
  if(view?.controllerFault&&!status?.ready)return view.controllerFault.reason;
+ if(status?.mission===4)return 'Lifted — put the robot back on the line; it resumes by itself';
  if(status?.mission===5)return 'Navigation safety stop — press STOP, wait for HOLD, then START';
  if(status?.mission===7)return 'Controller fault — inspect robot; power-cycle only after resolving fault';
  const b=status?.readinessBlockers;
@@ -221,6 +222,25 @@ el('mission').textContent=(s.sourceMask&16)?missionNames[s.mission]||'UNKNOWN':'
  const phaseNames=['LEVEL','CLIMBING','DESCENDING'];
  el('sensorPhase').textContent=detail?.humpPhase==null?'UNAVAILABLE':
    phaseNames[detail.humpPhase]||'UNKNOWN';
+ /* Lifted height is an accelerometer estimate; the firmware stops the
+  * motors when it reports the robot as lifted. Mission 4 is the paused
+  * state that resumes on its own; a fault 14 with any other stopped
+  * mission is the latched stop (APP_LIFT_RESUME_ENABLED 0). */
+ const liftMm=detail?.liftMm;
+ const liftText=liftMm==null?'UNAVAILABLE':`${liftMm} mm`;
+ const liftPaused=view.robotStatus?.mission===4;
+ const liftFault=!liftPaused&&view.controllerFault?.code===14;
+ el('sensorLift').textContent=liftText;
+ el('threeLift').textContent=liftText;
+ el('sensorLifted').textContent=detail?.lifted==null?'UNAVAILABLE':
+   detail.lifted?'LIFTED - motors stopped while running':
+   liftPaused?'On the floor - resuming line following':
+   liftFault?'On the floor - press STOP, then START':'On the floor';
+ el('liftHeight').innerHTML=liftMm==null?'— <em>mm</em>':`${liftMm} <em>mm</em>`;
+ el('liftNote').textContent=detail?.lifted?'ROBOT LIFTED - motors stopped':
+   liftPaused?'Paused - resumes once back on the line':
+   liftFault?'Lift stop latched - press STOP, then START':
+   'Estimated from the accelerometer';
  el('sensorSonar').textContent=detail?.ultrasonicCm==null?'UNAVAILABLE':
    `${detail.ultrasonicCm} cm`;
  const obstaclePhases=['IDLE','CONFIRMING','STOPPING','SCANNING','TURNING OUT',

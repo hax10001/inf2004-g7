@@ -37,11 +37,18 @@ typedef struct
 {
     float roll_deg;
     float pitch_deg;
-    uint16_t hump_height_mm;      /**< Current estimate. */
-    uint16_t last_hump_height_mm; /**< Peak of the last completed hump. */
-    uint16_t max_hump_height_mm;  /**< Highest completed hump this run. */
+    /* One 32-bit word. A hump is at most the wheel spacing (110 mm), so
+     * seven bits (0..127) hold each height; the lifted height is
+     * 0..1022 mm in ten bits, as on the telemetry wire. */
+    unsigned int hump_height_mm:7;      /**< Current estimate. */
+    unsigned int last_hump_height_mm:7; /**< Peak of the last hump. */
+    unsigned int max_hump_height_mm:7;  /**< Highest hump this run. */
+    unsigned int lift_height_mm:10;     /**< Estimated height off floor. */
+    /** At or above APP_LIFT_STOP_HEIGHT_MM with no floor under the line
+     *  sensors. Not latched here: the controller latches its stop. */
+    unsigned int b_lifted:1;
     uint8_t hump_count;           /**< Completed humps this run. */
-    /* Three phases + five booleans in seven bits. The terrain task
+    /* Three phases + six booleans in eight bits. The terrain task
      * publishes and the consumers read copies under the terrain mutex. */
     unsigned char hump_phase:2;
     unsigned char onHump:1;
@@ -49,6 +56,9 @@ typedef struct
     unsigned char b_valid:1;
     unsigned char heading_valid:1;
     unsigned char b_collision:1;
+    /** Still and level for APP_LIFT_REST_MSEC: standing on a surface even
+     *  where both line sensors read black (a junction). */
+    unsigned char b_resting:1;
     uint32_t timestamp_msec;
     // magnetic heading
     float heading_deg;
@@ -61,6 +71,13 @@ ER terrain_ack_collision(uint32_t sequence);
  */
 ER terrain_set_collision_enabled(bool enabled);
 bool terrain_collision_enabled(void);
+/** @brief Controller reports whether a line sensor sees the floor.
+ * @note The IR sensors read black in the air, so a white reading means
+ * the robot is standing on the floor. Used only by the lift estimate.
+ */
+ER terrain_set_floor_contact (bool b_contact);
+/** @brief Latest floor report; false before any report or if locking fails. */
+bool terrain_floor_contact (void);
 
 /** @brief Initialise subsystem resources; device open remains task-owned. */
 ER terrain_init (void);

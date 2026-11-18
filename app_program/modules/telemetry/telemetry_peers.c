@@ -208,7 +208,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
 #endif
             f.type=B1_TYPE_SENSOR;
             f.time_ms=now;
-            f.payload_len=24u;
+            f.payload_len=B1_SENSOR_LIFT;
             if(ir.b_valid)valid|=1u;
             if(imu.b_valid)valid|=2u;
             if(motion.b_valid)valid|=8u;
@@ -230,6 +230,11 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
             f.payload[21]=(uint8_t)imu.onHump;
             f.payload[22]=(uint8_t)imu.height_valid;
             f.payload[23]=peers->odom_confidence;
+            /* Lifted height 0..1022 mm in ten bits (1023 unavailable),
+             * then the lifted flag; the top five bits stay zero. */
+            b1_put16(&f.payload[24],(uint16_t)
+                ((imu.b_valid ? (uint16_t)imu.lift_height_mm : 1023u) |
+                 ((imu.b_valid && imu.b_lifted) ? 0x0400u : 0u)));
             if(b1_sensor_frame(store,&f)==0) {
                 (void)b1_mqtt_submit(&f);
             }
@@ -238,7 +243,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                 "[SENS] IR L=%u R=%u B=%u "
                 "roll_cd=%d pitch_cd=%d heading_cd=%u "
                 "hump=%u sonar=%u phase=%u "
-                "encL=%d encR=%d valid=%u\n",
+                "encL=%d encR=%d valid=%u lift=%u\n",
                 (UINT)(peers->last_ir_bits&1u),
                 (UINT)((peers->last_ir_bits>>1)&1u),
                 (UINT)((peers->last_ir_bits>>2)&1u),
@@ -248,7 +253,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                 (UINT)imu.hump_height_mm,(UINT)distance,
                 (UINT)obstacle_phase,
                 (INT)motion.left_count,(INT)motion.right_count,
-                (UINT)valid);
+                (UINT)valid,(UINT)imu.lift_height_mm);
 #endif
             peers->last_sensor_report_ms=now;
         }

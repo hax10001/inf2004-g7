@@ -19,6 +19,9 @@ static terrain_calibration volatile g_calibration = {0};
 static terrain_snapshot volatile g_snapshot = {0};
 /* Protected by the snapshot mutex, including the producer's final gate. */
 static bool g_collision_enabled;
+/* Protected by the snapshot mutex: written by the controller, read by the
+ * IMU task for the lift estimate. */
+static bool g_floor_contact;
 
 /** @brief Compute an integer square root without the floating-point library. */
 static uint32_t integer_sqrt (uint32_t number);
@@ -65,6 +68,7 @@ ER terrain_init(void)
 
     g_snapshot = (terrain_snapshot){0};
     g_collision_enabled = false;
+    g_floor_contact = false;
 
     return E_OK;
 }
@@ -399,6 +403,41 @@ bool terrain_collision_enabled(void)
     bool const enabled = g_collision_enabled;
     (void)tk_unl_mtx(gh_snapshot_mutex);
     return enabled;
+}
+
+ER terrain_set_floor_contact (bool b_contact)
+{
+    if (gh_snapshot_mutex <= E_OK)
+    {
+        return E_OBJ;
+    }
+
+    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
+
+    if (error < E_OK)
+    {
+        return error;
+    }
+
+    g_floor_contact = b_contact;
+    return tk_unl_mtx(gh_snapshot_mutex);
+}
+
+bool terrain_floor_contact (void)
+{
+    if (gh_snapshot_mutex <= E_OK)
+    {
+        return false;
+    }
+
+    if (tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR) < E_OK)
+    {
+        return false;
+    }
+
+    bool const b_contact = g_floor_contact;
+    (void)tk_unl_mtx(gh_snapshot_mutex);
+    return b_contact;
 }
 
 ER terrain_acknowledge_collision(void)

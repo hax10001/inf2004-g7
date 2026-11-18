@@ -52,8 +52,14 @@ function interpret(f) {
   if(f.type===TYPES.CHECKPOINT){if(p.length!==4)throw Error('bad checkpoint');return {kind:'checkpoint',cumulativeMm:p.readUInt32LE(0)};}
   if(f.type===TYPES.HEARTBEAT){if(p.length!==4)throw Error('bad heartbeat');return {kind:'heartbeat',dropped:p.readUInt32LE(0)};}
   if(f.type===TYPES.SENSOR){
-    if(p.length!==24 && p.length!==32)throw Error('bad sensor payload');
+    if(![24,26,32,34].includes(p.length))throw Error('bad sensor payload');
     const valid=p[0];
+    /* Optional trailing lift word: height mm in bits 0..9 (1023 =
+     * unavailable), lifted flag in bit 10, bits 11..15 must be zero. */
+    const hasLift=p.length===26||p.length===34,hasDiag=p.length>=32;
+    const liftWord=hasLift?p.readUInt16LE(p.length-2):null;
+    if(hasLift && (liftWord&0xf800))throw Error('bad sensor lift word');
+    const liftKnown=hasLift && (liftWord&1023)!==1023;
     return {kind:'sensor',valid,ir:(valid&1)?p[1]:null,
       rollDeg:(valid&2)?p.readInt16LE(2)/100:null,
       pitchDeg:(valid&2)?p.readInt16LE(4)/100:null,
@@ -64,7 +70,9 @@ function interpret(f) {
       rightEncoder:(valid&8)?p.readInt32LE(16):null,
       obstaclePhase:(valid&4)?p[20]:null,onHump:!!p[21],
       heightValid:!!p[22],odometryConfidence:p[23]<=2?p[23]:0,
-      obstacleDiag:p.length===32?{sideRangeMm:p.readInt16LE(24),sideHits:p[26],
+      liftMm:liftKnown?liftWord&1023:null,
+      lifted:liftKnown?!!(liftWord&0x400):null,
+      obstacleDiag:hasDiag?{sideRangeMm:p.readInt16LE(24),sideHits:p[26],
         clearHits:p[27],travelSinceHitMm:p.readInt16LE(28),active:!!(p[30]&1),
         objectSeen:!!(p[30]&2),returnProbeArmed:!!(p[30]&4),waitReason:p[31]}:null};
   }

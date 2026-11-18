@@ -10,9 +10,9 @@
     ++pass; } while (0)
 static int pass;
 /* Junction = 96 counts (~20 mm) of unbroken both-black, or 1500 ms. */
-static const nav_config_t cfg={150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U};
+static const nav_config_t cfg={150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U};
 static const nav_config_t cfg_wait={150U,250U,2500U,1800U,120U,96U,1500U,
-                                    8000U,1500U,0U,0U,0U,0U,0U};
+                                    8000U,1500U,0U,0U,0U,0U,0U,0U};
 static nav_controller_t n;
 static nav_sample_t s;
 static nav_result_t result;
@@ -251,7 +251,7 @@ int main(void)
      * is confirmed on the third read, still on the tape. */
     {
         static const nav_config_t tape={150U,250U,2500U,1800U,120U,24U,
-                                        1500U,0U,0U,0U,0U,0U,0U,0U};
+                                        1500U,0U,0U,0U,0U,0U,0U,0U,0U};
         nav_init(&n,&tape);nav_start(&n,1000U);s=(nav_sample_t){0};
         tick(1300U,1000U,0U,1U);
         tick(1350U,1000U,1U,1U);
@@ -272,7 +272,7 @@ int main(void)
      * 826 counts (both wheels) per 90 degrees. */
     {
         static const nav_config_t piv={150U,250U,6000U,1800U,120U,24U,
-                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U};
+                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U,0U};
         uint32_t t, c, k;
         /* Left: junction confirmed, drive to the centre, pivot. */
         nav_init(&n,&piv);nav_start(&n,1000U);s=(nav_sample_t){0};
@@ -377,9 +377,9 @@ int main(void)
      * is done at every junction until another barcode replaces it. */
     {
         static const nav_config_t one={150U,250U,6000U,1800U,120U,24U,
-                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U};
+                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U,0U};
         static const nav_config_t rep={150U,250U,6000U,1800U,120U,24U,
-                                       1500U,8000U,1500U,643U,5000U,826U,1U,0U};
+                                       1500U,8000U,1500U,643U,5000U,826U,1U,0U,0U};
         /* Junction 1 at 1000 counts, crossed straight; junction 2 at 3000. */
         #define JUNCTION_AT(t0,c0) do { tick((t0),(c0),1U,1U); \
             tick((t0)+50U,(c0)+15U,1U,1U); tick((t0)+100U,(c0)+30U,1U,1U); \
@@ -398,7 +398,7 @@ int main(void)
          * discarded; the next junction with no barcode goes straight. */
         {
             static const nav_config_t one_straight={150U,250U,6000U,1800U,
-                120U,24U,1500U,8000U,1500U,643U,5000U,826U,0U,1U};
+                120U,24U,1500U,8000U,1500U,643U,5000U,826U,0U,1U,0U};
             nav_init(&n,&one_straight);nav_start(&n,1000U);
             s=(nav_sample_t){0};
             CHECK(nav_barcode(&n,18U,NAV_STRAIGHT,62U,1100U,0U)==1);
@@ -547,9 +547,9 @@ int main(void)
     /* straight_default: a junction with no usable action is crossed. */
     {
         static const nav_config_t cfg_straight={150U,250U,2500U,1800U,120U,
-            96U,1500U,0U,0U,0U,0U,0U,0U,1U};
+            96U,1500U,0U,0U,0U,0U,0U,0U,1U,0U};
         static const nav_config_t cfg_wait_straight={150U,250U,2500U,1800U,
-            120U,96U,1500U,8000U,1500U,0U,0U,0U,0U,1U};
+            120U,96U,1500U,8000U,1500U,0U,0U,0U,0U,1U,0U};
         /* No barcode since START: drive straight over, then follow on. */
         nav_init(&n,&cfg_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
         tick(1300U,280U,1U,1U);tick(1460U,380U,1U,1U);
@@ -576,6 +576,33 @@ int main(void)
         CHECK(nav_barcode(&n,4U,NAV_RIGHT,12U,1100U,100U)==1);
         tick(1300U,105U,1U,1U);tick(1460U,205U,1U,1U);
         CHECK(n.state==NAV_FAULT && n.fault_reason==1U);
+        /* With clearance_straight the too-close barcode is dropped and the
+         * junction is crossed straight instead of stopping. */
+        {
+            static const nav_config_t cfg_clear={150U,250U,2500U,1800U,120U,
+                96U,1500U,0U,0U,0U,0U,0U,0U,1U,1U};
+            nav_init(&n,&cfg_clear);nav_start(&n,1000U);s=(nav_sample_t){0};
+            CHECK(nav_barcode(&n,4U,NAV_RIGHT,12U,1100U,100U)==1);
+            tick(1300U,105U,1U,1U);tick(1460U,205U,1U,1U);
+            CHECK(n.state==NAV_CROSS && result.drive==NAV_OUTPUT_FORWARD);
+            CHECK(result.event==NAV_EVENT_JUNCTION &&
+                  result.value==NAV_STRAIGHT);
+            CHECK(n.pending==0U && n.held==0U && n.clearance_dropped==1U);
+            /* A barcode far enough before its junction is still taken. */
+            nav_init(&n,&cfg_clear);nav_start(&n,1000U);s=(nav_sample_t){0};
+            CHECK(nav_barcode(&n,25U,NAV_LEFT,1U,1200U,100U)==1);
+            tick(1300U,280U,1U,1U);tick(1460U,380U,1U,1U);
+            CHECK(n.state==NAV_TURN && result.drive==NAV_OUTPUT_LEFT);
+            CHECK(n.clearance_dropped==0U);
+            /* Repeat mode: the dropped action is not remembered either. */
+            static const nav_config_t cfg_clear_rep={150U,250U,2500U,1800U,
+                120U,96U,1500U,0U,0U,0U,0U,0U,1U,1U,1U};
+            nav_init(&n,&cfg_clear_rep);nav_start(&n,1000U);
+            s=(nav_sample_t){0};
+            CHECK(nav_barcode(&n,4U,NAV_RIGHT,12U,1100U,100U)==1);
+            tick(1300U,105U,1U,1U);tick(1460U,205U,1U,1U);
+            CHECK(n.state==NAV_CROSS && n.held==0U);
+        }
         /* A queued turn is still taken; the default only fills gaps. */
         nav_init(&n,&cfg_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
         CHECK(nav_barcode(&n,25U,NAV_LEFT,1U,1200U,100U)==1);

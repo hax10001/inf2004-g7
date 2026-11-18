@@ -213,8 +213,11 @@ int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
 }
 int b1_sensor_frame(B1_Store *s,B1_Frame *frame) {
     if(s==NULL || frame==NULL ||
-       (frame->type==B1_TYPE_SENSOR && frame->payload_len!=24u &&
-        frame->payload_len!=32u) ||
+       (frame->type==B1_TYPE_SENSOR &&
+        frame->payload_len!=B1_SENSOR_V1 &&
+        frame->payload_len!=B1_SENSOR_DIAG &&
+        frame->payload_len!=B1_SENSOR_LIFT &&
+        frame->payload_len!=B1_SENSOR_DIAG_LIFT) ||
        (frame->type==B1_TYPE_BARCODE_DIAG &&
         frame->payload_len!=B1_BARCODE_DIAG_V1 &&
         frame->payload_len!=B1_BARCODE_DIAG_V2) ||

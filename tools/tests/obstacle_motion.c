@@ -32,15 +32,28 @@ int main(void)
     motion_status_t status={0};
     assert(motion_init()==E_OK);
     assert(left_pwm==0U && right_pwm==0U);
-    for(int i=0;i<3;i++)motion_apply(LINE_FORWARD);
+    /* Ramp to the configured straight-line speed (MOTION_TARGET_RPM is a
+     * tuning value, so it is not pinned here): both wheels settle on the
+     * same positive target and stay there. */
+    for(int i=0;i<20;i++)motion_apply(LINE_FORWARD);
     assert(motion_get_status(&status)==E_OK);
-    assert(status.left_target_rpm==15.0f);
-    assert(status.right_target_rpm==15.0f);
+    float const cruise=status.left_target_rpm;
+    assert(cruise>0.0f && status.right_target_rpm==cruise);
+    assert(cruise<APP_DOWNHILL_RUNAWAY_RPM);
+    motion_apply(LINE_FORWARD);
+    assert(motion_get_status(&status)==E_OK);
+    assert(status.left_target_rpm==cruise);
+    /* Bypass drive ramps up 8 RPM per period from rest, never jumps. */
+    motion_stop_now();
     motion_drive(0.0f,25.0f);
     assert(left_pwm==0U && right_pwm>0U);
     assert(motion_get_status(&status)==E_OK);
     assert(status.left_target_rpm==0.0f);
-    assert(status.right_target_rpm==23.0f);
+    assert(status.right_target_rpm==8.0f);
+    motion_drive(0.0f,25.0f);
+    motion_drive(0.0f,25.0f);
+    assert(motion_get_status(&status)==E_OK);
+    assert(status.right_target_rpm==24.0f);
     motion_drive(0.0f,25.0f);
     assert(motion_get_status(&status)==E_OK);
     assert(status.right_target_rpm==25.0f);
@@ -58,12 +71,14 @@ int main(void)
     float const down = (float)(8 * APP_DOWNHILL_NOSE_DOWN_SIGN);
     for (int i=0;i<10;i++)
         motion_downhill_sample(down,0.0f,true,true);
-    for (int i=0;i<3;i++)motion_apply(LINE_FORWARD);
+    /* Settles at APP_DOWNHILL_REDUCED_PERCENT of the cruise speed. */
+    float const reduced=cruise*(float)APP_DOWNHILL_REDUCED_PERCENT/100.0f;
+    for (int i=0;i<20;i++)motion_apply(LINE_FORWARD);
     assert(motion_get_status(&status)==E_OK);
-    assert(status.left_target_rpm>9.7f &&
-           status.left_target_rpm<9.8f);
-    assert(status.right_target_rpm>9.7f &&
-           status.right_target_rpm<9.8f);
+    assert(status.left_target_rpm>reduced-0.05f &&
+           status.left_target_rpm<reduced+0.05f);
+    assert(status.right_target_rpm>reduced-0.05f &&
+           status.right_target_rpm<reduced+0.05f);
     for (int i=0;i<5;i++)motion_apply(LINE_CORRECT_LEFT);
     assert(motion_get_status(&status)==E_OK);
     assert(status.left_target_rpm<status.right_target_rpm);

@@ -133,7 +133,7 @@ static void transitions(void)
     motion_status_t status={0};
     motion_reset_run();motion_stop_now();
     unsigned int changes=0U;
-    float prior_effort=0.0f, prior_target=0.0f;
+    float prior_effort=0.0f, prior_target=0.0f, cruise=0.0f;
     for(unsigned i=0;i<600;i++)
     {
         bool const descending=i>=100 && i<350;
@@ -145,12 +145,18 @@ static void transitions(void)
         motion_observe_terrain(&s,now_us/1000U);
         motion_apply(LINE_FORWARD);
         assert(motion_get_status(&status)==E_OK && !motion_downhill_fault());
+        /* The level run before the slope sets the cruise speed. */
+        if(i==99) cruise=status.left_target_rpm;
         if(i>=100)
         {
             float const change=fabsf(effort(0)-prior_effort);
             if(change>0.01f) changes++;
             assert(change<=2.02f);
-            assert(fabsf(status.left_target_rpm-prior_target)<=0.751f);
+            /* The governor moves its scale 5 % of cruise per period
+             * (DOWNHILL_SCALE_STEP): 0.75 RPM at 15 RPM. */
+            assert(cruise>0.0f);
+            assert(fabsf(status.left_target_rpm-prior_target)<=
+                   0.05f*cruise+0.001f);
             assert(status.left_target_rpm>0.0f);
             assert(rpm[0]>1.0f); /* No repeated stop/start at slope edges. */
         }

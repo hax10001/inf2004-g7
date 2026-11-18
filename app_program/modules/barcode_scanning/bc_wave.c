@@ -172,6 +172,12 @@ static uint32_t g_row_left_units;
 static uint32_t g_white_rejects;
 static uint32_t g_capture_seen_usec;
 static uint8_t g_white_dark;              /* last learn refused as dark */
+/* White learned at the first arming after boot (APP_BARCODE_KEEP_STARTUP_
+ * WHITE). 12-bit ADC values; worker task only. Replaced only by an
+ * explicit recalibration request. */
+static uint16_t g_startup_white_mean;
+static uint16_t g_startup_white_sigma;
+static uint8_t g_startup_white_valid;
 static uint32_t g_dark_adc;               /* reading that was refused */
 static volatile uint32_t g_relearn_requested;
 /* Last finished pass, for MQTT diagnostics. */
@@ -383,6 +389,45 @@ static void wave_freeze (uint8_t reason)
     g_phase = BC_WAVE_SMOOTH;
 }
 
+/* Called when a white reading has just been learned. The first one after
+ * boot (or after a recalibration request) becomes the reference; later
+ * rearms reuse it while the floor still reads as that white. A floor that
+ * no longer matches keeps this pass's reading instead: arming against a
+ * stale white would trigger on the floor itself and never read a barcode.
+ */
+static void wave_use_startup_white (void)
+{
+#if APP_BARCODE_KEEP_STARTUP_WHITE
+    if (0U == g_startup_white_valid)
+    {
+        /* 12-bit ADC mean and sigma fit 16 bits. */
+        g_startup_white_mean  = (uint16_t)g_white_mean;
+        g_startup_white_sigma = (uint16_t)g_white_sigma;
+        g_startup_white_valid = 1U;
+        tm_printf((UB *)"[BC WAVE] Startup white saved: mean=%u sigma=%u\n",
+                  (UINT)g_white_mean, (UINT)g_white_sigma);
+        return;
+    }
+
+    uint32_t const reference = g_startup_white_mean;
+    uint32_t const tolerance = (uint32_t)g_startup_white_sigma * 3U + 24U;
+    uint32_t const difference = (g_white_mean > reference) ?
+        g_white_mean - reference : reference - g_white_mean;
+
+    if (difference <= tolerance)
+    {
+        g_white_mean  = reference;
+        g_white_sigma = g_startup_white_sigma;
+    }
+    else
+    {
+        tm_printf((UB *)"[BC WAVE] White %u differs from startup %u; "
+                        "using this reading for this pass\n",
+                  (UINT)g_white_mean, (UINT)reference);
+    }
+#endif
+}
+
 void bc_wave_sample (bc_fastq_sample_t const * p_sample)
 {
     if (BC_WAVE_CLEAR == g_phase)
@@ -553,6 +598,7 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
                         else
                         {
                             g_white_dark = 0U;
+                            wave_use_startup_white();
                             g_phase = BC_WAVE_WAIT;
                         }
                     }
@@ -1418,8 +1464,10 @@ void bc_wave_poll (void)
          (BC_WAVE_DONE == g_phase)))
     {
         /* Remote recalibration: drop any capture (never a decode in
-         * progress) and learn white again from the next samples. */
+         * progress) and learn white again from the next samples. That
+         * reading also replaces the startup reference. */
         g_relearn_requested = 0U;
+        g_startup_white_valid = 0U;
         g_phase = BC_WAVE_DONE;
         g_rearm_requested = 1U;
         wave_rearm_completed_capture();

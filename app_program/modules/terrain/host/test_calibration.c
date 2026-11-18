@@ -26,6 +26,8 @@ ER tk_sta_tsk(ID id, INT code) { (void)id; (void)code; return E_OK; }
 ID tk_opn_dev(UB *name, UINT mode) { (void)name; (void)mode; return 1; }
 ER tk_cls_dev(ID id, UINT option)
 { (void)id; (void)option; ++closes; return E_OK; }
+/* A task that gives up sleeps forever; end the scenario there instead. */
+ER tk_slp_tsk(TMO timeout) { (void)timeout; longjmp(escape, 1); return E_OK; }
 UW console_state(void) { return 3; }
 bool lsm303_init(ID id) { (void)id; return true; }
 ER tk_dly_tsk(UINT delay)
