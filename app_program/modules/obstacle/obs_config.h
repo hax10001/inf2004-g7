@@ -60,11 +60,12 @@
 /* Wait at startup: the power-on position is unknown, so allow a full turn. */
 #define OBS_SERVO_HOME_MSEC 600U
 
-/* Panning scan, from the right end to the left end. Outside
- * +-OBS_SCAN_FINE_DEG it steps OBS_SCAN_STEP_DEG (a multiple of 10).
- * Inside, where the object usually is, it steps OBS_SCAN_FINE_STEP_DEG (a
- * multiple of 5 that divides the step), so the object's edges are found to
- * half the step. Each extra point adds about 0.2 s to a scan pass.
+/* Panning scan bearings, listed from the right end to the left end.
+ * Inside +-OBS_SCAN_FINE_DEG, where the object usually is, it steps
+ * OBS_SCAN_FINE_STEP_DEG (a multiple of 5 that divides the step). In the
+ * corner band beyond it, out to +-OBS_CORNER_MAX_DEG, it steps
+ * OBS_CORNER_STEP_DEG; outside that, OBS_SCAN_STEP_DEG (a multiple of 10).
+ * Each extra point adds about 0.2 s to a scan pass.
  * OBS_SCAN_FINE_DEG: a multiple of OBS_SCAN_STEP_DEG; 0 turns it off.
  */
 #define OBS_SCAN_STEP_DEG 10
@@ -73,11 +74,13 @@
 /* Sweep each side of FRONT; never more than the servo limits above. */
 #define OBS_SCAN_LEFT_DEG OBS_SERVO_LEFT_LIMIT_DEG
 #define OBS_SCAN_RIGHT_DEG OBS_SERVO_RIGHT_LIMIT_DEG
-/* Fine points across the front zone, plus the coarse ones each side. */
+/* Fine points across the front zone, the corner band each side, then the
+ * coarse ones out to each end. */
 #define OBS_SCAN_POINTS \
     (((2 * OBS_SCAN_FINE_DEG) / OBS_SCAN_FINE_STEP_DEG) + 1 + \
-     ((OBS_SCAN_LEFT_DEG - OBS_SCAN_FINE_DEG) / OBS_SCAN_STEP_DEG) + \
-     ((OBS_SCAN_RIGHT_DEG - OBS_SCAN_FINE_DEG) / OBS_SCAN_STEP_DEG))
+     ((2 * (OBS_CORNER_MAX_DEG - OBS_SCAN_FINE_DEG)) / OBS_CORNER_STEP_DEG) + \
+     ((OBS_SCAN_LEFT_DEG - OBS_CORNER_MAX_DEG) / OBS_SCAN_STEP_DEG) + \
+     ((OBS_SCAN_RIGHT_DEG - OBS_CORNER_MAX_DEG) / OBS_SCAN_STEP_DEG))
 /* Sweep direction. A servo settles a little short or past each target, the
  * same way every time it is approached from the same side, which shifts
  * every bearing of a one-way sweep and makes objects lean one way.
@@ -119,6 +122,18 @@
  * OBS_SCAN_FINE_DEG..sweep limit. */
 #define OBS_CORNER_MAX_DEG 50
 #define OBS_CORNER_PINGS 4U
+/* Corner band bearing step. 5: +-35, 40, 45, 50. A box 3-7 cm off the line
+ * has its far corner 26-35 degrees out, at the edge of the square-on zone;
+ * with 10 degree steps nothing sampled between 30 (where the face's own
+ * echo arrives first and hides the corner) and 40. A multiple of 5 that
+ * divides OBS_CORNER_MAX_DEG - OBS_SCAN_FINE_DEG. */
+#define OBS_CORNER_STEP_DEG 5
+/* A corner heard on only one of a bearing's pings is kept when the next
+ * corner bearing (OBS_CORNER_STEP_DEG on) heard it too, within this many mm:
+ * the same corner seen from both. Logged: 5 of 32 corner band visits that
+ * heard something near the face heard it on a single ping (279 mm at +40,
+ * twice), and the agreement rule dropped it. */
+#define OBS_CORNER_NEIGHBOUR_MM 30
 /* An echo in the corner band is the box's corner when it is no more than
  * this beyond the face depth (a 15 cm box up to ~25 cm off centre at 22 cm
  * ahead). Farther echoes are something else and are left to the corridor
@@ -130,6 +145,24 @@
  * square on, logged 18:59: 227 mm at 40 degrees, face 214 mm), not a
  * corner. Multiple of 5, below OBS_SCAN_FINE_DEG. */
 #define OBS_CORNER_BEAM_DEG 15
+/* The robot seldom stops square to the box: the logged face normal (the
+ * centre of the square-on zone) wanders +-5 degrees from run to run, and
+ * sat 3-10 degrees right through a whole session of box-on-left runs (18:47,
+ * 11 of 12 went the wrong way). Where it leans, the face keeps echoing
+ * further out, which looks like a corner on that side. So each scan
+ * measures the normal and corner bearings are judged from it: a corner
+ * band echo counts only when it is at least OBS_CORNER_FROM_DEG off the
+ * normal (the square-on zone is 27-33 degrees each side of it in the
+ * logs). The normal is the range-weighted centre of the bearings within
+ * OBS_FACE_BOWL_MM of the nearest echo (off-axis echoes come back a little
+ * late, so the profile is a bowl centred on it; matches a full fit to the
+ * logged scans within 1.7 degrees rms), at most OBS_FACE_TILT_MAX_DEG
+ * either way. */
+#define OBS_CORNER_FROM_DEG 35
+#define OBS_FACE_BOWL_MM 10
+/* 25: the robot was logged up to ~20 degrees off square (22:27); 10 was
+ * too tight and let the face's own echo pass as a corner. */
+#define OBS_FACE_TILT_MAX_DEG 25
 /* 1: when a corner is found, choose the side from the object's real
  * extent: the seen corner(s), and for an unseen one the face's own edge if
  * it stopped echoing inside +-OBS_SCAN_FINE_DEG, else the far edge of an
@@ -138,6 +171,27 @@
  * object's edges are both inside the sensor's blind zone (it is about
  * centred) and the edges decide as before. 0: off. */
 #define OBS_SIDE_CORNER_ECHO 1
+/* Creep closer before scanning (first stop only). The square-on zone is
+ * +-30 degrees about the face's normal, which covers range * tan(30) of the
+ * face each side: +-125 mm at the usual ~215 mm stop, so a 15 cm box less
+ * than ~5 cm off the line keeps both corners inside it and reads as centred
+ * (logged 21:58: every non-extreme placement found no corner). From 150 mm
+ * it covers +-87 mm, so a box ~2 cm off already has its far corner outside
+ * the zone where it can be heard, and the corners are nearer (stronger
+ * echoes). Creeps at OBS_APPROACH_RPM on fresh front pings until the face
+ * is OBS_SCAN_FROM_MM away, at most OBS_APPROACH_MAX_MM or
+ * OBS_APPROACH_MAX_MSEC, and stops early after OBS_APPROACH_MISSES pings in
+ * a row without the face (never drives blind). 0 turns it off. The 90
+ * degree turn out still fits: pivot 55 + overhang 25 + clearance 30 mm. */
+/* Off (0): on the robot (22:27) the closer start left less room to clear
+ * the box than the version that cleared it well, and once lost the face
+ * while creeping. The side choice no longer needs it (tilt-corrected edges
+ * and open room decide). */
+#define OBS_SCAN_FROM_MM 0
+#define OBS_APPROACH_RPM 12
+#define OBS_APPROACH_MAX_MM 120
+#define OBS_APPROACH_MAX_MSEC 4000U
+#define OBS_APPROACH_MISSES 3U
 #define OBS_SCAN_RANGE_MM 600
 #define OBS_EDGE_JUMP_MM 80
 #define OBS_FRONT_WINDOW_DEG 20
@@ -242,11 +296,10 @@
  * Side choice, least resistance: the scan works out how far sideways each
  * side needs the robot to move to clear the object (the object's edge plus
  * half the robot width plus OBS_SAFETY_MARGIN_MM; with a corner echo, its
- * real extent). The clear side needing less wins, however small the
- * difference: there is no tie band and no fixed default side. Exactly equal
- * moves go to the side with more open room past the object, then the
- * smaller drive out, then the more open half of the sweep (scan_plan.c,
- * least_resistance()). OBS_PREFERRED_SIDE, if not 0, overrides all of
+ * real extent). The clear side needing clearly less wins; within
+ * OBS_SIDE_PREFERENCE_THRESHOLD_MM the box is about centred and the side
+ * with more room past it wins (scan_plan.c, least_resistance()). There is
+ * no fixed default side. OBS_PREFERRED_SIDE, if not 0, overrides all of
  * these.
  */
 /* Half-width of the ultrasonic beam, degrees (multiple of 5, 0..30). A
@@ -255,6 +308,13 @@
  * (log, dashboard); bypass offsets still use the conservative edges. Fit
  * to the logged scans of the 15 cm obstacle: about 9-10 degrees. */
 #define OBS_BEAM_HALF_DEG 10
+/* The box counts as about centred when the two sides' moves (measured from
+ * the face's normal, or from corner echoes) differ by no more than this; it
+ * then goes to the side with more room past it (the nearest echo beyond
+ * each edge, then the average). Logged 22:27: two centred boxes went right
+ * on a few cm of difference while the left was open and the right had
+ * something 0.75-0.95 m away. 0..255 mm. */
+#define OBS_SIDE_PREFERENCE_THRESHOLD_MM 45
 /* 1: compare the two sides using the beam-corrected edges (each edge
  * midway to the next empty bearing). The conservative edges, padded out to
  * the next empty bearing, depend on the bearing spacing (5 degrees within

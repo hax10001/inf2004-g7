@@ -404,7 +404,7 @@ int main(void)
 
     /* From a real plan: a 150 mm box 220 mm ahead, echoing -20..20 deg. */
     {
-        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        scan_plan_point_t pts[OBS_SCAN_POINTS]={{0}};
         int32_t n=0;
         for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
             n<OBS_SCAN_POINTS;a=scan_plan_next_angle(a))

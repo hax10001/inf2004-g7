@@ -17,6 +17,12 @@ Pins come from `app_program/board/board_config.h`: left IR GP6, right IR GP2,
 barcode GP27. Timing and junction settings are in
 `app_program/app/app_config.h` (`APP_IR_*`, `APP_JUNCTION_*`, `APP_NAV_*`).
 
+Steering from these actions, and the lost-line search, are in
+[`../motion/`](../motion/) (`steering.c`, `motion.c`); the controller also
+reports each period's readings to `motion_line_seen()`. The closed-loop
+model `tools/tests/line_follow_sim.c` drives the real code round curves and
+90° corners.
+
 Host coverage: `line_follow.c` is compiled into the controller and navigation
 tests run by `tools/run_host_tests.sh`, and `tools/test_v11_minbits.py` tests
 the `ir_shared.c` latches.

@@ -158,6 +158,7 @@ static void fill (scan_plan_point_t * p_points, int32_t range_mm)
     {
         p_points[index].angle_deg = angle;
         p_points[index].range_mm  = range_mm;
+        p_points[index].lone_mm   = 0U;
         index++;
     }
 }

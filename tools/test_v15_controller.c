@@ -57,6 +57,8 @@ void motion_brake(void) {motion_apply(LINE_UNCERTAIN);}
 void motion_stop_now(void) {motion_apply(LINE_UNCERTAIN);}
 void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
 void motion_apply_maneuver(uint8_t action) {g_maneuver=action;}
+/* The controller reports the line to motion each following period. */
+void motion_line_seen(bool l,bool r) {(void)l;(void)r;}
 /* With g_model_cancel set, model the real coupling: clearing decoded
  * results cancels the scanner, which is then not ready until its worker
  * rearms it (g_cancel_pending cleared by the test). */

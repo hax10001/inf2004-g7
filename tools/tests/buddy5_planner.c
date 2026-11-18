@@ -18,6 +18,7 @@ static void fill(scan_plan_point_t *points, int32_t range)
     {
         points[i].angle_deg = angle;
         points[i].range_mm = range;
+        points[i].lone_mm = 0U;
         i++;
     }
     assert(i == UNIFORM_POINTS);
@@ -259,7 +260,7 @@ int main(void)
     /* Firmware sequence: 10 degree steps outside the front zone, finer
      * inside it, from the right end to the left end. */
     {
-        scan_plan_point_t fine[OBS_SCAN_POINTS];
+        scan_plan_point_t fine[OBS_SCAN_POINTS]={{0}};
         scan_plan_sides_t sides={0};
         int32_t n=0;
         for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG;
@@ -362,7 +363,7 @@ int main(void)
         static const int32_t corner_mm[2][2]={{223,223},{213,239}};
         static const int32_t cos_milli[15]={1000,996,985,966,940,906,866,
             819,766,707,643,574,500,423,342};
-        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        scan_plan_point_t pts[OBS_SCAN_POINTS]={{0}};
         scan_plan_sides_t sides;
         for(int32_t k=0;k<2;k++)
         {
@@ -395,7 +396,7 @@ int main(void)
     /* Side choice on the fair (beam-corrected) comparison and the tie
      * break, from logged geometry. */
     {
-        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        scan_plan_point_t pts[OBS_SCAN_POINTS]={{0}};
         scan_plan_sides_t sides;
         int32_t n=0;
         for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
@@ -447,7 +448,7 @@ int main(void)
                                            20,25,30};
         static const int32_t prof_mm[13]={246,238,232,231,229,227,229,229,
                                           228,232,233,238,249};
-        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        scan_plan_point_t pts[OBS_SCAN_POINTS]={{0}};
         scan_plan_sides_t sides;
         int32_t n=0;
         for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
@@ -461,7 +462,7 @@ int main(void)
         for(int32_t sign=-1;sign<=1;sign+=2)
         {
             /* Logged corner at +40: 320 mm. Mirrored for the right. */
-            scan_plan_point_t m[OBS_SCAN_POINTS];
+            scan_plan_point_t m[OBS_SCAN_POINTS]={{0}};
             for(int32_t i=0;i<n;i++)
             {
                 m[i]=pts[i];
@@ -508,6 +509,53 @@ int main(void)
         /* The robot drives out far enough to clear a seen corner. */
         assert(sides.right_need_mm>=sides.right.corner_mm+
                OBS_ROBOT_WIDTH_MM/2+OBS_SAFETY_MARGIN_MM);
+        /* A corner heard on one ping only (lone): kept when the next
+         * corner bearing heard the same range, not on its own. */
+        for(int32_t i=0;i<n;i++)
+            if(pts[i].angle_deg==40||pts[i].angle_deg==-40)
+                pts[i].range_mm=4000U;
+        for(int32_t i=0;i<n;i++)
+            if(pts[i].angle_deg==40) pts[i].lone_mm=279U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(!sides.b_centre);
+        for(int32_t i=0;i<n;i++)
+            if(pts[i].angle_deg==45) pts[i].lone_mm=290U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(sides.b_centre && sides.left.b_corner && !sides.right.b_corner);
+        assert(!scan_plan_side_is_left(&plan));
+        /* Neighbour at a different range: a different thing, not kept. */
+        for(int32_t i=0;i<n;i++)
+            if(pts[i].angle_deg==45) pts[i].lone_mm=400U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(!sides.b_centre);
+        for(int32_t i=0;i<n;i++) pts[i].lone_mm=0U;
+        /* The robot stopped 7.5 degrees off square, the normal to the
+         * left: the face still echoes 35 degrees out on the left (delayed,
+         * as at the zone's edge), which is not a corner. The same echo at
+         * -35 is 42.5 degrees off the normal: a corner. */
+        {
+            scan_plan_point_t t[OBS_SCAN_POINTS]={{0}};
+            for(int32_t i=0;i<n;i++)
+            {
+                int32_t const a=pts[i].angle_deg;
+                int32_t const off=(a>7?a-7:7-a); /* about the normal */
+                t[i].angle_deg=a;
+                t[i].range_mm=(a>=-25&&a<=35)?(unsigned)(214+off*off/25):4000U;
+            }
+            scan_plan_build_side_report(t,n,0,0,&plan,&sides);
+            assert(sides.tilt_x2>=10 && sides.tilt_x2<=20);
+            assert(!sides.left.b_corner);
+            for(int32_t i=0;i<n;i++)
+            {
+                int32_t const a=t[i].angle_deg;
+                if(a==35) t[i].range_mm=4000U;
+                if(a==-35) t[i].range_mm=280U;
+                if(a==-25||a==-30) t[i].range_mm=4000U;
+            }
+            scan_plan_build_side_report(t,n,0,0,&plan,&sides);
+            assert(sides.right.b_corner && !sides.left.b_corner);
+            assert(scan_plan_side_is_left(&plan));
+        }
         puts("PASS corner echoes locate an off-centre box the square-on "
              "face hides");
     }

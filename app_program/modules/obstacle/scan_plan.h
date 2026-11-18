@@ -21,6 +21,11 @@ typedef struct
      * Values outside these ranges must be normalized before assignment. */
     signed int angle_deg:8;
     unsigned int range_mm:12;
+    /** Corner band only: the nearest echo heard on a single ping, which no
+     *  second ping confirmed (range_mm leaves it out), 0 if none. 0..3999,
+     *  12 bits. The planner trusts it only when the next corner bearing
+     *  heard the same range. Zero it when building points by hand. */
+    unsigned int lone_mm:12;
 } scan_plan_point_t;
 
 /** @brief A bypass plan packed into two words, with distances in cm. */
@@ -66,7 +71,7 @@ typedef struct
     unsigned int right_need_mm:12;
     unsigned int b_left_ok:1;  /**< Left corridor is clear. */
     unsigned int b_right_ok:1; /**< Right corridor is clear. */
-    unsigned int b_tie:1;      /**< Compared moves exactly equal. */
+    unsigned int b_tie:1;      /**< About centred: room past it decided. */
     unsigned int b_object:1;   /**< An object was found ahead. */
     /* Object bearings -70..70 degrees; depth and width 0..4095 mm. */
     signed int   low_deg:8;    /**< Rightmost object sample. */
@@ -75,6 +80,7 @@ typedef struct
     unsigned int width_mm:12;  /**< Edge to edge across the line. */
     unsigned int b_centre:1;   /**< centre_mm is from corner echoes. */
     signed int   centre_mm:12; /**< Object centre off the line, + = left. */
+    signed int   tilt_x2:7;    /**< Face normal, half degrees, + = left. */
     scan_plan_side_info_t left;
     scan_plan_side_info_t right;
 } scan_plan_sides_t;
@@ -86,7 +92,8 @@ typedef struct
 int32_t scan_plan_angle_deg (uint32_t angle_index);
 
 /** @brief The bearing scanned after this one, going right to left: the
- *  fine step inside +-OBS_SCAN_FINE_DEG, the normal step outside it.
+ *  fine step inside +-OBS_SCAN_FINE_DEG, the corner step out to
+ *  +-OBS_CORNER_MAX_DEG, the normal step outside that.
  *  @param angle_deg A bearing of the scan sequence.
  */
 int32_t scan_plan_next_angle (int32_t angle_deg);

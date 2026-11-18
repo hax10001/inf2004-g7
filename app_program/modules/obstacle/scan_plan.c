@@ -41,6 +41,11 @@
 #error "OBS_SCAN_FINE_DEG must be a step multiple within the sweep."
 #endif
 
+#if ((OBS_SIDE_PREFERENCE_THRESHOLD_MM < 0) || \
+     (OBS_SIDE_PREFERENCE_THRESHOLD_MM > 255))
+#error "OBS_SIDE_PREFERENCE_THRESHOLD_MM must be 0..255 mm."
+#endif
+
 #if ((OBS_BEAM_HALF_DEG < 0) || (OBS_BEAM_HALF_DEG > 30) || \
      ((OBS_BEAM_HALF_DEG % 5) != 0))
 #error "OBS_BEAM_HALF_DEG must be a multiple of 5 from 0 to 30."
@@ -65,6 +70,22 @@
 
 #if ((OBS_SIDE_CORNER_ECHO != 0) && (OBS_SIDE_CORNER_ECHO != 1))
 #error "OBS_SIDE_CORNER_ECHO must be 0 or 1."
+#endif
+
+#if ((OBS_CORNER_STEP_DEG <= 0) || ((OBS_CORNER_STEP_DEG % 5) != 0) || \
+     (((OBS_CORNER_MAX_DEG - OBS_SCAN_FINE_DEG) % OBS_CORNER_STEP_DEG) != 0))
+#error "OBS_CORNER_STEP_DEG must be a multiple of 5 dividing the corner band."
+#endif
+
+#if ((OBS_CORNER_FROM_DEG < OBS_SCAN_FINE_DEG) || \
+     (OBS_CORNER_FROM_DEG > OBS_CORNER_MAX_DEG) || \
+     (OBS_CORNER_FROM_DEG <= OBS_CORNER_BEAM_DEG))
+#error "OBS_CORNER_FROM_DEG must be FINE_DEG..CORNER_MAX_DEG, above the beam."
+#endif
+
+#if ((OBS_FACE_BOWL_MM <= 0) || (OBS_FACE_BOWL_MM > 100) || \
+     (OBS_FACE_TILT_MAX_DEG < 0) || (OBS_FACE_TILT_MAX_DEG > 30))
+#error "OBS_FACE_BOWL_MM must be 1..100 and OBS_FACE_TILT_MAX_DEG 0..30."
 #endif
 
 
@@ -172,43 +193,72 @@ static int32_t lateral_mm (int32_t depth_mm, int32_t angle_x2);
  */
 static int32_t measured_width (scan_plan_point_t const * p_points,
                                int32_t count, int32_t low, int32_t high,
-                               int32_t near_depth, int32_t planning_width);
+                               int32_t near_depth, int32_t tilt_x2,
+                               int32_t planning_width);
 /** @brief Beam-corrected edge positions (lateral mm at the face depth,
  *  left positive): each edge midway to the next empty bearing, moved in by
  *  OBS_BEAM_HALF_DEG. Edges that cross (narrower than the beam resolves)
- *  meet in the middle.
+ *  meet in the middle. Measured from the face's normal (tilt_x2, half
+ *  degrees from face_tilt_x2()), so a robot that stopped turned to one
+ *  side does not make the box look longer on that side.
  */
 static void measured_edges (scan_plan_point_t const * p_points,
                             int32_t count, int32_t low, int32_t high,
-                            int32_t near_depth, int32_t * p_left_mm,
-                            int32_t * p_right_mm);
+                            int32_t near_depth, int32_t tilt_x2,
+                            int32_t * p_left_mm, int32_t * p_right_mm);
 /** @brief Nearest echo beyond one edge (samples first..last), OBS_FAR_MM
  *  if none: how much room there is on that side past the object. */
 static int32_t open_beyond (scan_plan_point_t const * p_points, int32_t first,
                             int32_t last);
 /** @brief Integer square root, rounded down. */
 static int32_t isqrt (int32_t value);
+/** @brief Bearing of the face's normal (where the robot is square to it),
+ *  in half degrees, + = left, a multiple of 5 (2.5 degree steps): the
+ *  centre of the bearings within OBS_FACE_BOWL_MM of the nearest echo,
+ *  each weighted by how much nearer than that it is. Off-axis echoes come
+ *  back a little late, so the range profile is a bowl centred on it. At
+ *  most OBS_FACE_TILT_MAX_DEG either way.
+ *  @param low, high The object's samples.
+ *  @param face_mm Nearest range among them.
+ */
+static int32_t face_tilt_x2 (scan_plan_point_t const * p_points, int32_t low,
+                             int32_t high, int32_t face_mm);
 /** @brief Sideways offset of the object's corner on one side, from a corner
- *  band echo (beyond +-OBS_SCAN_FINE_DEG, up to OBS_CORNER_MAX_DEG) within
+ *  band echo (beyond +-OBS_SCAN_FINE_DEG, up to OBS_CORNER_MAX_DEG, and at
+ *  least OBS_CORNER_FROM_DEG off the face normal) within
  *  OBS_CORNER_DEPTH_MM of the face range: sqrt(range^2 - face^2), the
  *  farthest out if several. It uses the range, not the bearing, so the
  *  beam width does not blur it.
  *  @param face_mm Nearest range of the object's face.
+ *  @param tilt_x2 Face normal from face_tilt_x2().
  *  @param sign 1 for the left side, -1 for the right.
  *  @return The offset in mm (outward), or -1 if no corner echo was seen.
  */
 static int32_t corner_offset (scan_plan_point_t const * p_points,
-                              int32_t count, int32_t face_mm, int32_t sign);
+                              int32_t count, int32_t face_mm,
+                              int32_t tilt_x2, int32_t sign);
+/** @brief True if a range could be the object's corner: within
+ *  OBS_CORNER_DEPTH_MM beyond the face range and inside the scan range. */
+static bool corner_window (int32_t range_mm, int32_t face_mm);
+/** @brief The corner echo range at one corner band sample: its confirmed
+ *  reading if that is in the corner window, else its lone echo if the next
+ *  corner bearing on the same side heard the same range (within
+ *  OBS_CORNER_NEIGHBOUR_MM), else -1. */
+static int32_t corner_range (scan_plan_point_t const * p_points,
+                             int32_t count, int32_t index, int32_t face_mm,
+                             int32_t sign);
 /** @brief Find the run of near samples around the front. */
 static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
                           int32_t * p_low, int32_t * p_high);
 /** @brief Nearest other object in the corridor beside the edge.
+ *  @param face_mm When positive, corner band echoes near this face range
+ *  are placed sideways by their range, as corners are.
  *  @return Its sample index, or -1 if the corridor is clear.
  */
 static int32_t corridor_blocker (scan_plan_point_t const * p_points,
                                  int32_t count, int32_t low, int32_t high,
                                  int32_t outward_edge, int32_t limit_mm,
-                                 int32_t sign);
+                                 int32_t face_mm, int32_t sign);
 /** @brief Pick the smallest angle whose run clears the near face. */
 static uint32_t pick_angle (int32_t near_depth, int32_t need_mm);
 /** @brief Clamp a sideways need or a range to a 12-bit report field. */
@@ -232,10 +282,13 @@ static void build_plan (scan_plan_point_t const * p_points, int32_t count,
                         scan_plan_sides_t * p_sides);
 /** @brief Work out the offset and angle needed on one side.
  *  @param b_edge_seen False if the object reaches the end of the sweep.
+ *  @param face_mm Nearest face range for corner band echoes (see
+ *  corridor_blocker()), or 0 when corners are not used.
  */
 static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
                            int32_t low, int32_t high, int32_t outward_edge,
-                           bool b_edge_seen, int32_t near_depth, int32_t sign,
+                           bool b_edge_seen, int32_t near_depth,
+                           int32_t face_mm, int32_t sign,
                            side_option_t * p_option);
 /** @brief Choose the side and fill in the plan fields.
  *  @param tie_side Side when both moves are exactly equal: 1 left, -1
@@ -247,12 +300,13 @@ static void choose_side (side_option_t const * p_left,
                          side_option_t const * p_right, int32_t width_mm,
                          int32_t prefer, bool b_strict, int32_t tie_side,
                          plan_fields_t * p_fields, bool * p_b_tie);
-/** @brief Side of least resistance when both sideways moves are equal: the
- *  first of these that differs: more open room past the object, the
- *  smaller drive out, the more open half of the sweep (sum of its ranges).
- *  A perfectly mirror-symmetric scan, where none differ, goes by the parity
- *  of the summed ranges: a coin flip taken from the readings, not a fixed
- *  side.
+/** @brief Side for an about-centred box: the first of these that differs:
+ *  more room past the object (the nearest echo beyond each edge), more room
+ *  on average beyond each edge, the smaller move measured from the face's
+ *  normal. A perfectly mirror-symmetric scan, where none differ, goes by
+ *  the parity of the summed ranges: a coin flip taken from the readings,
+ *  not a fixed side. Nothing measured from straight ahead is used: a robot
+ *  that stopped turned to one side would bias it.
  *  @return 1 for left, -1 for right.
  */
 static int32_t least_resistance (scan_plan_point_t const * p_points,
@@ -283,10 +337,14 @@ int32_t scan_plan_angle_deg (uint32_t angle_index)
 
 int32_t scan_plan_next_angle (int32_t angle_deg)
 {
-    bool const b_fine = (angle_deg >= -OBS_SCAN_FINE_DEG) &&
-                        (angle_deg < OBS_SCAN_FINE_DEG);
+    bool const b_fine   = (angle_deg >= -OBS_SCAN_FINE_DEG) &&
+                          (angle_deg < OBS_SCAN_FINE_DEG);
+    bool const b_corner = (angle_deg >= -OBS_CORNER_MAX_DEG) &&
+                          (angle_deg < OBS_CORNER_MAX_DEG);
 
-    return angle_deg + (b_fine ? OBS_SCAN_FINE_STEP_DEG : OBS_SCAN_STEP_DEG);
+    return angle_deg + (b_fine     ? OBS_SCAN_FINE_STEP_DEG
+                        : b_corner ? OBS_CORNER_STEP_DEG
+                                   : OBS_SCAN_STEP_DEG);
 }
 
 void scan_plan_build (scan_plan_point_t const * p_points, int32_t count,
@@ -527,8 +585,8 @@ static int32_t lateral_mm (int32_t depth_mm, int32_t angle_x2)
 
 static void measured_edges (scan_plan_point_t const * p_points,
                             int32_t count, int32_t low, int32_t high,
-                            int32_t near_depth, int32_t * p_left_mm,
-                            int32_t * p_right_mm)
+                            int32_t near_depth, int32_t tilt_x2,
+                            int32_t * p_left_mm, int32_t * p_right_mm)
 {
     int32_t const hi_angle = p_points[high].angle_deg;
     int32_t const lo_angle = p_points[low].angle_deg;
@@ -537,8 +595,12 @@ static void measured_edges (scan_plan_point_t const * p_points,
     int32_t const lo_next  = (low > 0) ? p_points[low - 1].angle_deg
                                       : lo_angle - OBS_SCAN_STEP_DEG;
     /* Twice the edge bearings: midway to the next empty ray, less beam. */
-    int32_t left_x2  = hi_angle + hi_next - (HALF * OBS_BEAM_HALF_DEG);
-    int32_t right_x2 = lo_angle + lo_next + (HALF * OBS_BEAM_HALF_DEG);
+    /* Bearings are multiples of 5 and the tilt of 2.5 degrees, so these
+     * stay multiples of 5 half degrees, as lateral_mm() requires. */
+    int32_t left_x2  = hi_angle + hi_next - (HALF * OBS_BEAM_HALF_DEG) -
+                      tilt_x2;
+    int32_t right_x2 = lo_angle + lo_next + (HALF * OBS_BEAM_HALF_DEG) -
+                       tilt_x2;
 
     if (left_x2 < right_x2)
     {
@@ -557,13 +619,14 @@ static void measured_edges (scan_plan_point_t const * p_points,
 
 static int32_t measured_width (scan_plan_point_t const * p_points,
                                int32_t count, int32_t low, int32_t high,
-                               int32_t near_depth, int32_t planning_width)
+                               int32_t near_depth, int32_t tilt_x2,
+                               int32_t planning_width)
 {
     int32_t left_mm  = 0;
     int32_t right_mm = 0;
 
-    measured_edges(p_points, count, low, high, near_depth, &left_mm,
-                   &right_mm);
+    measured_edges(p_points, count, low, high, near_depth, tilt_x2,
+                   &left_mm, &right_mm);
 
     int32_t width = left_mm - right_mm;
 
@@ -623,30 +686,84 @@ static int32_t isqrt (int32_t value)
     return (int32_t)root;
 }
 
+static int32_t face_tilt_x2 (scan_plan_point_t const * p_points, int32_t low,
+                             int32_t high, int32_t face_mm)
+{
+    /* The whole object: a robot stopped 20 degrees off square has its
+     * nearest echoes out past 25 degrees (logged 22:27). */
+    int32_t const reach = OBS_CORNER_MAX_DEG;
+    int32_t const unit  = TRIG_STEP_DEG; /* half degrees: 2.5 degrees */
+    int32_t const limit = HALF * OBS_FACE_TILT_MAX_DEG;
+    int32_t       num   = 0;
+    int32_t       den   = 0;
+
+    for (int32_t index = low; index <= high; index++)
+    {
+        int32_t const angle  = p_points[index].angle_deg;
+        int32_t const weight =
+            OBS_FACE_BOWL_MM - ((int32_t)p_points[index].range_mm - face_mm);
+
+        if ((angle >= -reach) && (angle <= reach) && (weight > 0))
+        {
+            /* At most 13 bearings of 25 degrees x 2 x 100: no overflow. */
+            num += HALF * angle * weight;
+            den += weight;
+        }
+    }
+
+    int32_t tilt = 0;
+
+    if (den > 0)
+    {
+        /* Round the weighted centre to the nearest 2.5 degrees. */
+        int32_t const span = den * unit;
+
+        tilt = ((num >= 0) ? ((num + (span / HALF)) / span)
+                           : -(((-num) + (span / HALF)) / span)) *
+               unit;
+    }
+
+    if (tilt > limit)
+    {
+        tilt = limit;
+    }
+
+    if (tilt < -limit)
+    {
+        tilt = -limit;
+    }
+
+    return tilt;
+}
+
 static int32_t corner_offset (scan_plan_point_t const * p_points,
-                              int32_t count, int32_t face_mm, int32_t sign)
+                              int32_t count, int32_t face_mm,
+                              int32_t tilt_x2, int32_t sign)
 {
     int32_t corner = -1;
 
     for (int32_t index = 0; index < count; index++)
     {
         int32_t const outward = sign * p_points[index].angle_deg;
-        int32_t const range   = p_points[index].range_mm;
+        /* Twice the bearing off the face normal, outward. Bearings are
+         * multiples of 5 and the tilt of 2.5, so this is a multiple of 5
+         * as lateral_mm() requires. */
+        int32_t const off_x2  = (HALF * outward) - (sign * tilt_x2);
+        int32_t const range   =
+            ((outward > OBS_SCAN_FINE_DEG) && (outward <= OBS_CORNER_MAX_DEG))
+                ? corner_range(p_points, count, index, face_mm, sign)
+                : -1;
 
-        if ((outward > OBS_SCAN_FINE_DEG) && (outward <= OBS_CORNER_MAX_DEG) &&
-            is_near(&p_points[index]) && (range >= face_mm) &&
-            (range <= (face_mm + OBS_CORNER_DEPTH_MM)))
+        if ((range >= 0) && (off_x2 >= (HALF * OBS_CORNER_FROM_DEG)))
         {
             /* Ranges are below OBS_SCAN_RANGE_MM, so the squares fit. */
             int32_t const offset =
                 isqrt((range * range) - (face_mm * face_mm));
             /* A corner this bearing can hear is at most OBS_CORNER_BEAM_DEG
              * off it. Nearer in, the echo is the face itself still
-             * answering (a face not square on), not a corner. Bearings and
-             * OBS_CORNER_BEAM_DEG are multiples of 5, so the doubled angle
-             * is a multiple of 5 as lateral_mm() requires. */
+             * answering (a face not square on), not a corner. */
             int32_t const least =
-                lateral_mm(face_mm, HALF * (outward - OBS_CORNER_BEAM_DEG));
+                lateral_mm(face_mm, off_x2 - (HALF * OBS_CORNER_BEAM_DEG));
 
             if ((offset >= least) && (offset > corner))
             {
@@ -656,6 +773,58 @@ static int32_t corner_offset (scan_plan_point_t const * p_points,
     }
 
     return corner;
+}
+
+static bool corner_window (int32_t range_mm, int32_t face_mm)
+{
+    return (range_mm >= face_mm) &&
+           (range_mm <= (face_mm + OBS_CORNER_DEPTH_MM)) &&
+           (range_mm < OBS_SCAN_RANGE_MM);
+}
+
+static int32_t corner_range (scan_plan_point_t const * p_points,
+                             int32_t count, int32_t index, int32_t face_mm,
+                             int32_t sign)
+{
+    int32_t const confirmed = p_points[index].range_mm;
+    int32_t const lone      = p_points[index].lone_mm;
+
+    if (corner_window(confirmed, face_mm))
+    {
+        return confirmed;
+    }
+
+    if ((0 == lone) || (!corner_window(lone, face_mm)))
+    {
+        return -1;
+    }
+
+    /* A lone echo: the next corner bearing either way must have heard the
+     * same corner, confirmed or lone. */
+    for (int32_t step = -1; step <= 1; step += HALF)
+    {
+        int32_t const other = index + step;
+
+        if ((other >= 0) && (other < count))
+        {
+            int32_t const outward = sign * p_points[other].angle_deg;
+            int32_t const heard   = p_points[other].range_mm;
+            int32_t const single  = p_points[other].lone_mm;
+            bool const    b_band  = (outward > OBS_SCAN_FINE_DEG) &&
+                                    (outward <= OBS_CORNER_MAX_DEG);
+
+            if (b_band &&
+                ((corner_window(heard, face_mm) &&
+                  (abs_int(heard - lone) <= OBS_CORNER_NEIGHBOUR_MM)) ||
+                 ((0 != single) && corner_window(single, face_mm) &&
+                  (abs_int(single - lone) <= OBS_CORNER_NEIGHBOUR_MM))))
+            {
+                return lone;
+            }
+        }
+    }
+
+    return -1;
 }
 
 static int32_t edge_pad (scan_plan_point_t const * p_point, int32_t gap_deg)
@@ -755,7 +924,7 @@ static bool find_cluster (scan_plan_point_t const * p_points, int32_t count,
 static int32_t corridor_blocker (scan_plan_point_t const * p_points,
                                  int32_t count, int32_t low, int32_t high,
                                  int32_t outward_edge, int32_t limit_mm,
-                                 int32_t sign)
+                                 int32_t face_mm, int32_t sign)
 {
     int32_t blocker = -1;
 
@@ -765,10 +934,30 @@ static int32_t corridor_blocker (scan_plan_point_t const * p_points,
 
         if (b_outside && is_near(&p_points[index]))
         {
-            int32_t const outward_x = sign * point_x(&p_points[index]);
+            int32_t const angle     = p_points[index].angle_deg;
+            int32_t const range     = p_points[index].range_mm;
+            int32_t const outward   = sign * angle;
+            int32_t       outward_x = sign * point_x(&p_points[index]);
             int32_t const depth_y   = point_y(&p_points[index]);
+            bool          b_own     = false;
 
-            if ((outward_x >= outward_edge) && (outward_x <= limit_mm) &&
+            if ((face_mm > 0) && (outward > OBS_SCAN_FINE_DEG) &&
+                (outward <= OBS_CORNER_MAX_DEG) && (range >= face_mm) &&
+                (range <= (face_mm + OBS_CORNER_DEPTH_MM)))
+            {
+                /* An echo near the face's depth in the corner band, apart
+                 * from the face only because the bearing between did not
+                 * echo: where it is sideways follows from its range, as for
+                 * a corner; the bearing overstates it by up to a beam
+                 * width. Ranges are below OBS_SCAN_RANGE_MM: no overflow.
+                 * Out to the object's edge, it is the object's own corner
+                 * (the edge includes seen corners), not something else. */
+                outward_x = isqrt((range * range) - (face_mm * face_mm));
+                b_own     = outward_x <= outward_edge;
+            }
+
+            if ((!b_own) && (outward_x >= outward_edge) &&
+                (outward_x <= limit_mm) &&
                 (depth_y <= OBS_LOOKAHEAD_MM) &&
                 ((blocker < 0) ||
                  (p_points[index].range_mm < p_points[blocker].range_mm)))
@@ -813,7 +1002,8 @@ static uint32_t pick_angle (int32_t near_depth, int32_t need_mm)
 
 static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
                            int32_t low, int32_t high, int32_t outward_edge,
-                           bool b_edge_seen, int32_t near_depth, int32_t sign,
+                           bool b_edge_seen, int32_t near_depth,
+                           int32_t face_mm, int32_t sign,
                            side_option_t * p_option)
 {
     int32_t const half_mm = (OBS_ROBOT_WIDTH_MM / HALF) + OBS_SAFETY_MARGIN_MM;
@@ -852,7 +1042,7 @@ static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
     p_option->reason      = reason;
     p_option->blocker     = corridor_blocker(p_points, count, low, high,
                                              outward_edge, need_mm + half_mm,
-                                             sign);
+                                             face_mm, sign);
     p_option->b_ok        = p_option->blocker < 0;
     p_option->angle_index = pick_angle(near_depth, need_mm);
 }
@@ -877,7 +1067,7 @@ static void choose_side (side_option_t const * p_left,
             int32_t const diff_mm =
                 p_left->compare_mm - p_right->compare_mm;
 
-            if (0 == diff_mm)
+            if (abs_int(diff_mm) <= OBS_SIDE_PREFERENCE_THRESHOLD_MM)
             {
                 *p_b_tie    = true;
                 b_pick_left = (tie_side > 0);
@@ -961,23 +1151,36 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
      * object whose ends are both inside the sweep (a 15 cm box). */
     int32_t       left_corner  = -1;
     int32_t       right_corner = -1;
+    int32_t       tilt_x2      = 0;
+    /* Face range for corner band echoes; 0 while corners are not used. */
+    int32_t       face_mm      = 0;
 
-    if ((0 != OBS_SIDE_CORNER_ECHO) && b_left_seen && b_right_seen)
+    if (b_left_seen && b_right_seen)
     {
         /* Face depth: the nearest range. Square on, every echo of the face
          * is the perpendicular one, whatever the bearing. */
-        int32_t face_mm = p_points[low].range_mm;
+        int32_t nearest = p_points[low].range_mm;
 
         for (int32_t index = low; index <= high; index++)
         {
-            if ((int32_t)p_points[index].range_mm < face_mm)
+            if ((int32_t)p_points[index].range_mm < nearest)
             {
-                face_mm = p_points[index].range_mm;
+                nearest = p_points[index].range_mm;
             }
         }
 
-        left_corner  = corner_offset(p_points, count, face_mm, 1);
-        right_corner = corner_offset(p_points, count, face_mm, -1);
+        /* Edges and corners are judged from where the robot is square to
+         * the face, not from straight ahead. */
+        tilt_x2 = face_tilt_x2(p_points, low, high, nearest);
+
+        if (0 != OBS_SIDE_CORNER_ECHO)
+        {
+            face_mm      = nearest;
+            left_corner  = corner_offset(p_points, count, face_mm, tilt_x2,
+                                         1);
+            right_corner = corner_offset(p_points, count, face_mm, tilt_x2,
+                                         -1);
+        }
     }
 
     /* Drive out far enough to clear a seen corner, as well as the edges.
@@ -987,9 +1190,9 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         (right_corner > -right_x) ? right_corner : -right_x;
 
     evaluate_side(p_points, count, low, high, left_out, b_left_seen,
-                  near_depth, 1, &left);
+                  near_depth, face_mm, 1, &left);
     evaluate_side(p_points, count, low, high, right_out, b_right_seen,
-                  near_depth, -1, &right);
+                  near_depth, face_mm, -1, &right);
 
 #if OBS_SIDE_COMPARE_MEASURED
     if (b_left_seen && b_right_seen)
@@ -1000,8 +1203,8 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         int32_t left_mm  = 0;
         int32_t right_mm = 0;
 
-        measured_edges(p_points, count, low, high, near_depth, &left_mm,
-                       &right_mm);
+        measured_edges(p_points, count, low, high, near_depth, tilt_x2,
+                       &left_mm, &right_mm);
         left.compare_mm  = left_mm + half_mm;
         right.compare_mm = -right_mm + half_mm;
 
@@ -1033,13 +1236,16 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         int32_t left_mm  = 0;
         int32_t right_mm = 0;
 
-        measured_edges(p_points, count, low, high, near_depth, &left_mm,
-                       &right_mm);
+        measured_edges(p_points, count, low, high, near_depth, tilt_x2,
+                       &left_mm, &right_mm);
 
+        /* Inside the square-on zone, counted from the face's normal. */
         bool const    b_left_real  =
-            p_points[high].angle_deg < OBS_SCAN_FINE_DEG;
+            ((HALF * p_points[high].angle_deg) - tilt_x2) <
+            (HALF * OBS_SCAN_FINE_DEG);
         bool const    b_right_real =
-            p_points[low].angle_deg > -OBS_SCAN_FINE_DEG;
+            ((HALF * p_points[low].angle_deg) - tilt_x2) >
+            -(HALF * OBS_SCAN_FINE_DEG);
         int32_t const left_edge  = (left_corner >= 0) ? left_corner
                                    : b_left_real
                                        ? left_mm
@@ -1076,7 +1282,8 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
     /* Reported width only; sides and offsets use the conservative edges. */
     int32_t const reported =
         (b_left_seen && b_right_seen)
-            ? measured_width(p_points, count, low, high, near_depth, width)
+            ? measured_width(p_points, count, low, high, near_depth, tilt_x2,
+                             width)
             : width;
 
     p_fields->width_cm = to_cm(reported, WIDTH_LIMIT_CM);
@@ -1103,6 +1310,8 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
                     &right, &p_sides->right);
         /* Offsets are below OBS_SCAN_RANGE_MM: they fit the 12-bit fields. */
         p_sides->b_centre        = b_centre ? 1U : 0U;
+        /* Within +-2 * OBS_FACE_TILT_MAX_DEG (60): fits the 7-bit field. */
+        p_sides->tilt_x2         = tilt_x2;
         p_sides->centre_mm       = centre_mm;
         p_sides->left.b_corner   = (left_corner >= 0) ? 1U : 0U;
         p_sides->left.corner_mm  = (left_corner >= 0) ? left_corner : 0;
@@ -1123,40 +1332,48 @@ static int32_t least_resistance (scan_plan_point_t const * p_points,
         b_left_seen ? open_beyond(p_points, high + 1, count - 1) : 0;
     int32_t const right_open =
         b_right_seen ? open_beyond(p_points, 0, low - 1) : 0;
-    /* Openness of each half of the sweep; 0..4095 mm each, a few dozen
-     * samples, so the sums fit easily. */
+    /* Average room past each edge (the surroundings, not the object). At
+     * most 4095 mm on a few dozen samples, so the sums fit easily. */
     int32_t left_sum  = 0;
     int32_t right_sum = 0;
+    int32_t left_n    = 0;
+    int32_t right_n   = 0;
 
     for (int32_t index = 0; index < count; index++)
     {
-        if (p_points[index].angle_deg > 0)
+        if (index > high)
         {
             left_sum += (int32_t)p_points[index].range_mm;
+            left_n++;
         }
-        else if (p_points[index].angle_deg < 0)
+        else if (index < low)
         {
             right_sum += (int32_t)p_points[index].range_mm;
+            right_n++;
         }
         else
         {
-            /* Straight ahead belongs to neither side. */
+            /* The object itself. */
         }
     }
 
-    int32_t side = 0;
+    int32_t const left_mean  = (left_n > 0) ? (left_sum / left_n) : 0;
+    int32_t const right_mean = (right_n > 0) ? (right_sum / right_n) : 0;
+    int32_t       side       = 0;
 
     if (left_open != right_open)
     {
         side = (left_open > right_open) ? 1 : -1;
     }
-    else if (p_left->need_mm != p_right->need_mm)
+    else if (left_mean != right_mean)
     {
-        side = (p_left->need_mm < p_right->need_mm) ? 1 : -1;
+        side = (left_mean > right_mean) ? 1 : -1;
     }
-    else if (left_sum != right_sum)
+    else if (p_left->compare_mm != p_right->compare_mm)
     {
-        side = (left_sum > right_sum) ? 1 : -1;
+        /* Same room either way: the side the box sticks out less on, even
+         * by a little (measured from the face's normal). */
+        side = (p_left->compare_mm < p_right->compare_mm) ? 1 : -1;
     }
     else
     {

@@ -36,9 +36,18 @@ ER motion_init (void);
 /** @brief Complete startup; this subsystem has no independent task yet. */
 ER motion_start (void);
 /** @brief Steer from the line action and drive each wheel to its target.
+ * After MOTION_SEARCH_AFTER_MM of travel with neither sensor on the line, a
+ * forward action pivots on the spot to find it again: towards where it was
+ * last seen, then the other way, then stops (see motion.c).
  * @note Call once per controller period; the integral assumes that rate.
  */
 void motion_apply (line_follow_action_t action);
+/** @brief What the line sensors saw this controller period, including
+ *  touches latched between reads. Call before motion_apply() whenever line
+ *  following: it is how the lost-line search knows where the line was last
+ *  seen while navigation drives straight over a both-black run.
+ */
+void motion_line_seen (bool b_left, bool b_right);
 /** @brief Stop like motion_apply(LINE_UNCERTAIN), but if the robot was
  * driving, short-brake for APP_JUNCTION_BRAKE_MSEC before coasting. Later
  * stop requests keep the brake until that time is used up.

@@ -940,6 +940,11 @@ static robot_state_t handle_following (controller_history_t * p_history)
         /* The latest reading already reflects what was seen. */
     }
 
+    /* Where the line is, for motion's lost-line search, even in periods
+     * navigation drives straight (both-black runs) and steering is told
+     * nothing. */
+    motion_line_seen(0U != reading.left, 0U != reading.right);
+
 #ifdef B1_LIVE_COMMANDS
     {
         nav_sample_t sample = {0};

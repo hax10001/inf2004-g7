@@ -20,8 +20,14 @@ each one; values below are the committed defaults.
 1. **Detect:** a front reading below `OBS_STOP_MM` (250 mm), confirmed by a
    median of `OBS_MEDIAN_SAMPLES` and `OBS_CONFIRM_HITS` consecutive hits, stops
    the robot.
-2. **Scan:** the servo sweeps −70° to +70°, every 5° within ±30° and 10°
-   outside (`OBS_SCAN_*`), with `OBS_SCAN_PINGS` (2) pings per bearing, 60 ms
+2. **Creep, then scan:** at the first stop the robot creeps forward at
+   `OBS_APPROACH_RPM` until the face is `OBS_SCAN_FROM_MM` (150 mm) away
+   (bounded by `OBS_APPROACH_*`, stopping if the echo is lost): from closer
+   the square-on zone covers less of the face, so the corners of a box only
+   a little off the line can be heard (log: `Creeping closer…`,
+   `Crept … mm`). Then the servo sweeps −70° to +70°, every 5° within ±50° (the
+   square-on zone ±30° and the corner band beyond it) and 10° outside
+   (`OBS_SCAN_*`, `OBS_CORNER_STEP_DEG`), with `OBS_SCAN_PINGS` (2) pings per bearing, 60 ms
    apart, starting at the left end (+70°) and sweeping right. It then sweeps
    back, right to left, over ±30° only (`OBS_SCAN_RETURN_DEG`), keeping
    the nearer reading of each bearing so servo lag cancels where the edges
@@ -43,7 +49,16 @@ each one; values below are the committed defaults.
    from its range: √(range² − face²). An echo counts as a corner only
    within `OBS_CORNER_DEPTH_MM` (150) of the face range and at least
    face·tan(bearing − `OBS_CORNER_BEAM_DEG`) out, so a face that isn't
-   square on and keeps echoing at 40° is not mistaken for one.
+   square on and keeps echoing at 40° is not mistaken for one. The robot
+   seldom stops square to the box (logged: the face normal wanders ±5°,
+   and sat 3–10° right through one session of box-on-left runs), and where
+   the normal leans, the face keeps echoing further out on that side. So
+   each scan measures the normal from its own ranges (`OBS_FACE_BOWL_MM`,
+   the centre of the bearings within 10 mm of the nearest echo) and corner
+   bearings count only from `OBS_CORNER_FROM_DEG` (35°) off it. A corner
+   heard on a single ping is kept when the next corner bearing heard the
+   same range (`OBS_CORNER_NEIGHBOUR_MM`). The log prints `Square to the
+   face at … deg`. About 6 s per scan, 7 s when the corner band is silent.
 3. **Choose a side (least resistance):** with `OBS_PREFERRED_SIDE=0`, the
    planner works out how far sideways each side needs the robot to move and
    takes the clear side needing less, however small the difference. There

@@ -31,6 +31,24 @@ for SIGN in 1 -1; do
     -lm -o "$TMP/motion-$SIGN"
   "$TMP/motion-$SIGN"
 done
+# Closed-loop line following: the real motion, steering, IR latches and
+# navigation on a simulated robot and track, at the default speed and a
+# faster one (curves and 90 degree corners must hold).
+for RPM in 35 55; do
+  "$CC" -std=c99 -O2 -Wall -Wextra -Werror \
+    -DMOTION_TARGET_RPM="${RPM}.0f" -DSIM_RPM="$RPM" \
+    -Itools/tests/stubs -I. -Iapp_program \
+    tools/tests/line_follow_sim.c \
+    app_program/modules/motion/motion.c \
+    app_program/modules/motion/steering.c \
+    app_program/modules/motion/wheel_speed.c \
+    app_program/modules/motion/downhill.c \
+    app_program/modules/line_barcode/ir_shared.c \
+    app_program/modules/line_barcode/line_follow.c \
+    app_program/app/nav_core.c \
+    -lm -o "$TMP/line-follow-$RPM"
+  "$TMP/line-follow-$RPM"
+done
 # Lifted-height estimator (pure arithmetic).
 "$CC" -std=c99 -O2 -Wall -Wextra -Werror -Iapp_program \
   app_program/modules/terrain/lift_math.c tools/tests/test_lift_math.c \

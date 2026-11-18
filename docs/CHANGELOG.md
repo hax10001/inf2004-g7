@@ -8,6 +8,78 @@ evidence for V9 onwards (test logs, size audits, checklists) is in
 
 ## Unreleased
 
+- Fixes after the 22:27 robot run:
+  - Line following PID: the left encoder counts down when driving forward
+    (logged encL=-53231, encR=49602). The observer used signed counts and
+    saw the robot spinning on the spot, so it alternated the wheels. It
+    now uses count sizes, as the obstacle odometry does.
+  - `STEERING_OBSERVER 0` is now exactly the committed PI steering (KP 0.3,
+    KI 2.0, decay 0.85, no lost-line search): the steering barcodes were
+    read well with. The barcode code is unchanged.
+  - Obstacle creep off (`OBS_SCAN_FROM_MM 0`): it left less room to clear
+    the box than the version that cleared it well.
+  - Obstacle side: edges compared from the face's normal (tilt measured up
+    to 25 degrees over the whole object), so a robot stopped turned no
+    longer makes the box look longer on one side; within 45 mm the box is
+    about centred and the side with more room past it wins. Replayed on
+    the 22:27 scans: 6 of 7 now go left (the open side), against 0.
+
+- Line following: PID with encoder D (`STEERING_OBSERVER`). The steering
+  had always been PI on a -1/0/+1 error; the zig-zag grew as the speed went
+  15 -> 25 -> 35 RPM (18 Nov). The encoders now follow the line through
+  the gap between the sensors, so P, I and D act on a real offset and
+  heading. Closed-loop model, 35-65 RPM and plant variants: straight-line
+  wander 4.1 mm RMS against 8.0 (3.2 mm at 35 RPM, the old steering's 15
+  RPM level), runs completed 98 % against 95 %. Sharp corners rely on the
+  lost-line pivot. `STEERING_OBSERVER 0` restores the PI.
+- Obstacle: creep to `OBS_SCAN_FROM_MM` (150 mm) before the first scan, so
+  a box only ~2 cm off the line has its far corner outside the sensor's
+  square-on zone and is located by it (from ~215 mm, boxes up to ~5 cm off
+  read as centred). Bounded by `OBS_APPROACH_*`; stops on lost echoes.
+
+- Line following at speed and round corners (motion and controller; done
+  on request). Checked in a new closed-loop model
+  (`tools/tests/line_follow_sim.c`: the real motion, steering, IR latches
+  and navigation on a simulated robot, 1 ms IR sampling, 18 mm tape),
+  randomised over start pose, motor gains and lag, tape edge and controller
+  phase, and repeated for sensor gaps of 20-34 mm, tracks of 110-130 mm and
+  motor lags of 0.07-0.15 s. Courses completed, all six courses, 35-65 RPM:
+  38 % before, 96 % after.
+  - Steering: `STEERING_KP` 0.3 -> 0.08, `STEERING_KI` 2.0 -> 7.0,
+    `STEERING_DECAY` 0.85 -> 0.96. The sensors are 125 mm ahead of the
+    axle, so the old kick swung them across the 8 mm between them within a
+    couple of periods; the weave grew with speed until the tape escaped.
+  - Steering is counted in distance, not time (`STEERING_REF_RPM` 35): the
+    integral, its decay and the hold/bend windows scale with speed.
+    `MOTION_TARGET_RPM` can be overridden at build time.
+  - Lost-line search (`MOTION_SEARCH_*`): after 100 mm with no line, pivot
+    towards where it was last seen (120 degrees), then back, then stop.
+    Sharp 90 degree corners: 0 % before, 70-95 % after.
+  - The controller reports the line each period (`motion_line_seen()`), so
+    the search knows where the line was while navigation drives straight
+    over a both-black run, and a turn still held the other way is dropped
+    there.
+
+- Obstacle, box off to the left (obstacle module only). Box-on-right was
+  going round correctly every time but box-on-left only 4 in 10. In 92
+  logged scans the square-on echo zone sat 2.3 degrees right on average and
+  its left end was cut short 28 times against 3 on the right; corner echoes
+  were heard 49 times on the right and 21 on the left. The zone follows the
+  angle the robot stops at, not the box, so a box 3-7 cm left (its far
+  corner 26-35 degrees out) was invisible:
+  - The corner band is sampled every 5 degrees (±35, 40, 45, 50), where
+    that corner is; nothing was sampled between 30 and 40.
+  - Each scan measures where it is square to the face and judges corner
+    bearings from there (at least 35 degrees off it), so a tilted stop no
+    longer fakes a corner on the side the face leans to.
+  - A corner heard on a single ping is kept when the next corner bearing
+    heard the same range (5 of 32 corner hearings were single pings).
+  - A corner echo cut off from the face by a silent bearing is placed by
+    its range in the corridor check, and the object's own corner is never
+    its own side's blocker.
+  - Replayed on all 95 logged scans: no decision changes (old logs have no
+    35/45 degree samples). Scan 6 s, 7 s with a silent corner band.
+
 - Obstacle (obstacle module only):
   - Side choice is least resistance: the smaller sideways move wins
     however small the difference. `OBS_SIDE_PREFERENCE_THRESHOLD_MM`,

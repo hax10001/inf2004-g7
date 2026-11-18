@@ -37,8 +37,12 @@
 #define MOTION_RIGHT_MIN_DUTY 8.0f
 #define MOTION_MAX_PERCENT 100.0f
 
-/* Driving speed on a straight. 40 RPM is about 140 mm/s. */
+/* Driving speed on a straight. 40 RPM is about 140 mm/s. The steering
+ * scales with it (STEERING_REF_RPM), so it can be raised: the closed-loop
+ * model follows curves and 90 degree corners at 35-65 RPM. */
+#ifndef MOTION_TARGET_RPM
 #define MOTION_TARGET_RPM 35.0f
+#endif
 /* Largest change in the base speed per period, when starting or stopping. */
 #define MOTION_RAMP_RPM 8.0f
 /* Largest growth in steer per period; lower is smoother, but too low lags
@@ -77,6 +81,9 @@
 #define MOTION_STALL_DECAY_PERCENT 0.5f
 #define MOTION_LOG_EVERY 10U
 #define MOTION_PI 3.14159265f
+/* Wheel travel per encoder count: a 70 mm wheel over 1056 counts. */
+#define MOTION_MM_PER_COUNT \
+    ((MOTION_PI * BOARD_WHEEL_DIAMETER_MM) / (float)BOARD_ENC_COUNTS_PER_REV)
 /* Junction pivots: wheels in opposite directions, each wheel's duty
  * stepped every period so it moves MOTION_PIVOT_COUNTS per period whatever
  * the floor grip (16 counts per 50 ms is ~70 degrees/s: a U-turn ~2.6 s,
@@ -108,6 +115,51 @@ static uint8_t g_pivot_action = 0U;
 #endif
 static uint8_t g_brake_cycles = 0U;
 
+/* Lost-line search. Two sensors that straddle the line both read white
+ * whether the line is between them or has been left behind, so travel
+ * alone tells them apart: after MOTION_SEARCH_AFTER_MM with no sensor on
+ * the line, the robot pivots on the spot towards where it last saw it, up
+ * to MOTION_SEARCH_SWEEP_DEG, then the same past the start the other way,
+ * and stops if it still has not found it. A sharp corner is the usual
+ * cause: the inside sensor crosses the new arm for one tape width, which
+ * looks like a nudge, and the robot drove on straight (closed-loop model:
+ * 0 % of sharp 90 degree corners before, 70-95 % with the search). On a
+ * straight the line is still between the sensors, so a pivot finds it
+ * within a few degrees. Uses the junction pivot (MOTION_PIVOT_*). */
+#define MOTION_SEARCH_AFTER_MM 100U
+#define MOTION_SEARCH_SWEEP_DEG 120U
+/* Both wheels' counts: 1056 per revolution over 219.8 mm (app_config.h). */
+#define MOTION_SEARCH_AFTER_COUNTS \
+    ((MOTION_SEARCH_AFTER_MM * BOARD_ENC_COUNTS_PER_REV * 20U) / 2198U)
+#define MOTION_SEARCH_SWEEP_COUNTS \
+    ((APP_NAV_TURN90_COUNTS * MOTION_SEARCH_SWEEP_DEG) / 90U)
+#if (MOTION_SEARCH_AFTER_COUNTS > 65535U) || \
+    ((2U * MOTION_SEARCH_SWEEP_COUNTS) > 65535U)
+#error Lost-line search counts no longer fit 16 bits
+#endif
+#define SEARCH_FOLLOWING 0U
+#define SEARCH_FIRST_SWEEP 1U
+#define SEARCH_SWEEP_BACK 2U
+#define SEARCH_GAVE_UP 3U
+#define PIVOT_LEFT 1U
+#define PIVOT_RIGHT 2U
+
+/* Controller-task only, like the rest of this module's state. */
+typedef struct
+{
+    int32_t      last_count[ENCODER_WHEEL_COUNT]; /**< At the last period. */
+    uint16_t     white_counts; /**< Travel with no line seen (saturates). */
+    uint16_t     swept_counts; /**< Pivoted in the current sweep. */
+    signed int   side:2;       /**< Line last seen: +1 left, -1 right, 0 no. */
+    signed int   seen_now:2;   /**< This period: one sensor's side, else 0. */
+    unsigned int b_black:1;    /**< A sensor saw black this period. */
+    unsigned int b_observed:1; /**< motion_line_seen() ran this period. */
+    unsigned int phase:2;      /**< SEARCH_*. */
+    unsigned int b_counts:1;   /**< last_count holds a reading. */
+} line_search_t;
+
+static line_search_t g_search = {{0, 0}, 0U, 0U, 0, 0, 0U, 0U, 0U, 0U};
+
 typedef struct
 {
     wheel_speed_t speed;
@@ -123,6 +175,11 @@ typedef struct
 
 static motion_wheel_t g_wheels[ENCODER_WHEEL_COUNT];
 static steering_t     g_steering;
+/* Line observer for STEERING_OBSERVER; controller task only. */
+static line_track_t   g_track = {0.0f, 0.0f, 0.0f, 0.0f};
+/* Each wheel's encoder counts over the last period (search_travel()). At
+ * most ~60 per 50 ms period at 65 RPM, so 16 bits hold them. */
+static int16_t        g_period_counts[ENCODER_WHEEL_COUNT] = {0, 0};
 static float          g_base_rpm = 0.0f; /**< Ramped speed of both wheels. */
 static float          g_steer    = 0.0f; /**< Rate-limited steer applied. */
 static uint8_t        g_log_countdown = 0U; /**< 0..MOTION_LOG_EVERY. */
@@ -168,6 +225,20 @@ static void publish_status (motion_status_t const * p_status);
 static void drive_wheels (line_follow_action_t action);
 /** @brief Timed brake then coast while the governor fault remains latched. */
 static void downhill_fault_stop (void);
+/** @brief One period of an on-the-spot pivot (PIVOT_LEFT, PIVOT_RIGHT, or 3
+ *  for a U-turn), each wheel's duty stepped to hold MOTION_PIVOT_COUNTS. */
+static void pivot_step (uint8_t mapped_action);
+/** @brief Run the lost-line search for this period.
+ * @return true if it drove the wheels (pivoting, or stopped after giving
+ * up), so motion_apply() must not.
+ */
+static bool search_step (line_follow_action_t action);
+/** @brief Both wheels' encoder travel since the previous period. */
+static uint32_t search_travel (void);
+/** @brief Forget the search: another manoeuvre is driving the wheels. */
+static void search_forget (void);
+/** @brief Add, saturating at the 16-bit limit. */
+static uint16_t add_saturating (uint16_t total, uint32_t amount);
 
 ER motion_init (void)
 {
@@ -219,6 +290,13 @@ ER motion_start (void)
     return E_OK;
 }
 
+void motion_line_seen (bool b_left, bool b_right)
+{
+    g_search.b_observed = 1U;
+    g_search.b_black    = (b_left || b_right) ? 1U : 0U;
+    g_search.seen_now   = (b_left == b_right) ? 0 : (b_left ? 1 : -1);
+}
+
 void motion_apply (line_follow_action_t action)
 {
     if (g_downhill.fault)
@@ -226,13 +304,33 @@ void motion_apply (line_follow_action_t action)
         downhill_fault_stop();
         return;
     }
-/* Barcode processing never owns the motor; only an explicit STOP,
- * safety fault, or controller navigation state may inhibit movement. */
-    g_turn_pwm = 0U;
 #if !APP_MOTOR_MOVEMENT_ENABLED
     /* Keep targets and telemetry stopped as well as the driver outputs. */
     action = LINE_UNCERTAIN;
 #endif
+
+    bool const b_searching = search_step(action);
+    int const  seen_now    = g_search.seen_now;
+    bool const b_observed  = 0U != g_search.b_observed;
+    bool const b_both      = (0U != g_search.b_black) && (0 == seen_now);
+
+    /* Only the observer steering reads these. */
+    (void)b_observed;
+    (void)b_both;
+
+    /* Consumed: the controller reports again next period. */
+    g_search.b_observed = 0U;
+    g_search.b_black    = 0U;
+    g_search.seen_now   = 0;
+
+    if (b_searching)
+    {
+        return;
+    }
+
+/* Barcode processing never owns the motor; only an explicit STOP,
+ * safety fault, or controller navigation state may inhibit movement. */
+    g_turn_pwm = 0U;
     /* UB views the same string bytes; tm_printf does not modify them. */
     //tm_printf((UB *)"[MOTOR REQUEST] Action=%s\n", line_follow_text(action));
 
@@ -244,9 +342,34 @@ void motion_apply (line_follow_action_t action)
         case LINE_CORRECT_LEFT:
         case LINE_CORRECT_RIGHT:
             g_brake_cycles = 0U;
+#if STEERING_OBSERVER
+            {
+                /* What the sensors saw: the controller's report when line
+                 * following, else what the action implies. */
+                bool const b_left  = b_observed
+                                         ? ((seen_now > 0) || b_both)
+                                         : (LINE_CORRECT_LEFT == action);
+                bool const b_right = b_observed
+                                         ? ((seen_now < 0) || b_both)
+                                         : (LINE_CORRECT_RIGHT == action);
+
+                g_steer = limit_steer(
+                    g_steer,
+                    line_track_update(
+                        &g_track, b_left, b_right,
+                        (float)g_period_counts[ENCODER_LEFT] *
+                            MOTION_MM_PER_COUNT,
+                        (float)g_period_counts[ENCODER_RIGHT] *
+                            MOTION_MM_PER_COUNT));
+            }
+#else
+            /* The committed PI steering, unchanged (one period at a time,
+             * no speed scaling). */
             g_steer = limit_steer(
                 g_steer,
-                steering_update(&g_steering, action, MOTION_PERIOD_SEC));
+                steering_update(&g_steering, action, MOTION_PERIOD_SEC,
+                                1.0f));
+#endif
             /* Barcodes are read at the driving speed: a capture neither
              * slows nor brakes the robot (the scanner measures distance
              * from the encoders, so it needs no particular speed). */
@@ -306,6 +429,7 @@ void motion_stop_now(void)
 {
     /* Operator STOP has priority over a previous timed brake pulse too. */
     motor_stop();
+    search_forget();
     g_brake_cycles = 0U;
     g_downhill_brake.remaining = 0U;
     stop_wheels();
@@ -326,6 +450,7 @@ void motion_drive (float left_rpm, float right_rpm)
     }
     motion_wheel_t * const p_left = &g_wheels[ENCODER_LEFT];
     motion_wheel_t * const p_right = &g_wheels[ENCODER_RIGHT];
+    search_forget();
 #if !APP_MOTOR_MOVEMENT_ENABLED
     motion_apply(LINE_UNCERTAIN);
     return;
@@ -346,6 +471,7 @@ void motion_drive (float left_rpm, float right_rpm)
     g_steer = 0.0f;
     g_turn_pwm = 0U;
     steering_reset(&g_steering);
+    line_track_reset(&g_track);
     drive_wheels((left_rpm == 0.0f && right_rpm == 0.0f) ?
                  LINE_UNCERTAIN : LINE_FORWARD);
 }
@@ -488,6 +614,13 @@ static void drive_wheels (line_follow_action_t action)
 
 void motion_apply_maneuver (uint8_t mapped_action)
 {
+    /* Navigation's turn: whatever the search knew is out of date after it. */
+    search_forget();
+    pivot_step(mapped_action);
+}
+
+static void pivot_step (uint8_t mapped_action)
+{
     if (g_downhill.fault)
     {
         downhill_fault_stop();
@@ -559,6 +692,190 @@ void motion_apply_maneuver (uint8_t mapped_action)
     status.timestamp_usec = encoder_now_usec();
     status.b_valid = true;
     publish_status(&status);
+}
+
+static bool search_step (line_follow_action_t action)
+{
+    uint32_t const moved = search_travel();
+
+    if (0 == STEERING_OBSERVER)
+    {
+        /* The committed PI steering had no lost-line search. */
+        return false;
+    }
+    bool const     b_turning =
+        (LINE_CORRECT_LEFT == action) || (LINE_CORRECT_RIGHT == action);
+
+    if (LINE_UNCERTAIN == action)
+    {
+        /* Stopped: where the line was is no longer known. */
+        search_forget();
+        return false;
+    }
+
+    if (b_turning)
+    {
+        g_search.side = (LINE_CORRECT_LEFT == action) ? 1 : -1;
+    }
+    else if (0 != g_search.seen_now)
+    {
+        g_search.side = g_search.seen_now;
+    }
+    else
+    {
+        /* Both or neither: the last single sensor still says where. */
+    }
+
+    if (0U == g_search.b_observed)
+    {
+        /* Not line following this period (the controller reports the line
+         * only then): never search, and end a search in progress so the
+         * normal path drives the wheels. */
+        g_search.phase        = SEARCH_FOLLOWING;
+        g_search.white_counts = 0U;
+        g_search.swept_counts = 0U;
+        return false;
+    }
+
+    if (b_turning || (0U != g_search.b_black))
+    {
+        if ((SEARCH_FOLLOWING != g_search.phase) && b_turning)
+        {
+            /* Found it: drive on from rest, steering from scratch. */
+            g_base_rpm = 0.0f;
+            /* Both wheels' counts over APP_NAV_TURN90_COUNTS per 90; the
+             * sweep is at most 2 x 120 degrees, so UINT holds it. */
+            tm_printf((UB *)"[MOTOR] Line found after a %u deg search\n",
+                      (UINT)((g_search.swept_counts * 90U) /
+                             APP_NAV_TURN90_COUNTS));
+        }
+
+        g_search.phase        = SEARCH_FOLLOWING;
+        g_search.white_counts = 0U;
+        g_search.swept_counts = 0U;
+        return false;
+    }
+
+    if (0 == g_search.side)
+    {
+        /* The line has not been seen since the last stop. */
+        return false;
+    }
+
+    if (SEARCH_FOLLOWING == g_search.phase)
+    {
+        g_search.white_counts = add_saturating(g_search.white_counts, moved);
+
+        if (g_search.white_counts < MOTION_SEARCH_AFTER_COUNTS)
+        {
+            return false;
+        }
+
+        g_search.phase        = SEARCH_FIRST_SWEEP;
+        g_search.swept_counts = 0U;
+        /* UB preserves the string bytes. */
+        tm_printf((UB *)"[MOTOR] Line lost %u mm ago: pivoting %s to find "
+                        "it\n",
+                  (UINT)MOTION_SEARCH_AFTER_MM,
+                  (g_search.side > 0) ? (UB *)"left" : (UB *)"right");
+    }
+    else
+    {
+        g_search.swept_counts = add_saturating(g_search.swept_counts, moved);
+    }
+
+    if ((SEARCH_FIRST_SWEEP == g_search.phase) &&
+        (g_search.swept_counts >= MOTION_SEARCH_SWEEP_COUNTS))
+    {
+        g_search.phase        = SEARCH_SWEEP_BACK;
+        g_search.swept_counts = 0U;
+        tm_printf((UB *)"[MOTOR] Not there: pivoting back the other way\n");
+    }
+
+    if ((SEARCH_SWEEP_BACK == g_search.phase) &&
+        (g_search.swept_counts >= (2U * MOTION_SEARCH_SWEEP_COUNTS)))
+    {
+        g_search.phase = SEARCH_GAVE_UP;
+        /* UINT matches %u; UB preserves the string bytes. */
+        tm_printf((UB *)"[MOTOR] Line not found within %u deg either way: "
+                        "stopped\n",
+                  (UINT)MOTION_SEARCH_SWEEP_DEG);
+    }
+
+    if (SEARCH_GAVE_UP == g_search.phase)
+    {
+        /* Stay put until a sensor finds the line (or the robot is moved
+         * onto it), rather than drive off the course. */
+        stop_wheels();
+        g_turn_pwm = 0U;
+        drive_wheels(LINE_UNCERTAIN);
+        return true;
+    }
+
+    /* First sweep towards the line's last side, the second back past it. */
+    bool const b_left = (SEARCH_FIRST_SWEEP == g_search.phase)
+                            ? (g_search.side > 0)
+                            : (g_search.side < 0);
+
+    pivot_step(b_left ? PIVOT_LEFT : PIVOT_RIGHT);
+    return true;
+}
+
+static uint32_t search_travel (void)
+{
+    encoder_sample_t samples[ENCODER_WHEEL_COUNT] = {{0, 0U}, {0, 0U}};
+    uint32_t         moved                        = 0U;
+
+    encoder_read(ENCODER_LEFT, &samples[ENCODER_LEFT]);
+    encoder_read(ENCODER_RIGHT, &samples[ENCODER_RIGHT]);
+
+    for (uint32_t w = 0U; w < (uint32_t)ENCODER_WHEEL_COUNT; w++)
+    {
+        /* Unsigned subtraction is wrap-safe; either direction counts. */
+        uint32_t const delta =
+            (uint32_t)samples[w].count - (uint32_t)g_search.last_count[w];
+
+        if (0U != g_search.b_counts)
+        {
+            uint32_t const size =
+                (delta > (uint32_t)INT32_MAX) ? (0U - delta) : delta;
+
+            moved += size;
+            /* Size only, as the obstacle odometry uses: on the robot the
+             * left encoder counts DOWN when driving forward (logged 22:27:
+             * encL=-53231, encR=49602), and line following only drives
+             * forward. The signed count made the observer see the robot
+             * spinning on the spot. Bounded to 16 bits. */
+            g_period_counts[w] =
+                (int16_t)((size > (uint32_t)INT16_MAX) ? INT16_MAX : size);
+        }
+        else
+        {
+            g_period_counts[w] = 0;
+        }
+
+        g_search.last_count[w] = samples[w].count;
+    }
+
+    g_search.b_counts = 1U;
+    return moved;
+}
+
+static void search_forget (void)
+{
+    g_search.phase        = SEARCH_FOLLOWING;
+    g_search.white_counts = 0U;
+    g_search.swept_counts = 0U;
+    g_search.side         = 0;
+    g_search.b_counts     = 0U;
+}
+
+static uint16_t add_saturating (uint16_t total, uint32_t amount)
+{
+    uint32_t const sum = (uint32_t)total + amount;
+
+    /* Bounded to the 16-bit limit before narrowing. */
+    return (sum > 65535U) ? 65535U : (uint16_t)sum;
 }
 
 static void report_downhill_change (unsigned int before,
@@ -790,6 +1107,7 @@ static void stop_wheels (void)
     g_base_rpm = 0.0f;
     g_steer    = 0.0f;
     steering_reset(&g_steering);
+    line_track_reset(&g_track);
     for (uint32_t w = 0U; w < ENCODER_WHEEL_COUNT; ++w)
     {
         g_wheels[w].effort_pwm = 0;

@@ -58,6 +58,8 @@ static void abort_all (monitor_t * p_monitor, side_watch_t * p_watch);
 /** @brief One sweep over the scan bearings.
  *  @param[in] p_points Bearings to sample, ordered right to left.
  *  @param[out] p_ranges_mm Range of each bearing, same order.
+ *  @param[in,out] p_lone_mm Nearest lone corner echo of each bearing (see
+ *  scan_plan_point_t); a nearer one replaces it, 0 is none.
  *  @param b_left_first Sweep left to right instead of right to left.
  *  @param first_step Steps already sampled at the start of this sweep.
  *  @param max_abs_deg Only bearings within +-this are sampled; the rest
@@ -65,8 +67,8 @@ static void abort_all (monitor_t * p_monitor, side_watch_t * p_watch);
  *  @return false if the scan was aborted.
  */
 static bool scan_pass (scan_plan_point_t const * p_points,
-                       int32_t * p_ranges_mm, int32_t count,
-                       bool b_left_first, int32_t first_step,
+                       int32_t * p_ranges_mm, int32_t * p_lone_mm,
+                       int32_t count, bool b_left_first, int32_t first_step,
                        int32_t max_abs_deg);
 /** @brief Wait until OBS_PING_PERIOD_MSEC after the last trigger. Spacing
  *  is trigger to trigger, so time spent on the echo or moving the servo
@@ -79,8 +81,10 @@ static int32_t abs_diff (int32_t first, int32_t second);
  *  the corner band, up to OBS_CORNER_PINGS until two agree on an echo; it
  *  then reads the nearest agreeing pair (see corner_pair()).
  *  @param angle_deg Bearing being sampled; it selects the corner band.
+ *  @param[out] p_lone_mm Corner band: the nearest echo no other ping
+ *  agreed with, nearer than the reading; else 0.
  */
-static int32_t scan_range (int32_t angle_deg);
+static int32_t scan_range (int32_t angle_deg, int32_t * p_lone_mm);
 /** @brief True for a corner band bearing: beyond +-OBS_SCAN_FINE_DEG, up to
  *  +-OBS_CORNER_MAX_DEG. */
 static bool is_corner_bearing (int32_t angle_deg);
@@ -237,6 +241,7 @@ static void run_scan (void)
     scan_plan_point_t points[OBS_SCAN_POINTS];
     int32_t           first_mm[OBS_SCAN_POINTS];
     int32_t           second_mm[OBS_SCAN_POINTS];
+    int32_t           lone_mm[OBS_SCAN_POINTS];
     int32_t           count = 0;
     bool              b_ok  = true;
     /* Bearings the servo can reach; the rest of the sequence is skipped,
@@ -254,8 +259,10 @@ static void run_scan (void)
         {
             points[count].angle_deg = angle;
             points[count].range_mm  = OBS_FAR_MM;
+            points[count].lone_mm   = 0U;
             first_mm[count]         = OBS_FAR_MM;
             second_mm[count]        = OBS_FAR_MM;
+            lone_mm[count]          = 0;
             count++;
         }
     }
@@ -263,8 +270,8 @@ static void run_scan (void)
     /* The first pass runs the configured way (both ways: left first);
      * both-ways mode adds the opposite pass and keeps the nearer reading of
      * each bearing. */
-    b_ok = scan_pass(points, first_mm, count, (OBS_SCAN_DIRECTION <= 0), 0,
-                     SCAN_ALL_DEG);
+    b_ok = scan_pass(points, first_mm, lone_mm, count,
+                     (OBS_SCAN_DIRECTION <= 0), 0, SCAN_ALL_DEG);
 
     if (b_ok && (0 == OBS_SCAN_DIRECTION) && (count > 0))
     {
@@ -277,7 +284,7 @@ static void run_scan (void)
         {
             second_mm[index] = first_mm[index];
         }
-        b_ok = scan_pass(points, second_mm, count, false, 1,
+        b_ok = scan_pass(points, second_mm, lone_mm, count, false, 1,
                          OBS_SCAN_RETURN_DEG);
     }
 
@@ -289,8 +296,10 @@ static void run_scan (void)
                                      ? second_mm[index]
                                      : first_mm[index];
 
-        /* Readings are 0..4000 mm, so the 12-bit field holds them. */
+        /* Readings are 0..4000 mm and lone echoes below that, so the
+         * 12-bit fields hold them. */
         points[index].range_mm = (unsigned int)range_mm;
+        points[index].lone_mm  = (unsigned int)lone_mm[index];
     }
 
     if (b_ok && (0 == OBS_SCAN_DIRECTION) && (0 != OBS_DEBUG_LOG))
@@ -344,7 +353,7 @@ static void run_scan (void)
                       (0 != required_side)        ? (UB *)"side kept"
                       : (0 != OBS_PREFERRED_SIDE) ? (UB *)"preferred side"
                       : (0U != sides.b_tie)
-                          ? (UB *)"equal moves (least resistance)"
+                          ? (UB *)"about centred: more room past it"
                           : (UB *)"smaller move",
                       (SCAN_PLAN_ROUTE != scan_plan_result(&plan))
                           ? (UB *)"no route"
@@ -428,8 +437,8 @@ static void abort_all (monitor_t * p_monitor, side_watch_t * p_watch)
 }
 
 static bool scan_pass (scan_plan_point_t const * p_points,
-                       int32_t * p_ranges_mm, int32_t count,
-                       bool b_left_first, int32_t first_step,
+                       int32_t * p_ranges_mm, int32_t * p_lone_mm,
+                       int32_t count, bool b_left_first, int32_t first_step,
                        int32_t max_abs_deg)
 {
     bool b_ok = true;
@@ -457,8 +466,16 @@ static bool scan_pass (scan_plan_point_t const * p_points,
         }
         else
         {
+            int32_t lone = 0;
+
             tk_dly_tsk((RELTIM)servo_set_angle(angle));
-            p_ranges_mm[index] = scan_range(angle);
+            p_ranges_mm[index] = scan_range(angle, &lone);
+
+            if ((0 != lone) &&
+                ((0 == p_lone_mm[index]) || (lone < p_lone_mm[index])))
+            {
+                p_lone_mm[index] = lone;
+            }
         }
     }
 
@@ -539,7 +556,7 @@ static bool corner_pair (int32_t const * p_values, uint32_t taken,
     return false;
 }
 
-static int32_t scan_range (int32_t angle_deg)
+static int32_t scan_range (int32_t angle_deg, int32_t * p_lone_mm)
 {
     /* Two pings, and a third only if they disagree. In the corner band,
      * more until two agree on an echo. Kept sorted. */
@@ -605,6 +622,13 @@ static int32_t scan_range (int32_t angle_deg)
                                             : ((values[0] + values[1]) / 2);
     }
 
+    /* Sorted, so the first ping is the nearest; it is lone if it is not
+     * part of the reading. Kept apart: only the corner check uses it. */
+    *p_lone_mm = (b_corner && (values[0] < OBS_FAR_MM) &&
+                  (values[0] < (range_mm - OBS_SCAN_AGREE_MM)))
+                     ? values[0]
+                     : 0;
+
     if (0 != OBS_DEBUG_LOG)
     {
         /* Sorted pings, so a stray echo shows up at either end. Values fit
@@ -620,7 +644,15 @@ static int32_t scan_range (int32_t angle_deg)
             tm_printf((UB *)" %d", (INT)values[index]);
         }
 
-        tm_printf((UB *)" -> %d mm\n", (INT)range_mm);
+        tm_printf((UB *)" -> %d mm", (INT)range_mm);
+
+        if (0 != *p_lone_mm)
+        {
+            /* UB preserves the string bytes. */
+            tm_printf((UB *)" (lone %d)", (INT)*p_lone_mm);
+        }
+
+        tm_printf((UB *)"\n");
     }
 
     return range_mm;
@@ -660,10 +692,24 @@ static void log_scan_detail (scan_plan_point_t const * p_points,
                   (INT)OBS_SCAN_RANGE_MM);
         log_side((UB *)"Left ", p_sides->left_need_mm, &p_sides->left);
         log_side((UB *)"Right", p_sides->right_need_mm, &p_sides->right);
-        tm_printf((UB *)"[OBS] Measured need L-R = %d mm (smaller move "
-                        "wins; equal: more room past it)\n",
+        tm_printf((UB *)"[OBS] Measured need L-R = %d mm, from the face's "
+                        "normal (within %d: about centred, the side with "
+                        "more room past it wins)\n",
                   (INT)p_sides->left.compare_mm -
-                      (INT)p_sides->right.compare_mm);
+                      (INT)p_sides->right.compare_mm,
+                  (INT)OBS_SIDE_PREFERENCE_THRESHOLD_MM);
+
+        if ((0U != p_sides->left.b_seen) && (0U != p_sides->right.b_seen))
+        {
+            /* Half degrees, so print whole and .5; UB preserves bytes. */
+            int32_t const tilt = p_sides->tilt_x2;
+            int32_t const mag  = (tilt < 0) ? -tilt : tilt;
+
+            tm_printf((UB *)"[OBS] Square to the face at %s%d.%d deg (+ = "
+                            "left); corners count from %d deg off it\n",
+                      (tilt < 0) ? (UB *)"-" : (UB *)"", (INT)(mag / 2),
+                      (INT)((mag % 2) * 5), (INT)OBS_CORNER_FROM_DEG);
+        }
 
         if (0U != p_sides->b_centre)
         {

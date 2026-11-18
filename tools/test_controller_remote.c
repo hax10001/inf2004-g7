@@ -37,6 +37,8 @@ void motion_brake(void) {g_last_action=LINE_UNCERTAIN;}
 void motion_stop_now(void) {g_last_action=LINE_UNCERTAIN;}
 void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
 void motion_apply_maneuver(uint8_t action) {(void)action;}
+/* The controller reports the line to motion each following period. */
+void motion_line_seen(bool l,bool r) {(void)l;(void)r;}
 void motion_downhill_sample(float p,float r,bool f,bool m)
 {(void)p;(void)r;(void)f;(void)m;}
 bool motion_downhill_faulted(void) {return false;}

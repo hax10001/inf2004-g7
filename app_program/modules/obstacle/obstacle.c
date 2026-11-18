@@ -91,6 +91,9 @@ typedef struct
     signed int search_side:2;
     unsigned int b_seeking:1;
     unsigned int seek_legs:3;   /**< 0..4. */
+    unsigned int b_approaching:1;  /**< Creeping closer before the scan. */
+    unsigned int b_approached:1;   /**< Already crept for this obstacle. */
+    unsigned int approach_misses:2; /**< Front pings in a row without it. */
     unsigned int b_black_seen:1;
     /* Line sensors this period, and which of them crossed the line while
      * straightening up (ALIGN). b_line_past: the line was seen on the way
@@ -131,8 +134,18 @@ typedef struct
     int32_t           search_ddeg; /**< Heading of the run to the line. */
     uint32_t          line_hits;
     uint32_t          verify_cycles;
+    float             approach_from_mm; /**< Pose x where the creep began. */
+    uint32_t          approach_msec;    /**< When the creep began. */
 } obstacle_seq_t;
 
+#if (OBS_SCAN_FROM_MM != 0) && \
+    ((OBS_SCAN_FROM_MM < 120) || (OBS_SCAN_FROM_MM >= OBS_STOP_MM))
+#error "OBS_SCAN_FROM_MM must be 0 or 120..OBS_STOP_MM: room to turn out."
+#endif
+#if (OBS_APPROACH_MISSES < 1U) || (OBS_APPROACH_MISSES > 3U) || \
+    (OBS_APPROACH_RPM <= 0) || (OBS_APPROACH_RPM > OBS_DRIVE_RPM)
+#error "Need OBS_APPROACH_MISSES 1..3 and 0 < OBS_APPROACH_RPM <= drive."
+#endif
 #if (OBS_OBJECT_MAX_MM < OBS_PASS_DEFAULT_MM) || \
     (OBS_OBJECT_MAX_MM >= OBS_PASS_MAX_MM)
 #error "Need OBS_PASS_DEFAULT_MM <= OBS_OBJECT_MAX_MM < OBS_PASS_MAX_MM."
@@ -174,6 +187,14 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
 /** @brief Enter a phase, restart its timer, set the watches and log. */
 static void enter_phase (obstacle_seq_t * p_seq, obs_state_phase_t phase,
                          uint32_t now_msec);
+/** @brief Whether to creep closer before this scan: the first stop for an
+ *  obstacle only, never a rescan in the middle of a bypass. */
+static bool approach_wanted (obstacle_seq_t const * p_seq);
+/** @brief One period of the creep: forward at OBS_APPROACH_RPM until a
+ *  fresh front ping is within OBS_SCAN_FROM_MM, or a bound is reached; then
+ *  stop and settle again before the scan. */
+static void approach_step (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                           uint32_t now_msec);
 /** @brief Enter a turn phase towards an absolute heading. */
 static void enter_turn (obstacle_seq_t * p_seq, obs_state_phase_t phase,
                         int32_t target_ddeg, uint32_t now_msec);
@@ -423,7 +444,29 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             case OBS_PHASE_STOPPING:
                 p_out->b_stop = true;
 
-                if (elapsed >= OBS_STOP_SETTLE_MSEC)
+                if (0U != p_seq->b_approaching)
+                {
+                    approach_step(p_seq, p_out, now_msec);
+                }
+                else if (elapsed < OBS_STOP_SETTLE_MSEC)
+                {
+                    /* Settling. */
+                }
+                else if (approach_wanted(p_seq))
+                {
+                    p_seq->b_approaching   = 1U;
+                    p_seq->b_approached    = 1U;
+                    p_seq->approach_misses = 0U;
+                    p_seq->approach_from_mm = p_seq->pose.x_mm;
+                    p_seq->approach_msec    = now_msec;
+                    p_seq->front_seq        = obs_state_front_seq_get();
+                    obs_state_flags_set(OBS_EVT_FRONT_WATCH);
+                    /* Values fit INT on the target; UB keeps the bytes. */
+                    tm_printf((UB *)"[OBS] Creeping closer to scan from %d "
+                                    "mm\n",
+                              (INT)OBS_SCAN_FROM_MM);
+                }
+                else
                 {
                     obs_state_flags_clear(OBS_EVT_SCAN_DONE);
                     obs_state_flags_set(OBS_EVT_SCAN_REQ);
@@ -1523,7 +1566,77 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
     p_seq->line_hits        = 0U;
     p_seq->verify_cycles    = 0U;
     p_seq->b_black_seen     = false;
+    p_seq->b_approaching    = 0U;
+    p_seq->b_approached     = 0U;
+    p_seq->approach_misses  = 0U;
+    p_seq->approach_from_mm = 0.0F;
+    p_seq->approach_msec    = now_msec;
     enter_phase(p_seq, OBS_PHASE_STOPPING, now_msec);
+}
+
+static bool approach_wanted (obstacle_seq_t const * p_seq)
+{
+    return (0 != OBS_SCAN_FROM_MM) && (0U == p_seq->b_approached) &&
+           (OBS_PHASE_IDLE == p_seq->resume_phase);
+}
+
+static void approach_step (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                           uint32_t now_msec)
+{
+    uint32_t const seq      = obs_state_front_seq_get();
+    int32_t        range_mm = -1;
+    bool           b_done   = false;
+
+    if (seq != p_seq->front_seq)
+    {
+        p_seq->front_seq = seq;
+        range_mm         = obs_state_front_range_get();
+
+        if ((range_mm > 0) && (range_mm <= OBS_SCAN_FROM_MM))
+        {
+            b_done = true; /* Close enough. */
+        }
+        else if ((range_mm <= 0) || (range_mm >= OBS_SCAN_RANGE_MM))
+        {
+            /* Not seeing the face: do not drive on blind. */
+            if (p_seq->approach_misses < OBS_APPROACH_MISSES)
+            {
+                p_seq->approach_misses++;
+            }
+
+            b_done = p_seq->approach_misses >= OBS_APPROACH_MISSES;
+        }
+        else
+        {
+            p_seq->approach_misses = 0U;
+        }
+    }
+
+    float const crept = p_seq->pose.x_mm - p_seq->approach_from_mm;
+
+    if ((crept >= (float)OBS_APPROACH_MAX_MM) ||
+        ((uint32_t)(now_msec - p_seq->approach_msec) >= OBS_APPROACH_MAX_MSEC))
+    {
+        b_done = true;
+    }
+
+    if (b_done)
+    {
+        p_seq->b_approaching = 0U;
+        /* Values fit INT on the target; UB keeps the string bytes. */
+        tm_printf((UB *)"[OBS] Crept %d mm; face at %d mm (-1 not seen); "
+                        "scanning\n",
+                  (INT)crept, (INT)range_mm);
+        /* Settle again before the scan; this also ends the front watch. */
+        enter_phase(p_seq, OBS_PHASE_STOPPING, now_msec);
+        p_out->b_stop = true;
+    }
+    else
+    {
+        p_out->b_stop    = false;
+        p_out->left_rpm  = OBS_APPROACH_RPM;
+        p_out->right_rpm = OBS_APPROACH_RPM;
+    }
 }
 
 static void enter_phase (obstacle_seq_t * p_seq, obs_state_phase_t phase,

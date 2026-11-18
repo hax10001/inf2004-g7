@@ -35,6 +35,23 @@ Two digital IR sensors (left GP6, right GP2) are sampled every 1 ms
 `APP_NAV_JUNCTION_CONFIRM_MM` (5 mm) of travel, or
 `APP_NAV_JUNCTION_CONFIRM_MAX_MSEC` (1500 ms) if the robot barely moves.
 
+**Steering** (`modules/motion/steering.c`, `STEERING_OBSERVER 1`): a PID on
+where the line is. The two sensors only say left, right or "in between";
+the wheel encoders measure how far the robot drove and turned, so the
+line's position is followed through the gap between the sensors and
+corrected whenever one sees it (`line_track_update()`). P acts on the
+line's offset (`LINE_TRACK_KP`), D on the robot's heading across it, from
+the encoders (`LINE_TRACK_KD`), I on curves (`LINE_TRACK_KI`). Measure
+`LINE_TRACK_SENSOR_GAP_MM` (26 assumed). `STEERING_OBSERVER 0` goes back to
+the previous PI steering. **Lost line** (`motion.c`): after
+`MOTION_SEARCH_AFTER_MM` (100 mm) with neither sensor on the line, the
+robot pivots on the spot towards where it last saw the line, up to
+`MOTION_SEARCH_SWEEP_DEG` (120°), then back the other way, then stops
+instead of driving off. The log shows `[MOTOR] Line lost … pivoting`,
+`Line found after a … deg search` or `Line not found … stopped`.
+`tools/tests/line_follow_sim.c` checks curves and 90° corners in a
+closed-loop model at 35 and 55 RPM.
+
 `app/nav_core.c` executes the turn mapped to the last **validated** barcode
 letter. An unmapped or ambiguous junction, a missing reacquisition or a
 maneuver timeout (`APP_NAV_MAX_TURN_MSEC` 6000, `APP_NAV_MAX_CROSS_MSEC` 1800)

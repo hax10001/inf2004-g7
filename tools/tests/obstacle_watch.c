@@ -22,10 +22,15 @@ ER tk_dly_tsk(UINT delay) {clock_ms+=delay;return E_OK;}
 ER tk_get_otm(SYSTIM *now) {now->hi=0;now->lo=clock_ms;return E_OK;}
 /* Trigger times, to check scan ping spacing. */
 static uint32_t last_trigger, min_trigger_gap=UINT32_MAX, pings;
+/* Lone corner echo out of scan_range(). */
+static int32_t lone;
 static bool have_trigger;
 /* A bearing whose echo comes and goes (logged at an object edge). */
 static int32_t flaky_angle=999;
 static unsigned int flaky_n;
+/* A bearing that echoes on its first ping only. */
+static int32_t lone_echo_angle=999;
+static unsigned int lone_echo_n;
 bool ultrasonic_last_trigger(uint32_t *msec)
 {if(!have_trigger)return false;*msec=last_trigger;return true;}
 /* Simulated servo lag: it stops lag_deg short of each target, so the
@@ -54,6 +59,13 @@ ultrasonic_result_t ultrasonic_ping(int32_t *range)
     last_trigger=clock_ms;have_trigger=true;++pings;
     if(scan_order_armed){scan_order_first=current_angle;scan_order_armed=false;}
     clock_ms+=OBS_ECHO_TIMEOUT_MSEC;
+    if(current_angle==lone_echo_angle)
+    {
+        /* One echo, then nothing (a weak corner heard once). */
+        if(lone_echo_n++) return ULTRASONIC_OUT_OF_RANGE;
+        *range=232;
+        return ULTRASONIC_OK;
+    }
     if(current_angle==flaky_angle)
     {
         /* Echo, miss, echo, ... like 18 Nov's +20 degree edge. */
@@ -210,13 +222,27 @@ int main(void)
         uint32_t const old_estimate=old_bearings*old_settle+
             old_bearings*3U*old_per_ping;
         assert(took*100U < old_estimate*80U); /* at least 20% faster */
-        /* Target: a scan in about 5 s even with every echo timing out
-         * (the worst case for ping time). */
-        assert(took <= 5500U);
+        /* Target: about 6 s with every bearing echoing (5.5 s before the
+         * corner band went to 5 degree steps for off-centre boxes). */
+        assert(took <= 6200U);
         printf("PASS scan %u bearings, %u pings in %u ms (pings >= %u ms "
                "apart; old timing at least %u ms)\n",(unsigned)bearings,
                (unsigned)(pings-pings_before),(unsigned)took,
                (unsigned)min_trigger_gap,(unsigned)old_estimate);
+    }
+
+    /* Worst case: nothing echoes, so each corner band bearing takes
+     * OBS_CORNER_PINGS pings. Still well inside the scan timeout. */
+    {
+        uint32_t const t0=clock_ms;
+        echo_result=ULTRASONIC_NO_ECHO;
+        worker_flags=OBS_EVT_SCAN_REQ;
+        run_scan();
+        echo_result=ULTRASONIC_OK;
+        uint32_t const took=clock_ms-t0;
+        printf("PASS silent scan (corner band pinged %u times per bearing) "
+               "in %u ms\n",(unsigned)OBS_CORNER_PINGS,(unsigned)took);
+        assert(took <= 7500U && took < OBS_SCAN_TIMEOUT_MSEC);
     }
 
     /* An edge that echoes every other ping: the third ping and median keep
@@ -235,15 +261,15 @@ int main(void)
         /* Directly at the edge: echo, miss, echo -> median 232 mm. */
         (void)servo_set_angle(20);flaky_n=0U;
         uint32_t const p0=pings;
-        assert(scan_range(20)==232 && pings-p0==3U);
+        assert(scan_range(20,&lone)==232 && pings-p0==3U);
         /* Miss first: miss, echo, miss -> median says no echo (4000). */
         flaky_n=1U;
-        assert(scan_range(20)==OBS_FAR_MM);
+        assert(scan_range(20,&lone)==OBS_FAR_MM);
         flaky_angle=999;
         /* Agreeing echoes: two pings only, their average. */
         (void)servo_set_angle(10);
         uint32_t const p1=pings;
-        assert(scan_range(10)==240 && pings-p1==2U);
+        assert(scan_range(10,&lone)==240 && pings-p1==2U);
         puts("PASS an intermittent edge echo is kept: third ping, median");
     }
 
@@ -266,18 +292,26 @@ int main(void)
         flaky_angle=40;flaky_n=1U; /* miss, echo, miss, echo */
         (void)servo_set_angle(40);
         uint32_t p0=pings;
-        assert(scan_range(40)==232 && pings-p0==4U);
+        assert(scan_range(40,&lone)==232 && pings-p0==4U);
         flaky_n=0U; /* echo, miss, echo: stops once two agree */
         p0=pings;
-        assert(scan_range(40)==232 && pings-p0==3U);
+        assert(scan_range(40,&lone)==232 && pings-p0==3U);
+        /* Echo once, then misses: the reading stays far, the echo is
+         * kept apart as lone for the planner's neighbour check. */
+        flaky_n=0U;
+        lone_echo_angle=40; lone_echo_n=0U;
+        p0=pings;
+        assert(scan_range(40,&lone)==OBS_FAR_MM && lone==232 &&
+               pings-p0==OBS_CORNER_PINGS);
+        lone_echo_angle=999;
         flaky_angle=999;
         echo_result=ULTRASONIC_NO_ECHO;
         (void)servo_set_angle(-50);
         p0=pings;
-        assert(scan_range(-50)==OBS_FAR_MM && pings-p0==OBS_CORNER_PINGS);
+        assert(scan_range(-50,&lone)==OBS_FAR_MM && pings-p0==OBS_CORNER_PINGS);
         (void)servo_set_angle(-60);
         p0=pings;
-        assert(scan_range(-60)==OBS_FAR_MM && pings-p0==2U);
+        assert(scan_range(-60,&lone)==OBS_FAR_MM && pings-p0==2U);
         echo_result=ULTRASONIC_OK;
         puts("PASS corner band pings until two agree; a lone echo is kept out");
     }
