@@ -73,12 +73,18 @@ cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   tools/test_scanner_ready.c -o tmp/v15/scanner_ready
 tmp/v15/scanner_ready
-# Same real scanner, re-learning white after every barcode (setting off).
+# Same real scanner reusing the startup white (setting on).
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
-  -DAPP_BARCODE_KEEP_STARTUP_WHITE=0 \
-  tools/test_scanner_ready.c -o tmp/v15/scanner_ready_relearn
-tmp/v15/scanner_ready_relearn
+  -DAPP_BARCODE_KEEP_STARTUP_WHITE=1 \
+  tools/test_scanner_ready.c -o tmp/v15/scanner_ready_keep
+tmp/v15/scanner_ready_keep
+# Same real scanner with the capture gate off (previous trigger, no drop).
+cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+  -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
+  -DAPP_BARCODE_TRIGGER_RISE=0U -DAPP_BARCODE_MIN_DARK_UNITS=0U \
+  tools/test_scanner_ready.c -o tmp/v15/scanner_ready_gate_off
+tmp/v15/scanner_ready_gate_off
 for SIGN in 0 1 -1; do
   cc -std=c99 -O2 -Wall -Wextra -Werror -Itools/tests/stubs -Iapp_program \
     -DAPP_DOWNHILL_NOSE_DOWN_SIGN="$SIGN" \

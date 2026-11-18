@@ -25,7 +25,8 @@ INT tm_printf(UB const *f,...) {(void)f;return 0;}
 ER encoder_init(void) {return E_OK;}
 uint32_t encoder_now_usec(void) {return now_us;}
 void encoder_read(encoder_wheel_t w,encoder_sample_t *s) {*s=enc[w];}
-uint8_t bc_wave_capture_active(void) {return 0U;}
+static uint8_t g_capturing;
+uint8_t bc_wave_capture_active(void) {return g_capturing;}
 
 static float effort(unsigned wheel)
 {
@@ -187,6 +188,40 @@ static void transitions(void)
          "continuous travel, stopped inner wheel and immediate STOP");
 }
 
+/* Barcodes are read at driving speed: a capture neither slows nor brakes
+ * the robot, whenever it starts. */
+static void scan_entry(void)
+{
+    motion_status_t status={0};
+    motion_reset_run();motion_stop_now();
+    g_capturing=0U;
+    for (unsigned i=0;i<200;i++){advance(0.0f);motion_apply(LINE_FORWARD);}
+    assert(motion_get_status(&status)==E_OK);
+    float const cruise=status.left_target_rpm;
+    float const cruise_rpm=rpm[0];
+    assert(cruise>0.0f);
+    g_capturing=1U;
+    for (unsigned i=0;i<60;i++)
+    {
+        advance(0.0f);motion_apply(LINE_FORWARD);
+        assert(motion_get_status(&status)==E_OK);
+        assert(status.left_target_rpm==cruise);
+        assert(status.right_target_rpm==cruise);
+        assert(!(pins[8]==pins[9] && pins[8]!=0U));   /* never braked */
+        assert(!(pins[10]==pins[11] && pins[10]!=0U));
+    }
+    assert(fabsf(rpm[0]-cruise_rpm)<0.5f);
+    /* Starting a capture while pulling away does not hold the ramp back. */
+    motion_reset_run();motion_stop_now();
+    for (unsigned i=0;i<10;i++) {rpm[0]=rpm[1]=0.0f;advance(0.0f);}
+    for (unsigned i=0;i<10;i++){advance(0.0f);motion_apply(LINE_FORWARD);}
+    assert(motion_get_status(&status)==E_OK && status.left_target_rpm==cruise);
+    g_capturing=0U;
+    motion_stop_now();
+    printf("PASS scan at driving speed: capture keeps %.1f RPM, no slowdown "
+           "or brake\n",(double)cruise);
+}
+
 int main(void)
 {
     char path[80];
@@ -200,6 +235,7 @@ int main(void)
     assert(motion_init()==E_OK);
     run(0,0);run(3,6);run(8,10);run(12,14);
     transitions();
+    scan_entry();
     fclose(recording);
     puts("V15 plant: production PI, encoder feedback, proportional brake, "
          "steering and zero-output STOP PASS (model only)");

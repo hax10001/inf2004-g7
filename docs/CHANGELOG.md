@@ -8,6 +8,113 @@ evidence for V9 onwards (test logs, size audits, checklists) is in
 
 ## Unreleased
 
+- Obstacle (obstacle module only):
+  - Side choice is least resistance: the smaller sideways move wins
+    however small the difference. `OBS_SIDE_PREFERENCE_THRESHOLD_MM`,
+    `OBS_SIDE_DEFAULT`, `OBS_SIDE_TIE_BREAK` and `OBS_TIE_OPEN_MARGIN_MM`
+    are removed. Exactly equal moves go to the side with more room past the
+    object, then the smaller drive out, then the more open half of the
+    sweep; a mirror-symmetric scan goes by the parity of its readings.
+  - Corner echoes locate an off-centre box. Facing a flat face square on,
+    every bearing within about ±30 degrees reads the same perpendicular
+    distance and the echo stops at about ±30 degrees wherever the box sits,
+    so a box on the left read as centred. Corner bearings (±40, ±50) now
+    take up to `OBS_CORNER_PINGS` (4) pings until two agree; a corner's
+    sideways offset is √(range² − face²). When found, the sides are
+    compared on the real extent (`OBS_SIDE_CORNER_ECHO`, `OBS_CORNER_*`),
+    and the robot drives out far enough to clear a seen corner.
+  - The two-way scan starts at the left end (left→right, then right→left
+    over ±30 degrees); 5.5 s in the host model.
+  - `OBS_SERVO_LEFT_SIGN` back to 1. With −1 the side watch looked away
+    from the box while passing (19:2x log: no box echo on either pass, only
+    the open side 0.6–0.9 m out) and scans were mirrored.
+  - Replayed on the 11 logged box-on-left scans (18:47): 7 now go right
+    (4 before); all 3 with a corner echo go right.
+
+- Obstacle return length: with no confirmed end, the turn back assumes the
+  object is as deep as its beam-corrected width, not the padded planning
+  width (which hit the 300 mm cap and ran ~230 mm past a 15 cm box in the
+  17:44 log), capped at `OBS_OBJECT_MAX_MM` (150 mm, the largest obstacle on
+  the course). Never shorter than `OBS_PASS_DEFAULT_MM`; a deeper object is
+  still caught by the front guard on the return.
+
+- Obstacle side choice (obstacle module only): the sides are compared on
+  beam-corrected edges instead of edges padded to the next empty bearing
+  (whose 5/10 degree spacing tilted close calls), with the tie band at
+  `OBS_SIDE_PREFERENCE_THRESHOLD_MM` 45 (was 90, tuned for the padded
+  edges). Ties go to the side with more open space past the object
+  (`OBS_SIDE_TIE_BREAK`), else `OBS_SIDE_DEFAULT`. Replaying 127 logged
+  scans: wrong on clearly one-sided scans 5/53 (was 7/53), left/right
+  73/20 (was 86/7). The log also prints the object centre and the
+  `OBS_SERVO_FRONT_USEC` that would centre it, for servo calibration.
+  Drive offsets are unchanged.
+
+- Obstacle bypass, after the 18 Nov collision (video + log): the robot
+  reached ~160 mm out by the video while encoder odometry said 231 mm, so
+  the pass steered back in towards the box and rode onto its corner.
+  - Passing never steers towards the object; it only holds or turns out.
+  - A side echo showing the gap short of half the body plus margin turns
+    out at once, `OBS_SIDE_PUSH_GAIN_DDEG_PER_MM` (3: 15 deg for 50 mm),
+    and moves the offset target out from where the robot is, not
+    cumulatively. The push lasts only while echoes keep showing it.
+  - With no confirmed end, the turn back now assumes the object is as
+    deep as its conservative scanned width (at most `OBS_PASS_MAX_MM` / 2),
+    not just `OBS_PASS_DEFAULT_MM` (40 mm).
+  - Scan pings: 2 per bearing and a third when they differ by more than
+    `OBS_SCAN_AGREE_MM` (median). Keeping the larger of 2 dropped a real
+    +20 degree edge (230 mm / no echo) on 18 Nov.
+
+- Reported obstacle width allows for the ultrasonic beam: each edge is
+  taken midway to the next empty bearing, moved in by `OBS_BEAM_HALF_DEG`
+  (10 degrees, fitted to the logged scans of the 15 cm obstacle). Over the
+  122 logged scans the median reported width falls from 280 to 140 mm
+  (160 mm on 18 Nov). Reporting only: replaying those scans, every plan
+  (route, side, offset, turn angle) is unchanged.
+
+- Obstacle scan in about 5 s (was 16-18 s on the robot): 2 pings per
+  bearing instead of 3 (`OBS_SCAN_PINGS`, the larger is used), and the
+  return pass re-reads only +-30 degrees (`OBS_SCAN_RETURN_DEG`), where the
+  edges are found. Replaying the 117 scans in the robot logs through the
+  real planner, both changes gave the same plan as before in every scan;
+  one ping per bearing changed the side in 4. Simulated worst case (every
+  echo timing out): 34 bearings, 68 pings, 5.5 s.
+
+- Faster obstacle scan with the same measurement: scan pings are spaced
+  `OBS_PING_PERIOD_MSEC` (60 ms) trigger to trigger instead of 60 ms after
+  each echo ends, the servo moves and settles while the last ping's echo
+  dies away, and the two-way sweep no longer pings the turnaround bearing
+  twice. Simulated: 41 bearings x 3 pings in ~9.1 s, from at least 13.3 s.
+  New `ultrasonic_last_trigger()` reports the last trigger time.
+
+- A barcode capture no longer slows or brakes the robot: barcodes are read
+  at the driving speed (`MOTION_TARGET_RPM`). `APP_BARCODE_SCAN_RPM` and
+  `APP_BARCODE_SCAN_BRAKE_MSEC` are removed.
+
+- Junction actions back to single-use (`APP_NAV_REPEAT_ACTION 0`; it had
+  been left at 1): a barcode's action is done at the next junction and
+  then forgotten, so a later junction with no new barcode goes straight.
+
+- Barcode capture gate, tuned on the logged runs (66 decoded, 338 failed
+  captures): a capture starts only 600 ADC counts darker than white
+  (`APP_BARCODE_TRIGGER_RISE`), and one whose dark part ends under 1000
+  units (`APP_BARCODE_MIN_DARK_UNITS`) is dropped without decoding while
+  the scanner stays armed. Together they would have removed 252 of the
+  failed captures and none of the decoded ones. No new capture during
+  junction centring, pivots and reacquisition
+  (`APP_BARCODE_SUPPRESS_IN_TURNS`). New `bc_port_nav_abort()` ends a
+  dropped capture's navigation transaction with no result.
+- Scan-speed entry: when a capture starts above `APP_BARCODE_SCAN_RPM`
+  the target is cut straight to scan speed (no 8 RPM/period ramp) and the
+  motors short-brake for `APP_BARCODE_SCAN_BRAKE_MSEC` (50 ms) while still
+  faster, so the first bars are not read during a coast-down.
+
+- Barcode white reference back to re-learning after every barcode
+  (`APP_BARCODE_KEEP_STARTUP_WHITE 0`). Logs show the track's white varies
+  ~180..370 ADC within a run; reusing the startup white let lighter floor
+  read as bars, and every pass of the 13:27/13:42 runs failed `many_bars`.
+  With the option on, the startup white is now reused only within its
+  sigma + 8 (it accepted 3 sigma + 24, beyond the 3 sigma + 8 trigger).
+
 - Mid-run stops with no STOP and MQTT connected (logged 13:40–13:41): the
   controller treated one busy period on its STOP/START mailbox as a STOP
   and ended the run silently. It now waits up to 2 ms

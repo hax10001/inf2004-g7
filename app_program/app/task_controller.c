@@ -585,7 +585,19 @@ static robot_state_t controller_cycle(robot_state_t state,
         /* Driving off the track round an obstacle passes floor edges and
          * marks that are not barcodes; do not start captures then.
          */
-        bc_wave_set_suppressed((uint8_t)(state != ROBOT_LINE_FOLLOWING));
+        {
+            bool b_suppress = (state != ROBOT_LINE_FOLLOWING);
+#if defined(B1_LIVE_COMMANDS) && APP_BARCODE_SUPPRESS_IN_TURNS
+            /* Centring on, pivoting at and reacquiring after a junction
+             * sweep the barcode sensor across the track lines. */
+            b_suppress = b_suppress ||
+                (g_navigation.state == NAV_CENTRE) ||
+                (g_navigation.state == NAV_TURN) ||
+                (g_navigation.state == NAV_REACQUIRE) ||
+                (g_navigation.state == NAV_RESUME);
+#endif
+            bc_wave_set_suppressed((uint8_t)b_suppress);
+        }
 
         terrain_snapshot snapshot = {0};
         ER terrain_error = terrain_get_snapshot(&snapshot);

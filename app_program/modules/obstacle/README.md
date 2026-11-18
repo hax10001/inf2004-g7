@@ -20,19 +20,54 @@ each one; values below are the committed defaults.
 1. **Detect:** a front reading below `OBS_STOP_MM` (250 mm), confirmed by a
    median of `OBS_MEDIAN_SAMPLES` and `OBS_CONFIRM_HITS` consecutive hits, stops
    the robot.
-2. **Scan:** the servo sweeps both extremes, −70° to +70° in 10° steps
-   (`OBS_SCAN_*`), with `OBS_SCAN_PINGS` pings per bearing. Flat faces stop
+2. **Scan:** the servo sweeps −70° to +70°, every 5° within ±30° and 10°
+   outside (`OBS_SCAN_*`), with `OBS_SCAN_PINGS` (2) pings per bearing, 60 ms
+   apart, starting at the left end (+70°) and sweeping right. It then sweeps
+   back, right to left, over ±30° only (`OBS_SCAN_RETURN_DEG`), keeping
+   the nearer reading of each bearing so servo lag cancels where the edges
+   are found. About 5 s in all. The reported object width allows for the
+   ultrasonic beam (`OBS_BEAM_HALF_DEG`, 10°): a bearing echoes while any part
+   of its beam is on the object, so raw edges look about 10° too wide each
+   side. Bearings 5° apart limit it to roughly ±3–4 cm. The bypass itself
+   still plans from the wider, conservative edges. Flat faces stop
    echoing beyond about 30°, so wide obstacles look narrower than they are;
    `OBS_MIN_LATERAL_MM` (245) sets a floor on the passing offset.
-3. **Choose a side:** with `OBS_PREFERRED_SIDE=0`, the planner works out how
-   far sideways each side needs the robot to move and takes the clear side
-   needing less, which is the side the object blocks least. If the two differ by
-   no more than `OBS_SIDE_PREFERENCE_THRESHOLD_MM` (40), the object counts as
-   centred and `OBS_SIDE_DEFAULT` (1, left) is used. When neither edge was
-   seen, the farther outermost echo decides instead. If both sides are blocked
+   **Why a box can look centred when it isn't:** the sensor faces the box
+   square on, so the flat front face acts like a mirror. Every bearing
+   within about ±30° gets the same perpendicular echo wherever the box
+   sits, and the echo stops at about ±30° whatever the box's width (logged:
+   box on the left read −30..30° every time). Only the box's vertical
+   corners echo beyond that, weakly. So at the corner bearings (±40°, ±50°:
+   `OBS_CORNER_MAX_DEG`) each bearing takes up to `OBS_CORNER_PINGS` (4)
+   pings until two agree on an echo. A corner's sideways position comes
+   from its range: √(range² − face²). An echo counts as a corner only
+   within `OBS_CORNER_DEPTH_MM` (150) of the face range and at least
+   face·tan(bearing − `OBS_CORNER_BEAM_DEG`) out, so a face that isn't
+   square on and keeps echoing at 40° is not mistaken for one.
+3. **Choose a side (least resistance):** with `OBS_PREFERRED_SIDE=0`, the
+   planner works out how far sideways each side needs the robot to move and
+   takes the clear side needing less, however small the difference. There
+   is no tie band and no fixed default side. The sides are compared on
+   beam-corrected edges (`OBS_SIDE_COMPARE_MEASURED`); the padded edges
+   still set how far out it drives. **Corner found**
+   (`OBS_SIDE_CORNER_ECHO`): the sides are compared on the object's real
+   extent instead: the seen corner(s), and for a side without one, the
+   face's own edge if it stopped echoing inside ±30°, else the far edge of
+   an `OBS_OBJECT_MAX_MM` (150 mm) box. The robot also drives out at least
+   far enough to clear a corner seen on its side. Exactly equal moves go to
+   the side with more open room past the object, then the smaller drive
+   out, then the more open half of the sweep; a perfectly mirror-symmetric
+   scan goes by the parity of its summed ranges (a coin flip from the
+   readings). The log prints `Corner echo L=… R=… mm: object centre … mm`
+   or `No corner echo`, and the object's centre bearing with the
+   `OBS_SERVO_FRONT_USEC` that would centre it. If both sides are blocked
    the planner reports `NO_ROUTE`. A mid-bypass rescan keeps the side already
-   taken, or stops. Each bearing is the median of `OBS_SCAN_PINGS` (3) pings,
-   so one bad echo cannot swing the choice.
+   taken, or stops. Each bearing takes 2 pings; if they differ by more than
+   `OBS_SCAN_AGREE_MM` (50) a third decides (median), so a stray echo or an
+   edge that echoes only some of the time cannot swing the choice.
+   **Servo direction:** keep `OBS_SERVO_LEFT_SIGN` at 1. With −1 every
+   bearing is mirrored: the scan puts the box on the wrong side and the side
+   watch looks away from the box while passing.
 4. **Pass:** the servo watches the obstacle's side. Acquiring it needs
    `OBS_SIDE_SEEN_HITS` (2) echoes. An end candidate needs `OBS_SIDE_CLEAR_HITS`
    (5) consecutive absent samples. A returning echo cancels clearance. Side
@@ -41,7 +76,13 @@ each one; values below are the committed defaults.
    while passing. **Default length:** if the side watch cannot confirm the end
    (it never saw the object, saw it only once, or noise keeps breaking the
    absence run) and hasn't seen it in the last 5 pings, the sensor passing
-   `OBS_PASS_DEFAULT_MM` (300) beyond the front face stands in for the end. An
+   the larger of `OBS_PASS_DEFAULT_MM` (40) and the object's beam-corrected
+   scanned width (depth is not measured; at most `OBS_OBJECT_MAX_MM`, 150)
+   beyond the front face stands in for the end. **Steering:** while passing,
+   the robot only holds its offset or turns out, never in towards the
+   object (encoder odometry can overstate how far out it is). A side echo
+   showing the gap short of half the body plus `OBS_SAFETY_MARGIN_MM` turns
+   it out at once (`OBS_SIDE_PUSH_GAIN_DDEG_PER_MM`). An
    object still being seen keeps the leg going. `OBS_PASS_MAX_MM` (1200) is the
    hard limit: past it the robot stops with a `NO_ROUTE` fault.
 5. **Return:** the turn back (`OBS_RETURN_DEG`, 60°) starts once the measured gap

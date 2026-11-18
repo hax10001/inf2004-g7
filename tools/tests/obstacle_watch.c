@@ -19,10 +19,23 @@ static unsigned int plan_count;
 
 INT tm_printf(UB const *format, ...) {(void)format;return 0;}
 ER tk_dly_tsk(UINT delay) {clock_ms+=delay;return E_OK;}
+ER tk_get_otm(SYSTIM *now) {now->hi=0;now->lo=clock_ms;return E_OK;}
+/* Trigger times, to check scan ping spacing. */
+static uint32_t last_trigger, min_trigger_gap=UINT32_MAX, pings;
+static bool have_trigger;
+/* A bearing whose echo comes and goes (logged at an object edge). */
+static int32_t flaky_angle=999;
+static unsigned int flaky_n;
+bool ultrasonic_last_trigger(uint32_t *msec)
+{if(!have_trigger)return false;*msec=last_trigger;return true;}
 /* Simulated servo lag: it stops lag_deg short of each target, so the
  * real bearing depends on the direction it arrived from. */
 static int32_t lag_deg, move_dir, lag_lo=-10, lag_hi=10;
 static unsigned int left_moves, right_moves;
+/* First bearing a scan pings (set by the first ultrasonic_ping after
+ * scan_order_armed). */
+static int32_t scan_order_first=999;
+static bool scan_order_armed;
 uint32_t servo_set_angle(int32_t angle)
 {
     unsigned movement=(unsigned)abs(angle-current_angle);
@@ -36,7 +49,18 @@ uint32_t servo_set_angle(int32_t angle)
 int32_t obs_state_watch_angle_get(void) {return watch_angle;}
 ultrasonic_result_t ultrasonic_ping(int32_t *range)
 {
+    if(have_trigger && clock_ms-last_trigger<min_trigger_gap)
+        min_trigger_gap=clock_ms-last_trigger;
+    last_trigger=clock_ms;have_trigger=true;++pings;
+    if(scan_order_armed){scan_order_first=current_angle;scan_order_armed=false;}
     clock_ms+=OBS_ECHO_TIMEOUT_MSEC;
+    if(current_angle==flaky_angle)
+    {
+        /* Echo, miss, echo, ... like 18 Nov's +20 degree edge. */
+        if((flaky_n++)%2U) return ULTRASONIC_OUT_OF_RANGE;
+        *range=232;
+        return ULTRASONIC_OK;
+    }
     if(lag_deg!=0)
     {
         int32_t const actual=current_angle-move_dir*lag_deg;
@@ -150,6 +174,8 @@ int main(void)
     puts("PASS front monitor triggers below 250 mm, 100 mm closer than before");
     worker_flags=OBS_EVT_SCAN_REQ;
     uint32_t const scan_started=clock_ms;
+    uint32_t const pings_before=pings;
+    min_trigger_gap=UINT32_MAX;
     run_scan();
     assert(plan_count==1U && scan_plan_result(&stored_plan)==SCAN_PLAN_ROUTE);
     assert(min_angle==-70 && max_angle==70 && current_angle==0);
@@ -157,20 +183,117 @@ int main(void)
            !(worker_flags&OBS_EVT_SCAN_REQ));
     assert(clock_ms-scan_started<OBS_SCAN_TIMEOUT_MSEC);
     puts("PASS real scan worker covers both servo extremes within its timeout");
+    {
+        /* Faster scan, same measurement: every ping still at least
+         * OBS_PING_PERIOD_MSEC after the previous trigger, same pings per
+         * bearing, and the turnaround bearing is not pinged twice. */
+        /* Return pass (two-way) re-reads only bearings within
+         * +-OBS_SCAN_RETURN_DEG, and never the end bearing twice. */
+        uint32_t returning=0U;
+        if (0==OBS_SCAN_DIRECTION)
+            for (int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG;
+                 a=scan_plan_next_angle(a))
+                if (a>=-OBS_SCAN_RETURN_DEG && a<=OBS_SCAN_RETURN_DEG &&
+                    a!=-OBS_SCAN_RIGHT_DEG) ++returning;
+        uint32_t const bearings=(uint32_t)OBS_SCAN_POINTS+returning;
+        uint32_t const took=clock_ms-scan_started;
+        assert(min_trigger_gap>=OBS_PING_PERIOD_MSEC);
+        assert(pings-pings_before==bearings*OBS_SCAN_PINGS);
+        /* Previous timing, as a lower bound: the smallest servo settle at
+         * every bearing, then each ping's echo plus a full period after it
+         * (and it pinged the turnaround bearing twice, not counted here). */
+        uint32_t const old_per_ping=OBS_ECHO_TIMEOUT_MSEC+OBS_PING_PERIOD_MSEC;
+        uint32_t const old_settle=OBS_SERVO_SETTLE_BASE_MSEC+
+            OBS_SCAN_FINE_STEP_DEG*OBS_SERVO_SETTLE_PER_DEG_MSEC;
+        /* Old: both full passes (41 bearings) and 3 pings each. */
+        uint32_t const old_bearings=2U*(uint32_t)OBS_SCAN_POINTS;
+        uint32_t const old_estimate=old_bearings*old_settle+
+            old_bearings*3U*old_per_ping;
+        assert(took*100U < old_estimate*80U); /* at least 20% faster */
+        /* Target: a scan in about 5 s even with every echo timing out
+         * (the worst case for ping time). */
+        assert(took <= 5500U);
+        printf("PASS scan %u bearings, %u pings in %u ms (pings >= %u ms "
+               "apart; old timing at least %u ms)\n",(unsigned)bearings,
+               (unsigned)(pings-pings_before),(unsigned)took,
+               (unsigned)min_trigger_gap,(unsigned)old_estimate);
+    }
+
+    /* An edge that echoes every other ping: the third ping and median keep
+     * it (keeping the larger of two would have dropped it). Agreeing
+     * bearings still take two pings. */
+    {
+        flaky_angle=20;flaky_n=0U;
+        uint32_t const before=pings;
+        worker_flags=OBS_EVT_SCAN_REQ;
+        run_scan();
+        /* Each visit to +20 (once per pass) costs one extra ping. */
+        uint32_t const visits=(0==OBS_SCAN_DIRECTION &&
+                               20<=OBS_SCAN_RETURN_DEG)?2U:1U;
+        uint32_t const base=(uint32_t)(pings-before)-visits;
+        assert(base%OBS_SCAN_PINGS==0U);
+        /* Directly at the edge: echo, miss, echo -> median 232 mm. */
+        (void)servo_set_angle(20);flaky_n=0U;
+        uint32_t const p0=pings;
+        assert(scan_range(20)==232 && pings-p0==3U);
+        /* Miss first: miss, echo, miss -> median says no echo (4000). */
+        flaky_n=1U;
+        assert(scan_range(20)==OBS_FAR_MM);
+        flaky_angle=999;
+        /* Agreeing echoes: two pings only, their average. */
+        (void)servo_set_angle(10);
+        uint32_t const p1=pings;
+        assert(scan_range(10)==240 && pings-p1==2U);
+        puts("PASS an intermittent edge echo is kept: third ping, median");
+    }
 
 #if (0 == OBS_SCAN_DIRECTION)
-    /* Both ways: the sweep runs right to left, then back. */
+    /* Both ways: the sweep runs left to right first, then back. */
     assert(left_moves>0U && right_moves>1U);
+    {
+        /* Left first: the first ping of a scan is at the left end. */
+        (void)servo_set_angle(0);
+        worker_flags=OBS_EVT_SCAN_REQ;
+        scan_order_armed=true;
+        run_scan();
+        assert(scan_order_first==OBS_SCAN_LEFT_DEG);
+        puts("PASS two-way scan starts at the left end, then sweeps right");
+    }
+    {
+        /* Corner band: a weak corner echo that only every other ping
+         * catches is kept (two agreeing echoes); empty bearings there take
+         * OBS_CORNER_PINGS pings; outside it still two. */
+        flaky_angle=40;flaky_n=1U; /* miss, echo, miss, echo */
+        (void)servo_set_angle(40);
+        uint32_t p0=pings;
+        assert(scan_range(40)==232 && pings-p0==4U);
+        flaky_n=0U; /* echo, miss, echo: stops once two agree */
+        p0=pings;
+        assert(scan_range(40)==232 && pings-p0==3U);
+        flaky_angle=999;
+        echo_result=ULTRASONIC_NO_ECHO;
+        (void)servo_set_angle(-50);
+        p0=pings;
+        assert(scan_range(-50)==OBS_FAR_MM && pings-p0==OBS_CORNER_PINGS);
+        (void)servo_set_angle(-60);
+        p0=pings;
+        assert(scan_range(-60)==OBS_FAR_MM && pings-p0==2U);
+        echo_result=ULTRASONIC_OK;
+        puts("PASS corner band pings until two agree; a lone echo is kept out");
+    }
     /* A centred object and a servo that lags 5 degrees: one-way it would
      * lean (edges -5..15 or -15..5); both ways keep -15..15, so the sides
      * stay equal whichever way the servo lags. */
+    bool b_first_left=false;
     for(int32_t sign=-1;sign<=1;sign+=2)
     {
         lag_deg=5*sign;
         worker_flags=OBS_EVT_SCAN_REQ;
         run_scan();
         assert(scan_plan_result(&stored_plan)==SCAN_PLAN_ROUTE);
-        assert(scan_plan_side_is_left(&stored_plan)==(OBS_SIDE_DEFAULT>0));
+        /* The same side whichever way the servo lags. */
+        if(sign<0) b_first_left=scan_plan_side_is_left(&stored_plan);
+        else assert(scan_plan_side_is_left(&stored_plan)==b_first_left);
     }
     lag_deg=0;
     puts("PASS two-way scan cancels a servo lag in either direction");

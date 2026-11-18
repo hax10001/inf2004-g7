@@ -107,6 +107,10 @@ typedef struct
     obstacle_pose_t   pose;
     int32_t           out_ddeg;
     int32_t           lateral_mm; /**< Offset from the line while passing. */
+    /** Measured push-out while passing, tenths of a degree (0..150). */
+    uint8_t           push_ddeg;
+    /** Assumed object depth for a default end: the scanned width. */
+    int16_t           depth_guess_mm;
     int32_t           look_deg;   /**< Servo angle of the side watch. */
     int32_t           aim_deg;    /**< Servo angle last requested. */
     uint32_t          log_n[5];   /**< Side pings by kind since last log. */
@@ -129,6 +133,14 @@ typedef struct
     uint32_t          verify_cycles;
 } obstacle_seq_t;
 
+#if (OBS_OBJECT_MAX_MM < OBS_PASS_DEFAULT_MM) || \
+    (OBS_OBJECT_MAX_MM >= OBS_PASS_MAX_MM)
+#error "Need OBS_PASS_DEFAULT_MM <= OBS_OBJECT_MAX_MM < OBS_PASS_MAX_MM."
+#endif
+#if (OBS_OFFSET_OUT_MAX_DDEG < 0) || (OBS_OFFSET_OUT_MAX_DDEG > 255) || \
+    (OBS_SIDE_PUSH_GAIN_DDEG_PER_MM < 0)
+#error "Push-out heading must fit 0..255 tenths of a degree."
+#endif
 #if OBS_SIDE_SEEN_HITS > 3U || OBS_SIDE_CLEAR_HITS > 7U || OBS_SEEK_LEGS > 7U
 #error Obstacle counter configuration exceeds its minimum-bit storage
 #endif
@@ -179,6 +191,10 @@ static float return_clearance_mm (obstacle_seq_t const * p_seq);
  *  OBS_PASS_DEFAULT_MM past the front face: take the default end there.
  *  @param b_confirmed The side watch has confirmed the end.
  */
+/** @brief Depth assumed past the front face when the side watch cannot
+ *  confirm the end: OBS_PASS_DEFAULT_MM, or the scanned width if larger.
+ */
+static float default_depth_mm (obstacle_seq_t const * p_seq);
 static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed);
 /** @brief Log how the straight leg ended and how far past the face.
  *  @param event PASS_LOG_END_FOUND, PASS_LOG_TURN_BACK or PASS_LOG_LINE.
@@ -748,7 +764,19 @@ static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed)
         (p_seq->side_hits > 0U) && (p_seq->miss_hits < OBS_SIDE_CLEAR_HITS);
 
     return (!b_confirmed) && (!b_tracking) &&
-           (sensor_x >= (p_seq->face_x_mm + (float)OBS_PASS_DEFAULT_MM));
+           (sensor_x >= (p_seq->face_x_mm + default_depth_mm(p_seq)));
+}
+
+static float default_depth_mm (obstacle_seq_t const * p_seq)
+{
+    int32_t depth = OBS_PASS_DEFAULT_MM;
+
+    if (p_seq->depth_guess_mm > depth)
+    {
+        depth = p_seq->depth_guess_mm;
+    }
+
+    return (float)depth;
 }
 
 static void pass_end_log (obstacle_seq_t const * p_seq, uint8_t event)
@@ -801,7 +829,7 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
          * already pushed back by a guard on the way back. Without any hit,
          * use the gap the scan plan guaranteed beside it.
          */
-        float rear_mm = p_seq->face_x_mm + (float)OBS_PASS_DEFAULT_MM;
+        float rear_mm = p_seq->face_x_mm + default_depth_mm(p_seq);
 
         if (p_seq->rear_x_mm > rear_mm)
         {
@@ -821,8 +849,9 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         p_seq->rear_x_mm = rear_mm;
         /* Values fit INT on the target; UB preserves the string bytes. */
         tm_printf((UB *)"[OBS] Side watch could not confirm the end "
-                        "(hits=%d); using default %d mm past the face\n",
-                  (INT)p_seq->side_hits, (INT)OBS_PASS_DEFAULT_MM);
+                        "(hits=%d); assuming it is %d mm deep (scanned "
+                        "width)\n",
+                  (INT)p_seq->side_hits, (INT)default_depth_mm(p_seq));
     }
 
     p_seq->b_default_end = b_default_end;
@@ -914,6 +943,14 @@ static bool side_ping_update (obstacle_seq_t * p_seq)
 
         side_log_count(p_seq, range_mm, b_hit, b_absent, b_valid);
 
+        if (!b_hit)
+        {
+            /* The push lasts only while echoes keep showing the gap short:
+             * one ping period, so a single close echo cannot keep the
+             * robot veering out. */
+            p_seq->push_ddeg = 0U;
+        }
+
         /* Any ping that is not a hit counts, so noise cannot hold off the
          * default end; saturating keeps it within its three bits.
          */
@@ -932,11 +969,36 @@ static bool side_ping_update (obstacle_seq_t * p_seq)
 
         if (b_hit)
         {
-            /* Keep the body a full safety margin from the object. */
+            /* Keep the body a full safety margin from the object. The
+             * echo measures the gap directly, so act on it at once: move
+             * the offset target out by the shortfall from where the robot
+             * is now (not added up hit after hit), and turn out in
+             * proportion to it whatever odometry says. */
             if (gap_mm < (float)OBS_HALF_PATH_MM)
             {
-                p_seq->lateral_mm +=
-                    (int32_t)((float)OBS_HALF_PATH_MM - gap_mm);
+                float const   short_mm = (float)OBS_HALF_PATH_MM - gap_mm;
+                int32_t const target   =
+                    (int32_t)((side * p_seq->pose.y_mm) + short_mm);
+                int32_t       push     =
+                    (int32_t)(short_mm *
+                              (float)OBS_SIDE_PUSH_GAIN_DDEG_PER_MM);
+
+                if (target > p_seq->lateral_mm)
+                {
+                    p_seq->lateral_mm = target;
+                }
+
+                if (push > OBS_OFFSET_OUT_MAX_DDEG)
+                {
+                    push = OBS_OFFSET_OUT_MAX_DDEG;
+                }
+
+                /* 0..OBS_OFFSET_OUT_MAX_DDEG, checked to fit 8 bits. */
+                p_seq->push_ddeg = (uint8_t)push;
+            }
+            else
+            {
+                p_seq->push_ddeg = 0U;
             }
 
             if ((0U == p_seq->side_hits) || (hit_x > p_seq->hit_rear_mm))
@@ -1256,14 +1318,22 @@ static int32_t offset_heading (obstacle_seq_t const * p_seq)
     int32_t     turn  = (int32_t)(((float)p_seq->lateral_mm - out_y) *
                                   (float)OBS_OFFSET_GAIN_DDEG_PER_MM);
 
+    /* Never towards the object while passing it (see
+     * OBS_OFFSET_GAIN_DDEG_PER_MM): odometry alone cannot prove the room. */
+    if (turn < 0)
+    {
+        turn = 0;
+    }
+
+    /* A measured short gap turns out at least this much. */
+    if (turn < (int32_t)p_seq->push_ddeg)
+    {
+        turn = (int32_t)p_seq->push_ddeg;
+    }
+
     if (turn > OBS_OFFSET_OUT_MAX_DDEG)
     {
         turn = OBS_OFFSET_OUT_MAX_DDEG;
-    }
-
-    if (turn < -OBS_OFFSET_IN_MAX_DDEG)
-    {
-        turn = -OBS_OFFSET_IN_MAX_DDEG;
     }
 
     return p_seq->side * turn;
@@ -1421,6 +1491,8 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
     p_seq->side             = 1;
     p_seq->out_ddeg         = 0;
     p_seq->lateral_mm       = 0;
+    p_seq->push_ddeg        = 0U;
+    p_seq->depth_guess_mm   = 0;
     p_seq->look_deg         = 0;
     p_seq->aim_deg          = OBS_AIM_NONE;
     p_seq->side_skip        = 0U;
@@ -1648,6 +1720,30 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         p_seq->face_x_mm   = face_x;
         p_seq->rear_x_mm   = (face_x > p_seq->rear_x_mm) ? face_x
                                                        : p_seq->rear_x_mm;
+        p_seq->push_ddeg   = 0U;
+        {
+            /* Depth is not measured: assume the object is about as deep as
+             * its beam-corrected scanned width (close to its real size).
+             * The padded planning width (capped at 300 mm) made the robot
+             * run ~230 mm past a 15 cm box before turning back (17:44
+             * log). A deeper object is still caught by the front guard on
+             * the way back. Capped at the largest obstacle on the course
+             * (OBS_OBJECT_MAX_MM). */
+            int32_t depth = scan_plan_width_cm(&plan) * MM_PER_CM;
+
+            if (depth < 0)
+            {
+                depth = 0;
+            }
+
+            if (depth > OBS_OBJECT_MAX_MM)
+            {
+                depth = OBS_OBJECT_MAX_MM;
+            }
+
+            /* 0..OBS_OBJECT_MAX_MM, below OBS_PASS_MAX_MM: fits int16_t. */
+            p_seq->depth_guess_mm = (int16_t)depth;
+        }
         p_seq->b_seen        = false;
         p_seq->side_hits     = 0U;
         p_seq->miss_hits     = 0U;

@@ -60,20 +60,47 @@
 #define APP_BARCODE_BUFFERED_ENABLED 1
 #endif
 /* White reference for the barcode sensor:
- *   1 = learn white once, at the first arming after boot, and reuse that
- *       reference after every barcode instead of re-learning it. If the
- *       floor no longer reads as that white, that pass uses its own
- *       reading so the scanner cannot lock up triggering on the floor.
- *       "Recalibrate barcode" on the dashboard replaces the reference.
- *   0 = re-learn white after every barcode (the previous behaviour).
- * Rearming still waits for ~0.5 s of white after each barcode (and takes
- * a fresh reading to compare), so a barcode is never read twice. */
+ *   0 = re-learn white after every barcode (recommended). The logged track
+ *       is not one white: learned white varied ~180..370 ADC within a run,
+ *       and a fixed reference made floor noise count as bars ("many_bars"
+ *       on every pass, 18 Nov runs).
+ *   1 = learn white once, at the first arming after boot, and reuse it
+ *       only while a rearm's fresh reading is within the startup sigma + 8
+ *       of it (well inside the 3 sigma + 8 capture trigger); otherwise that
+ *       pass uses its own reading. "Recalibrate barcode" replaces it.
+ * Rearming always waits for ~0.5 s of white after each barcode, so a
+ * barcode is never read twice. */
 #ifndef APP_BARCODE_KEEP_STARTUP_WHITE
-#define APP_BARCODE_KEEP_STARTUP_WHITE 1
+#define APP_BARCODE_KEEP_STARTUP_WHITE 0
 #endif
-/* The proven V7.7 scan-speed baseline is 15 RPM. Change only after
- * measuring print width, encoder counts and small-barcode success rates. */
-#define APP_BARCODE_SCAN_RPM 15.0f
+/* Start a capture only when the barcode sensor reads at least this many
+ * ADC counts darker than the learned white (and the 3 sigma + 8 noise
+ * margin). Logged runs: every decoded barcode rose >= 1364 above white,
+ * while 184 of 338 failed captures (shadows, floor patches) never rose
+ * more than 600. Samples before the trigger are kept (512-sample
+ * pretrigger), so the first bar's leading edge is not lost. 0 = previous
+ * behaviour (trigger at 3 sigma + 8). */
+#ifndef APP_BARCODE_TRIGGER_RISE
+#define APP_BARCODE_TRIGGER_RISE 600U
+#endif
+/* Drop a capture early, without decoding, when its dark part ends (white
+ * for the end-of-barcode gap) before spanning this many encoder units: a
+ * tape, line or mark crossing, not a barcode. The robot stays armed and
+ * returns to cruise speed at once. Logged: the shortest decoded barcode
+ * was 1374 units; 1000 drops 234 of 338 failed captures. 0 = off. */
+#ifndef APP_BARCODE_MIN_DARK_UNITS
+#define APP_BARCODE_MIN_DARK_UNITS 1000U
+#endif
+/* 1 = no new capture while navigation centres on, pivots at or reacquires
+ * the line after a junction: the barcode sensor sweeps across the track
+ * lines then. 0 = capture there too (previous behaviour). */
+#ifndef APP_BARCODE_SUPPRESS_IN_TURNS
+#define APP_BARCODE_SUPPRESS_IN_TURNS 1
+#endif
+/* Barcodes are read at the driving speed (MOTION_TARGET_RPM in
+ * modules/motion/motion.c): a capture does not slow or stop the robot.
+ * The decoder was tuned at 15 RPM; reading uses encoder distance, so the
+ * speed only matters through vibration and sensor height. */
 #define APP_BARCODE_WAVE_MIN_VOTES 3U
 #define APP_BARCODE_WAVE_MAX_FIT_PERCENT 30U
 /* Wide-bar layout + blurred-model decoder (bc_layout.c) decides. Tuned on
@@ -175,7 +202,8 @@
 #define APP_JUNCTION_BRAKE_MSEC 200U
 /* Junction reached while the barcode before it is still decoding (decodes
  * take ~2-3 s): stop and wait up to this long for the letter, then do its
- * mapped action. No letter (failed decode) still ends in a safety stop. */
+ * mapped action. No letter (failed decode) goes straight on
+ * (APP_NAV_STRAIGHT_DEFAULT) or repeats the remembered action. */
 /* JUNCTION ACTION MODE
  *   0 = single action: a barcode's action is done at the next junction
  *       only, then discarded; a later junction with no new barcode goes
@@ -187,7 +215,7 @@
  * In both modes a junction reached while a barcode is still decoding waits
  * for that letter; in repeat mode a failed decode falls back to the
  * remembered action instead of a safety stop. */
-#define APP_NAV_REPEAT_ACTION 1U
+#define APP_NAV_REPEAT_ACTION 0U
 /* Junction with no usable action (no barcode read since START, or a decode
  * that gave no letter with nothing remembered):
  *   1 = drive straight across it and carry on line following.

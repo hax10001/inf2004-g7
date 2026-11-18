@@ -609,6 +609,32 @@ int main(void)
         tick(1300U,280U,1U,1U);tick(1460U,380U,1U,1U);
         CHECK(n.state==NAV_TURN && result.drive==NAV_OUTPUT_LEFT);
     }
+    /* Single-use action (APP_NAV_REPEAT_ACTION 0, production): the LEFT
+     * barcode is turned at the next junction and then forgotten, so the
+     * following junction with no new barcode is crossed straight. Repeat
+     * mode turns there again. */
+    for (unsigned repeat=0U; repeat<2U; repeat++)
+    {
+        nav_config_t once={150U,250U,2500U,1800U,120U,96U,1500U,
+                           0U,0U,0U,0U,0U,0U,1U,1U};
+        once.repeat_action=(unsigned char)repeat;
+        nav_init(&n,&once);nav_start(&n,1000U);s=(nav_sample_t){0};
+        CHECK(nav_barcode(&n,6U,NAV_LEFT,40U,1100U,100U)==1);
+        tick(1300U,400U,1U,1U);tick(1400U,500U,1U,1U);
+        CHECK(n.state==NAV_TURN && result.drive==NAV_OUTPUT_LEFT);
+        tick(1500U,500U,0U,0U);
+        tick(1700U,500U,1U,0U);tick(1900U,500U,1U,0U);
+        CHECK(result.event==NAV_EVENT_TURN_COMPLETED);
+        CHECK(n.pending==(repeat?1U:0U) && n.held==(repeat?1U:0U));
+        tick(2000U,600U,0U,0U);
+        CHECK(n.state==NAV_FOLLOW);
+        tick(2500U,1000U,1U,1U);tick(2600U,1100U,1U,1U);
+        if (repeat)
+            CHECK(n.state==NAV_TURN && result.drive==NAV_OUTPUT_LEFT);
+        else
+            CHECK(n.state==NAV_CROSS && result.drive==NAV_OUTPUT_FORWARD &&
+                  result.value==NAV_STRAIGHT);
+    }
     printf("AUTONAV PASS: %d assertions\n",pass);
     return 0;
 }

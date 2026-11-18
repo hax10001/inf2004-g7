@@ -4,6 +4,7 @@
 #ifndef ULTRASONIC_H
 #define ULTRASONIC_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <tk/tkernel.h>
 
@@ -20,6 +21,11 @@ ER ultrasonic_init (void);
  * @param p_mm Receives millimetres when ULTRASONIC_OK is returned.
  */
 ultrasonic_result_t ultrasonic_ping (int32_t * p_mm);
+/** @brief Kernel time (ms) of the last trigger pulse.
+ * @return false before the first ping, or if the clock could not be read
+ *         then; callers must then assume the trigger was just now.
+ */
+bool ultrasonic_last_trigger (uint32_t * p_msec);
 /** @brief Median of three values. */
 int32_t ultrasonic_median_of_three (int32_t first, int32_t second,
                                     int32_t third);

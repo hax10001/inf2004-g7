@@ -84,7 +84,8 @@ void encoder_read(encoder_wheel_t wheel,encoder_sample_t *out)
 {(void)wheel;*out=(encoder_sample_t){.count=g_encoder_count};}
 uint8_t bc_wave_navigation_guard_active(void) {return g_guard;}
 uint8_t bc_wave_capture_active(void) {return g_capture;}
-void bc_wave_set_suppressed(uint8_t b) {(void)b;}
+static uint8_t g_suppressed_flag;
+void bc_wave_set_suppressed(uint8_t b) {g_suppressed_flag=b;}
 static int g_relearn_calls = 0;
 void bc_wave_request_relearn(void) {++g_relearn_calls;}
 uint8_t bc_wave_decode_pending(void) {return 0U;}
@@ -464,6 +465,38 @@ static void mailbox_contention(void)
          "applied, stuck mailbox stops PASS");
 }
 
+/* No new barcode capture while navigation centres on, pivots at or
+ * reacquires the line after a junction; normal following still scans. */
+static void scan_suppression(void)
+{
+    controller_history_t history={0};
+    robot_state_t state;
+    static nav_state_t const states[]={NAV_FOLLOW,NAV_APPROACH,NAV_CROSS,
+        NAV_CENTRE,NAV_TURN,NAV_REACQUIRE,NAV_RESUME};
+    g_connected=1U;g_obstacle_fault=false;g_obstacle_blocked=false;
+    g_governor_fault=0U;g_scan_result=0;g_guard=0U;
+    g_terrain=(terrain_snapshot){.b_valid=true};g_ir_left=g_ir_right=0U;
+    for (unsigned i=0U;i<sizeof(states)/sizeof(states[0]);i++)
+    {
+        nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
+        g_navigation.state=states[i];
+        g_now+=50;state=controller_cycle(ROBOT_LINE_FOLLOWING,&history);
+        (void)state;
+        uint8_t const manoeuvre=(uint8_t)(states[i]==NAV_CENTRE ||
+            states[i]==NAV_TURN || states[i]==NAV_REACQUIRE ||
+            states[i]==NAV_RESUME);
+        assert(g_suppressed_flag==
+               (APP_BARCODE_SUPPRESS_IN_TURNS ? manoeuvre : 0U));
+    }
+    /* Not line following (e.g. obstacle bypass): always suppressed. */
+    nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
+    g_now+=50;(void)controller_cycle(ROBOT_REMOTE_HOLD,&history);
+    assert(g_suppressed_flag==1U);
+    motion_apply(LINE_UNCERTAIN);
+    puts("Scan suppression: centring, pivot and reacquire suppressed; "
+         "following, approach and crossing scan PASS");
+}
+
 /* Common start: running on the floor with the line between the sensors. */
 static robot_state_t lift_run(controller_history_t *history)
 {
@@ -746,6 +779,7 @@ int main(void)
     obstacle_handoff();
     v15_cycles();
     mailbox_contention();
+    scan_suppression();
     lift_stop();
     puts("Controller handoff: STOP priority, no missed STOP, "
          "START gating and mutex-busy fail-safe PASS");

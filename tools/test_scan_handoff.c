@@ -66,7 +66,35 @@ int main(void)
     assert(bc_port_nav_begin(51000U)==E_OK);
     (void)bc_port_publish_buffered(&g,51000U);
     assert(bc_port_nav_take(&scan)==E_OK && scan.overflow && scan.letter==31U);
+    /* A capture dropped as not a barcode ends with no result: navigation
+     * stops waiting, and a later capture still works. */
+    assert(bc_port_nav_enable(1U)==E_OK);
+    assert(bc_port_nav_begin(60000U)==E_OK);
+    assert(bc_port_nav_take(&scan)==E_OK && scan.busy);
+    assert(bc_port_nav_abort()==E_OK);
+    assert(bc_port_nav_take(&scan)==E_OK && !scan.busy && !scan.ready);
+    assert(bc_port_nav_finish()==E_OK); /* nothing owned: no result */
+    assert(bc_port_nav_take(&scan)==E_OK && !scan.ready);
+    /* Dropped while an earlier result is unread: that result is not
+     * counted as overwritten and is still delivered intact. */
+    assert(bc_port_nav_begin(61000U)==E_OK);
+    /* Telemetry's own slot is still full from the checks above; the
+     * navigation handoff is independent of it. */
+    (void)bc_port_publish_buffered(&g,61000U);
+    assert(bc_port_nav_begin(62000U)==E_OK);
+    assert(bc_port_nav_abort()==E_OK);
+    assert(bc_port_nav_take(&scan)==E_OK && scan.ready && !scan.busy);
+    assert(!scan.overflow && scan.letter==6U);
+    /* A genuine overflow is still reported after an unrelated abort. */
+    assert(bc_port_nav_begin(63000U)==E_OK);
+    (void)bc_port_publish_buffered(&g,63000U);
+    assert(bc_port_nav_begin(64000U)==E_OK);
+    (void)bc_port_publish_buffered(&g,64000U);
+    assert(bc_port_nav_begin(65000U)==E_OK);
+    assert(bc_port_nav_abort()==E_OK);
+    assert(bc_port_nav_take(&scan)==E_OK && scan.overflow);
     puts("V15 scan port: independent ACK, idle/result atomicity, contention, "
-         "cancelled worker, repeated scans, failure, overflow and wrap PASS");
+         "cancelled worker, repeated scans, failure, overflow, wrap and dropped "
+         "non-barcode captures PASS");
     return 0;
 }

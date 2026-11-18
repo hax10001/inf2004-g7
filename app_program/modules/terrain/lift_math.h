@@ -51,9 +51,9 @@ typedef struct
     int16_t bias_mg;       /**< Resting offset from calibrated gravity. */
     int16_t still_min_mg;  /**< Lowest reading of the rest window. */
     int16_t still_max_mg;  /**< Highest reading of the rest window. */
-    unsigned short start_count:2; /**< 0..3; at the limit, lift is active. */
-    unsigned short still_count:5; /**< 0..25. */
-    unsigned short floor_count:3; /**< 0..5. */
+    unsigned int start_count:2; /**< 0..3; at the limit, lift is active. */
+    unsigned int still_count:5; /**< 0..25. */
+    unsigned int floor_count:3; /**< 0..5. */
 } lift_math_state_t;
 
 /** @brief Forget any lift: height zero, at rest. */

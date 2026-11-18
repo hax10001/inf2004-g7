@@ -16,6 +16,7 @@ typedef struct {
     uint16_t enabled : 1;  /* explicit mission authorization */
     uint16_t owned : 1;    /* this capture began in the current mission */
     uint16_t overflow : 1; /* unread result: fail closed */
+    uint16_t begin_overflow : 1; /* overflow set by the current capture */
 } scan_handoff_t;
 
 static inline void scan_handoff_enable(scan_handoff_t *s, uint8_t enable)
@@ -26,14 +27,27 @@ static inline void scan_handoff_enable(scan_handoff_t *s, uint8_t enable)
     s->busy = 0U;
     s->ready = 0U;
     s->overflow = 0U;
+    s->begin_overflow = 0U;
 }
 static inline void scan_handoff_begin(scan_handoff_t *s, uint32_t captured)
 {
     s->owned = s->enabled;
     if (!s->owned) return;
+    s->begin_overflow = (uint16_t)(s->ready && !s->overflow);
     if (s->ready) s->overflow = 1U;
     s->captured_msec = captured;
     s->busy = 1U;
+}
+/* The capture was dropped as not a barcode: it produces no result, so
+ * navigation stops waiting for one, and an unread earlier result is not
+ * counted as overwritten. */
+static inline void scan_handoff_abort(scan_handoff_t *s)
+{
+    if (!s->owned) return;
+    if (s->begin_overflow) s->overflow = 0U;
+    s->begin_overflow = 0U;
+    s->busy = 0U;
+    s->owned = 0U;
 }
 static inline void scan_handoff_finish(scan_handoff_t *s, uint8_t letter,
                                         uint16_t sequence, uint32_t completed)
@@ -46,6 +60,7 @@ static inline void scan_handoff_finish(scan_handoff_t *s, uint8_t letter,
     s->ready = 1U;
     s->busy = 0U;
     s->owned = 0U;
+    s->begin_overflow = 0U;
 }
 #endif
 

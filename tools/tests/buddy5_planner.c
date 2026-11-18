@@ -157,7 +157,7 @@ int main(void)
     /* Side choice by where the object sits, with the reported needs. */
     {
         scan_plan_sides_t sides={0};
-        int32_t const diff_limit=OBS_SIDE_PREFERENCE_THRESHOLD_MM;
+        int32_t const diff_limit=0; /* no tie band: any difference */
 
         /* Object offset to the left of the path: go round the right. */
         fill(points,1500);
@@ -182,25 +182,43 @@ int main(void)
                diff_limit);
         puts("PASS obstacle offset right: bypass left, the side it blocks less");
 
-        /* Centred object: equal needs, so the configured default side. */
-        fill(points,1500);
-        points[zero-1].range_mm=354;points[zero].range_mm=350;
-        points[zero+1].range_mm=354;
-        scan_plan_build_side_report(points,UNIFORM_POINTS,0,0,&plan,&sides);
-        assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
-        assert(sides.b_tie && sides.left_need_mm==sides.right_need_mm);
-        assert(scan_plan_side_is_left(&plan)==(OBS_SIDE_DEFAULT>0));
-        puts("PASS centred obstacle takes OBS_SIDE_DEFAULT");
+        /* Centred object: equal moves. No default side: the more open half
+         * of the sweep decides, either way. */
+        for(int32_t open_side=-1;open_side<=1;open_side+=2)
+        {
+            fill(points,1500);
+            points[zero-1].range_mm=354;points[zero].range_mm=350;
+            points[zero+1].range_mm=354;
+            points[open_side>0?UNIFORM_POINTS-1:0].range_mm=1700;
+            scan_plan_build_side_report(points,UNIFORM_POINTS,0,0,&plan,
+                                        &sides);
+            assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+            assert(sides.b_tie && sides.left_need_mm==sides.right_need_mm);
+            assert(scan_plan_side_is_left(&plan)==(open_side>0));
+        }
+        puts("PASS centred obstacle goes to the more open side, no default");
 
-        /* Slightly off centre (a few mm of edge noise): still a tie. */
+        /* Slightly off centre (a few mm): no tie band, the smaller move
+         * wins however small the difference. */
         fill(points,1500);
         points[zero-1].range_mm=360;points[zero].range_mm=350;
         points[zero+1].range_mm=354;
         scan_plan_build_side_report(points,UNIFORM_POINTS,0,0,&plan,&sides);
         assert(sides.left_need_mm!=sides.right_need_mm);
-        assert(sides.b_tie);
-        assert(scan_plan_side_is_left(&plan)==(OBS_SIDE_DEFAULT>0));
-        puts("PASS near-equal sides within the threshold use the default side");
+        if(sides.left.compare_mm!=sides.right.compare_mm)
+        {
+            assert(!sides.b_tie);
+            assert(scan_plan_side_is_left(&plan)==
+                   (sides.left.compare_mm<sides.right.compare_mm));
+        }
+        else
+        {
+            /* Equal at the beam's resolution: the smaller drive decides. */
+            assert(sides.b_tie);
+            assert(scan_plan_side_is_left(&plan)==
+                   (sides.left_need_mm<sides.right_need_mm));
+        }
+        puts("PASS near-equal sides: the smaller move wins, no threshold");
 
         /* A blocked corridor is reported and never treated as a tie. */
         fill(points,1500);
@@ -278,11 +296,12 @@ int main(void)
                 assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
                 if(k<2)
                 {
-                    /* 25 mm off centre: below what the beam resolves,
-                     * so centred, OBS_SIDE_DEFAULT. */
-                    assert(sides.b_tie);
-                    assert(scan_plan_side_is_left(&plan)==
-                           (OBS_SIDE_DEFAULT>0));
+                    /* 25 mm off centre: no tie band, so the side with the
+                     * smaller move, however small. */
+                    if(!sides.b_tie)
+                        assert(scan_plan_side_is_left(&plan)==
+                               (sides.left.compare_mm<
+                                sides.right.compare_mm));
                 }
                 else
                 {
@@ -291,7 +310,7 @@ int main(void)
                 }
             }
         }
-        puts("PASS small offsets take the default side, clear ones choose");
+        puts("PASS small offsets take the smaller move, clear ones too");
 
         /* Logged 22:15 scan: edges at -15 and +20 degrees. The +20 edge is
          * far enough off centre for the OBS_MIN_LATERAL_MM floor, which
@@ -309,12 +328,18 @@ int main(void)
             assert(sides.left.reason==SCAN_PLAN_NEED_MIN);
             assert(sides.left_need_mm==OBS_MIN_LATERAL_MM);
             assert(sides.left.compare_mm<sides.left_need_mm);
+#if OBS_SIDE_COMPARE_MEASURED
+            /* Sides compare the beam-corrected edges, never more than the
+             * padded need that sets the drive. */
+            assert(sides.right.compare_mm<=sides.right_need_mm);
+#else
             assert(sides.right.compare_mm==sides.right_need_mm);
+#endif
             {
                 int32_t const diff=(int32_t)sides.left.compare_mm-
                                    (int32_t)sides.right.compare_mm;
                 int32_t const mag=diff<0?-diff:diff;
-                assert(sides.b_tie==(mag<=OBS_SIDE_PREFERENCE_THRESHOLD_MM));
+                assert(sides.b_tie==(mag==0));
                 assert(mag<40); /* was 48 with the floor */
             }
             /* If chosen, the left still drives the full floored offset. */
@@ -324,6 +349,169 @@ int main(void)
         }
         puts("PASS the MIN_LATERAL floor sets the drive, not the side choice");
     }
+    /* Reported width with a real beam: a 150 mm face 210 mm ahead, centred
+     * and 40 mm left of centre. A ray echoes while any part of its beam
+     * (+-OBS_BEAM_HALF_DEG) falls on the face, so edges appear wide. Face
+     * edges in degrees: atan(-75/210)=-19.7, atan(75/210)=19.7 centred;
+     * atan(-35/210)=-9.5, atan(115/210)=28.7 offset. */
+    {
+        static const int32_t edges_x10[2][2]={{-197,197},{-95,287}};
+        /* Range: on-axis rays see the face at 210 / cos(a); rays that only
+         * catch it with the beam's edge see the nearer corner:
+         * sqrt(210^2+75^2)=223 centred; 213 (right) / 239 (left) offset. */
+        static const int32_t corner_mm[2][2]={{223,223},{213,239}};
+        static const int32_t cos_milli[15]={1000,996,985,966,940,906,866,
+            819,766,707,643,574,500,423,342};
+        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        scan_plan_sides_t sides;
+        for(int32_t k=0;k<2;k++)
+        {
+            int32_t n=0;
+            for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
+                n<OBS_SCAN_POINTS;a=scan_plan_next_angle(a))
+            {
+                bool const hit=(10*(a+OBS_BEAM_HALF_DEG)>edges_x10[k][0]) &&
+                               (10*(a-OBS_BEAM_HALF_DEG)<edges_x10[k][1]);
+                bool const on_face=(10*a>edges_x10[k][0]) &&
+                                   (10*a<edges_x10[k][1]);
+                int32_t const range=on_face?
+                    210*1000/cos_milli[(a<0?-a:a)/5]:
+                    corner_mm[k][a>0?1:0];
+                pts[n].angle_deg=a;
+                pts[n].range_mm=hit?(unsigned)range:4000U;
+                n++;
+            }
+            scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+            assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+            int32_t const w=scan_plan_width_cm(&plan)*10;
+            printf("  150 mm face %s: reported width %d mm\n",
+                   k?"offset 40 mm":"centred",(int)w);
+            assert(w>=105 && w<=195);
+            /* The log's mm width and the plan's cm width agree (rounding). */
+            assert((int)sides.width_mm>=w-5 && (int)sides.width_mm<=w+5);
+        }
+        puts("PASS reported width corrects for the ultrasonic beam spread");
+    }
+    /* Side choice on the fair (beam-corrected) comparison and the tie
+     * break, from logged geometry. */
+    {
+        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        scan_plan_sides_t sides;
+        int32_t n=0;
+        for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
+            n<OBS_SCAN_POINTS;a=scan_plan_next_angle(a))
+        {pts[n].angle_deg=a;pts[n].range_mm=4000U;++n;}
+        /* Logged: box echoing 5..30 deg (wholly left of centre) at ~155
+         * mm. Going right is the short way; it must not be a tie. */
+        for(int32_t i=0;i<n;i++)
+            pts[i].range_mm=(pts[i].angle_deg>=5&&pts[i].angle_deg<=30)?
+                155U:4000U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+        assert(!sides.b_tie && !scan_plan_side_is_left(&plan));
+        /* Mirror: wholly right of centre goes left. */
+        for(int32_t i=0;i<n;i++)
+            pts[i].range_mm=(pts[i].angle_deg>=-30&&pts[i].angle_deg<=-5)?
+                155U:4000U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(!sides.b_tie && scan_plan_side_is_left(&plan));
+        /* Centred box: equal moves. Something 700 mm away on one side,
+         * beyond the corridor: still clear, but less room, so it goes the
+         * other way, whichever side it is on. */
+        for(int32_t far_side=-60;far_side<=60;far_side+=120)
+        {
+            for(int32_t i=0;i<n;i++)
+                pts[i].range_mm=(pts[i].angle_deg>=-20&&
+                                 pts[i].angle_deg<=20)?220U:4000U;
+            for(int32_t i=0;i<n;i++)
+                if(pts[i].angle_deg==far_side) pts[i].range_mm=700U;
+            scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+            assert(sides.b_tie && sides.b_left_ok && sides.b_right_ok);
+            assert(scan_plan_side_is_left(&plan)==(far_side<0));
+        }
+        /* Perfectly symmetric: nothing differs; still a route either way. */
+        for(int32_t i=0;i<n;i++)
+            pts[i].range_mm=(pts[i].angle_deg>=-20&&pts[i].angle_deg<=20)?
+                220U:4000U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(sides.b_tie && scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+        puts("PASS one-sided boxes go the short way; equal moves go to the "
+             "more open side");
+    }
+#if OBS_SIDE_CORNER_ECHO
+    /* Logged 18 Nov 18:47 (box on the left): the sensor faces the box
+     * square on, so -30..30 all read ~225 mm wherever the box sits; only a
+     * corner echo past 30 degrees shows where it is. */
+    {
+        static const int32_t prof_deg[13]={-30,-25,-20,-15,-10,-5,0,5,10,15,
+                                           20,25,30};
+        static const int32_t prof_mm[13]={246,238,232,231,229,227,229,229,
+                                          228,232,233,238,249};
+        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        scan_plan_sides_t sides;
+        int32_t n=0;
+        for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
+            n<OBS_SCAN_POINTS;a=scan_plan_next_angle(a))
+        {
+            pts[n].angle_deg=a;pts[n].range_mm=4000U;
+            for(int32_t k=0;k<13;k++)
+                if(prof_deg[k]==a) pts[n].range_mm=(unsigned)prof_mm[k];
+            ++n;
+        }
+        for(int32_t sign=-1;sign<=1;sign+=2)
+        {
+            /* Logged corner at +40: 320 mm. Mirrored for the right. */
+            scan_plan_point_t m[OBS_SCAN_POINTS];
+            for(int32_t i=0;i<n;i++)
+            {
+                m[i]=pts[i];
+                if(sign<0)
+                    m[i].range_mm=pts[n-1-i].range_mm;
+                if(m[i].angle_deg==40*sign) m[i].range_mm=320U;
+            }
+            scan_plan_build_side_report(m,n,0,0,&plan,&sides);
+            assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+            assert(sides.b_centre);
+            /* sqrt(320^2 - 227^2) = 225 mm out on that side. */
+            scan_plan_side_info_t const *seen=sign>0?&sides.left:&sides.right;
+            assert(seen->b_corner && seen->corner_mm>=215 &&
+                   seen->corner_mm<=235);
+            assert(sign*sides.centre_mm>100);
+            /* Corner on the left: go right, and vice versa. */
+            assert(!sides.b_tie);
+            assert(scan_plan_side_is_left(&plan)==(sign<0));
+        }
+        /* No corner echo: the box is within the square-on zone. */
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(!sides.b_centre);
+        /* Barely beyond the face (logged 18:59: 227 mm at 40 degrees, face
+         * 214): the face itself still echoing, not a corner. */
+        for(int32_t i=0;i<n;i++)
+            if(pts[i].angle_deg==40) pts[i].range_mm=240U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(!sides.b_centre);
+        /* A far echo in the corner band is another object, not a corner. */
+        for(int32_t i=0;i<n;i++)
+            if(pts[i].angle_deg==40) pts[i].range_mm=1135U;
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(!sides.b_centre);
+        /* Both corners: the centre is midway between them. */
+        for(int32_t i=0;i<n;i++)
+        {
+            if(pts[i].angle_deg==40) pts[i].range_mm=320U;  /* ~225 left */
+            if(pts[i].angle_deg==-40) pts[i].range_mm=265U; /* ~137 right */
+        }
+        scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
+        assert(sides.b_centre && sides.left.b_corner && sides.right.b_corner);
+        assert(sides.centre_mm>30 && sides.centre_mm<60);
+        assert(!scan_plan_side_is_left(&plan));
+        /* The robot drives out far enough to clear a seen corner. */
+        assert(sides.right_need_mm>=sides.right.corner_mm+
+               OBS_ROBOT_WIDTH_MM/2+OBS_SAFETY_MARGIN_MM);
+        puts("PASS corner echoes locate an off-centre box the square-on "
+             "face hides");
+    }
+#endif
     puts("All planner scenarios passed.");
     return 0;
 }

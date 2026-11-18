@@ -12,6 +12,9 @@ ER bc_port_nav_enable(uint8_t enable);
 ER bc_port_nav_begin(uint32_t captured_msec);
 ER bc_port_nav_captured(uint32_t captured_msec);
 ER bc_port_nav_finish(void);
+/** Capture dropped as not a barcode: end its navigation transaction with
+ *  no result. */
+ER bc_port_nav_abort(void);
 ER bc_port_nav_take(scan_handoff_t *out);
 
 #include "bc_scan.h"

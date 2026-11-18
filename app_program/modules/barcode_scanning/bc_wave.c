@@ -175,8 +175,10 @@ static uint8_t g_white_dark;              /* last learn refused as dark */
 /* White learned at the first arming after boot (APP_BARCODE_KEEP_STARTUP_
  * WHITE). 12-bit ADC values; worker task only. Replaced only by an
  * explicit recalibration request. */
+#if APP_BARCODE_KEEP_STARTUP_WHITE
 static uint16_t g_startup_white_mean;
 static uint16_t g_startup_white_sigma;
+#endif
 static uint8_t g_startup_white_valid;
 static uint32_t g_dark_adc;               /* reading that was refused */
 static volatile uint32_t g_relearn_requested;
@@ -365,6 +367,28 @@ static uint32_t wave_sqrt (uint32_t value)
     return result;
 }
 
+/* Not a barcode: the dark part ended (white for the end-of-barcode gap)
+ * before it could span the shortest barcode. Drop it without decoding and
+ * go straight back to armed: the sensor is on white, the learned white is
+ * unchanged, and the ring keeps filling, so a barcode that follows still
+ * has its pretrigger samples. Speed returns to cruise with the capture. */
+static void wave_drop_capture (void)
+{
+    uint32_t const dark_units = g_last_signal_units - g_trigger_units;
+
+    (void)bc_port_nav_abort();
+    g_phase = BC_WAVE_WAIT;
+    if (g_count > BC_WAVE_PRETRIGGER)
+    {
+        g_count = BC_WAVE_PRETRIGGER;
+    }
+    /* UINT holds these 32-bit values; UB preserves the string bytes. */
+    tm_printf((UB *)"[BC WAVE] pass=%u dropped: dark %u units < %u, not a "
+                    "barcode; still armed\n",
+              (UINT)g_sequence, (UINT)dark_units,
+              (UINT)APP_BARCODE_MIN_DARK_UNITS);
+}
+
 static void wave_freeze (uint8_t reason)
 {
 #ifndef B1_LIVE_COMMANDS
@@ -410,7 +434,9 @@ static void wave_use_startup_white (void)
     }
 
     uint32_t const reference = g_startup_white_mean;
-    uint32_t const tolerance = (uint32_t)g_startup_white_sigma * 3U + 24U;
+    /* Must stay well inside the capture trigger (3 sigma + 8 above white):
+     * a looser match let lighter floor read as barcode ink. */
+    uint32_t const tolerance = (uint32_t)g_startup_white_sigma + 8U;
     uint32_t const difference = (g_white_mean > reference) ?
         g_white_mean - reference : reference - g_white_mean;
 
@@ -626,9 +652,15 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
                                    adc - g_white_mean : g_white_mean - adc;
             uint8_t black_side = APP_BARCODE_ADC_BLACK_HIGH ?
                                 (adc > g_white_mean) : (adc < g_white_mean);
+            /* Starting needs real ink, not a shadow (see
+             * APP_BARCODE_TRIGGER_RISE); the end-of-pass check below keeps
+             * the sensitive noise margin. */
+            uint32_t const start_rise =
+                (trigger > (uint32_t)APP_BARCODE_TRIGGER_RISE) ?
+                trigger : (uint32_t)APP_BARCODE_TRIGGER_RISE;
             if ((BC_WAVE_WAIT == g_phase) && (0U != g_moved) &&
                 (0U == g_suppressed) &&
-                (0U != black_side) && (difference > trigger))
+                (0U != black_side) && (difference > start_rise))
             {
                 g_trigger_units = g_units;
                 g_trigger_usec = p_sample->time_usec;
@@ -670,8 +702,17 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
              * the configured maximum 3:1 Code 39 print span. It is not
              * the legacy 60-unit quiet zone, which could cut inside a code.
              */
-            if (((g_units - g_trigger_units) >= BC_CAL_MIN_BARCODE_UNITS) &&
-                ((g_units - g_last_signal_units) >= BC_WAVE_END_WHITE_UNITS))
+            if ((0U != APP_BARCODE_MIN_DARK_UNITS) &&
+                ((g_units - g_last_signal_units) >= BC_WAVE_END_WHITE_UNITS) &&
+                ((g_last_signal_units - g_trigger_units) <
+                 (uint32_t)APP_BARCODE_MIN_DARK_UNITS))
+            {
+                wave_drop_capture();
+            }
+            else if (((g_units - g_trigger_units) >=
+                      BC_CAL_MIN_BARCODE_UNITS) &&
+                     ((g_units - g_last_signal_units) >=
+                      BC_WAVE_END_WHITE_UNITS))
             {
                 wave_freeze(4U);
             }

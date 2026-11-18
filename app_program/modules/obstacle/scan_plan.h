@@ -52,6 +52,8 @@ typedef struct
     unsigned int open_mm:12;    /**< Nearest echo beyond the edge. */
     unsigned int angle_index:2; /**< Turn-out angle index for this side. */
     unsigned int compare_mm:12; /**< Need before the MIN_LATERAL floor. */
+    unsigned int b_corner:1;    /**< A corner echo was found this side. */
+    unsigned int corner_mm:12;  /**< Its sideways offset from the line. */
 } scan_plan_side_info_t;
 
 /** @brief How the bypass side was chosen, for the scanner task's log. */
@@ -64,13 +66,15 @@ typedef struct
     unsigned int right_need_mm:12;
     unsigned int b_left_ok:1;  /**< Left corridor is clear. */
     unsigned int b_right_ok:1; /**< Right corridor is clear. */
-    unsigned int b_tie:1;      /**< Compared needs within the threshold. */
+    unsigned int b_tie:1;      /**< Compared moves exactly equal. */
     unsigned int b_object:1;   /**< An object was found ahead. */
     /* Object bearings -70..70 degrees; depth and width 0..4095 mm. */
     signed int   low_deg:8;    /**< Rightmost object sample. */
     signed int   high_deg:8;   /**< Leftmost object sample. */
     unsigned int near_mm:12;   /**< Nearest face, forward of the sensor. */
     unsigned int width_mm:12;  /**< Edge to edge across the line. */
+    unsigned int b_centre:1;   /**< centre_mm is from corner echoes. */
+    signed int   centre_mm:12; /**< Object centre off the line, + = left. */
     scan_plan_side_info_t left;
     scan_plan_side_info_t right;
 } scan_plan_sides_t;

@@ -20,6 +20,8 @@ ER bc_port_nav_finish(void) {return E_OK;}
 INT tm_printf(UB const *f,...) {(void)f;return 0;}
 uint32_t encoder_now_usec(void) {return now;}
 ER bc_port_nav_begin(uint32_t ms) {(void)ms;++captures;return E_OK;}
+static unsigned int aborts;
+ER bc_port_nav_abort(void) {++aborts;return E_OK;}
 ER bc_port_nav_captured(uint32_t ms) {(void)ms;return E_OK;}
 /* bc_wave_poll() is called only with no capture to decode, so the decoder
  * is never reached; these satisfy the linker and fail loudly if it is. */
@@ -40,12 +42,79 @@ static unsigned int captures_seen;
 /* Captures started since the last call. */
 static unsigned int captures_since(void)
 {unsigned int const n=captures-captures_seen;captures_seen=captures;return n;}
+static int32_t g_cnt;
+/* Drive n samples forward at `step` encoder units per 2 ms sample. */
+static void drive(uint16_t adc, unsigned int n, int32_t step);
 static void sample(uint16_t adc, int32_t count)
 {
     now += BC_FAST_PERIOD_USEC;
     bc_fastq_sample_t s = {.time_usec=now,.left_count=count,
         .right_count=count,.adc_raw=adc,.valid=1U,.adc_valid=1U};
     bc_wave_sample(&s);
+}
+
+static void drive(uint16_t adc, unsigned int n, int32_t step)
+{
+    for (unsigned int i = 0U; i < n; i++)
+    {
+        g_cnt += step;
+        sample(adc, g_cnt);
+    }
+}
+
+/* Issue 1 fixes: a shadow cannot start a capture, and a line or tape
+ * crossing is dropped early while the scanner stays armed. */
+static void trigger_and_drop(void)
+{
+    /* Armed on a white of 300 while driving. Clear requests left by the
+     * gating checks above. */
+    g_relearn_requested=0U;g_cancel_requested=0U;g_white_mean=300U;
+    g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
+    wave_rearm_completed_capture();
+    g_cnt=g_left;
+    drive(300U, BC_WAVE_WHITE_SAMPLES*2U+10U, 3);
+    assert(bc_wave_is_ready() && g_white_mean==300U);
+    (void)captures_since();
+    /* Shadow / dirty floor: 500 counts darker than white. */
+    drive(800U, 100U, 3);
+    drive(300U, 50U, 3);
+#if APP_BARCODE_TRIGGER_RISE >= 500U
+    assert(!captures_since() && bc_wave_is_ready());
+#else
+    assert(captures_since()==1U); /* previous behaviour */
+    g_phase=BC_WAVE_WAIT;
+#endif
+    /* Tape crossing: 60 units of ink, then white past the end gap. */
+    {
+        unsigned int const aborts_before=aborts;
+        drive(3000U, 20U, 3);
+        assert(g_phase==BC_WAVE_CAPTURE && captures_since()==1U);
+        drive(300U, 200U, 3);
+#if APP_BARCODE_MIN_DARK_UNITS
+        assert(g_phase==BC_WAVE_WAIT && bc_wave_is_ready());
+        assert(aborts==aborts_before+1U);
+        assert(g_count<=BC_WAVE_PRETRIGGER);
+#else
+        assert(g_phase==BC_WAVE_CAPTURE && aborts==aborts_before);
+        g_phase=BC_WAVE_WAIT;
+#endif
+    }
+    /* Barcode-like: bars across 1500 units, then white. Not dropped:
+     * it is frozen for the decoder. */
+    {
+        unsigned int const aborts_before=aborts;
+        for (unsigned int bar=0U; bar<12U; bar++)
+        {
+            drive(3000U, 20U, 3);
+            drive(300U, 20U, 3);
+        }
+        drive(3000U, 20U, 3);
+        assert(g_phase==BC_WAVE_CAPTURE && captures_since()==1U);
+        drive(300U, 200U, 3);
+        assert(g_phase==BC_WAVE_SMOOTH && aborts==aborts_before);
+        assert(g_freeze_reason==4U);
+    }
+    g_phase=BC_WAVE_DONE;
 }
 
 int main(void)
@@ -79,9 +148,16 @@ int main(void)
      * startup reference is kept (or re-learned with the setting off). */
     g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
     wave_rearm_completed_capture();
-    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++) sample(210U,1);
+    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++) sample(205U,1);
     assert(bc_wave_is_ready());
-    assert(g_white_mean==(APP_BARCODE_KEEP_STARTUP_WHITE ? 200U : 210U));
+    assert(g_white_mean==(APP_BARCODE_KEEP_STARTUP_WHITE ? 200U : 205U));
+    /* Lighter floor beyond sigma + 8 (here 230 vs 200, sigma 0) is not
+     * the startup white: using 200 there would read the floor as ink. */
+    g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
+    wave_rearm_completed_capture();
+    for(unsigned i=0;i<BC_WAVE_CLEAR_MAX_SAMPLES+BC_WAVE_WHITE_SAMPLES+10U;i++)
+        sample(230U,1);
+    assert(bc_wave_is_ready() && g_white_mean==230U && !captures_since());
     /* A floor that no longer matches uses its own reading, so the scanner
      * cannot lock up triggering on it; the startup reference survives. */
     g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
@@ -122,6 +198,9 @@ int main(void)
     bc_wave_status(&status);
     assert(rejections==1U && !status.last_valid && status.sequence==7U);
     assert(status.last_reason==BC_WAVE_REASON_IGNORED);
+    trigger_and_drop();
+    puts("PASS scanner capture gate: shadow ignored, tape crossing dropped "
+         "and still armed, barcode-like capture frozen for decode");
     puts(APP_BARCODE_KEEP_STARTUP_WHITE ?
          "PASS real scanner: persistent held READY, first-stripe capture, "
          "startup white kept across rearms, drifted floor and recalibration, "

@@ -67,7 +67,7 @@ typedef struct
     float    tilt_deg;    /**< Size of the roll, degrees. */
     float    height_mm;
     float    peak_mm;     /**< Highest point of this hump. */
-    unsigned short gravity_mg:11; /**< 0 before calibration, at most 1200 mg. */
+    unsigned int gravity_mg:11; /**< 0 before calibration, <= 1200 mg. */
     uint16_t rejected;    /**< Shoved samples since last log. */
     /* IMU-task owned, so packing needs no lock. Phase is 0..2; the counts
      * stop at HUMP_LEVEL_CONFIRM_SAMPLES and HUMP_TILT_CONFIRM_SAMPLES. */
@@ -125,7 +125,8 @@ static void update_hump (terrain_snapshot const * p_snapshot);
 static uint8_t round_mm (float height_mm);
 /** @brief Advance the lifted-height estimate and publish it. */
 static void update_lift (imu_sample_t const * p_sample,
-                         imu_history_t * p_history, terrain_snapshot * p_snapshot);
+                         imu_history_t * p_history,
+                         terrain_snapshot * p_snapshot);
 
 void task_imu_task (INT start_code, void * p_context)
 {
@@ -652,7 +653,8 @@ static uint8_t round_mm (float height_mm)
 }
 
 static void update_lift (imu_sample_t const * p_sample,
-                         imu_history_t * p_history, terrain_snapshot * p_snapshot)
+                         imu_history_t * p_history,
+                         terrain_snapshot * p_snapshot)
 {
     ir_shared_snapshot_t ir = {0};
     uint32_t ir_checked_msec = 0U;

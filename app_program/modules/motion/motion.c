@@ -16,7 +16,6 @@
 #include "board/board_config.h"
 #include "drivers/encoder.h"
 #include "drivers/motor.h"
-#include "modules/barcode_scanning/bc_wave.h"
 #include <tm/tmonitor.h>
 
 /* Open-loop duty percent that gives MOTION_CAL_RPM. Measured on the track:
@@ -39,7 +38,7 @@
 #define MOTION_MAX_PERCENT 100.0f
 
 /* Driving speed on a straight. 40 RPM is about 140 mm/s. */
-#define MOTION_TARGET_RPM 25.0f
+#define MOTION_TARGET_RPM 35.0f
 /* Largest change in the base speed per period, when starting or stopping. */
 #define MOTION_RAMP_RPM 8.0f
 /* Largest growth in steer per period; lower is smoother, but too low lags
@@ -237,9 +236,8 @@ void motion_apply (line_follow_action_t action)
     /* UB views the same string bytes; tm_printf does not modify them. */
     //tm_printf((UB *)"[MOTOR REQUEST] Action=%s\n", line_follow_text(action));
 
-    /* Keep the original improve-movement 15 RPM control target. Barcode
-     * waveform diagnostics must not silently derate the drive to 10 RPM.
-     * Sensor sampling uses encoder distance, not this velocity setting. */
+    /* Drive at MOTION_TARGET_RPM. Barcode capture and diagnostics never
+     * change it: sensor sampling uses encoder distance, not velocity. */
     switch (action)
     {
         case LINE_FORWARD:
@@ -249,10 +247,11 @@ void motion_apply (line_follow_action_t action)
             g_steer = limit_steer(
                 g_steer,
                 steering_update(&g_steering, action, MOTION_PERIOD_SEC));
+            /* Barcodes are read at the driving speed: a capture neither
+             * slows nor brakes the robot (the scanner measures distance
+             * from the encoders, so it needs no particular speed). */
             g_base_rpm =
-                step_towards(g_base_rpm,
-                    bc_wave_capture_active() ? APP_BARCODE_SCAN_RPM :
-                    MOTION_TARGET_RPM, MOTION_RAMP_RPM);
+                step_towards(g_base_rpm, MOTION_TARGET_RPM, MOTION_RAMP_RPM);
         break;
 
         case LINE_UNCERTAIN:

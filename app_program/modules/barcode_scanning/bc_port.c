@@ -77,6 +77,15 @@ ER bc_port_nav_finish(void)
     return tk_sig_sem(gh_port_lock, 1);
 }
 
+ER bc_port_nav_abort(void)
+{
+    if (gh_port_lock <= E_OK) return E_OBJ;
+    ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
+    if (error < E_OK) return error;
+    scan_handoff_abort(&g_navigation_slot);
+    return tk_sig_sem(gh_port_lock, 1);
+}
+
 ER bc_port_nav_captured(uint32_t captured_msec)
 {
     if (gh_port_lock <= E_OK) return E_OBJ;

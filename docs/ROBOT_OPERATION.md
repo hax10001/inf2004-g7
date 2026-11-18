@@ -111,11 +111,13 @@ decoder (`APP_BARCODE_LAYOUT_ENABLED`) decides.
 | Setting | Default | Notes |
 |---|---|---|
 | `APP_BARCODE_ADC_THRESHOLD` / `_HYSTERESIS` | 2200 / 50 | ADC codes 0–4095. Tune from the `[BC ADC]` white/black readings |
-| `APP_BARCODE_SCAN_RPM` | 15.0 | Proven scan speed. Change only with measured print widths and success rates |
 | `BC_CAL_MIN_BARCODE_UNITS` / `MAX` (`bc_cal.h`) | 1300 / 4800 | A real minimum-width gate: prints that are too small cannot pass |
 | `BC_CAL_TEST_IGNORE_INPUT_ERRORS`, `BC_CAL_TEST_RELAXED_CAPTURE` | 1, 1 | **Bench relaxations.** Review before production navigation |
 | `BC_WAVE_WHITE_SAMPLES` (`bc_wave.c`) | 250 | Consecutive white samples (~0.5 s) before rearming for the next barcode |
-| `APP_BARCODE_KEEP_STARTUP_WHITE` (`app_config.h`) | 1 | Reuse the white learned at the first arming after boot after every barcode, instead of re-learning it. A floor that no longer matches that white uses its own reading for that pass. Dashboard "Recalibrate barcode" replaces the reference. 0 re-learns after every barcode |
+| `APP_BARCODE_KEEP_STARTUP_WHITE` (`app_config.h`) | 0 | 0 re-learns white after every barcode (recommended: the track's white varies ~180..370 ADC). 1 reuses the startup white only when a rearm reads within its sigma + 8 |
+| `APP_BARCODE_TRIGGER_RISE` (`app_config.h`) | 600 | A capture starts only this many ADC counts darker than white. Shadows and floor patches stay below it; logged barcodes rose ≥ 1364. 0 = old 3σ+8 trigger |
+| `APP_BARCODE_MIN_DARK_UNITS` (`app_config.h`) | 1000 | A capture whose dark part ends shorter than this (tape, line, mark) is dropped without decoding and the scanner stays armed. Shortest logged barcode: 1374. 0 = off |
+| `APP_BARCODE_SUPPRESS_IN_TURNS` (`app_config.h`) | 1 | No new capture while centring on, pivoting at or reacquiring after a junction |
 
 The worker publishes one transaction (sequence, capture, decode, result) under
 one semaphore. Navigation consumes it independently of the telemetry ACK. A
@@ -194,7 +196,7 @@ throughout. The full per-release checklist is in
    wheels stop. Repeat STOP; it should do nothing.
 5. Disconnect the hotspot while running: the car must stop locally and **not**
    restart when Wi-Fi returns.
-6. Pass large `*A*`, `*F*`, `*Z*` labels at the scan speed. Expect exactly one
+6. Pass large `*A*`, `*F*`, `*Z*` labels at the driving speed. Expect exactly one
    success per pass, rearming on white, and a reported failure for invalid
    prints. Repeat across print sizes before claiming accuracy.
 7. Test STOP during a scan, approaching a junction and mid-turn. Then try

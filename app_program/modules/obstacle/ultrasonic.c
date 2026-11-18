@@ -35,6 +35,11 @@
  */
 static bool wait_echo_low (void);
 /** @brief Raise TRIG for OBS_TRIG_PULSE_USEC; the only busy wait. */
+/* Kernel ms of the last trigger, for ping spacing. Ultrasonic owner task
+ * only (the obstacle worker), so no lock is needed. */
+static uint32_t g_last_trigger_msec = 0U;
+static uint8_t  g_last_trigger_valid = 0U;
+
 static void send_trigger (void);
 /** @brief Convert counted microseconds to millimetres. */
 static int32_t ticks_to_mm (UW ticks);
@@ -75,6 +80,12 @@ ultrasonic_result_t ultrasonic_ping (int32_t * p_mm)
     {
         out_w(US_REG_CTR, 0U);
         send_trigger();
+        {
+            SYSTIM now = {0};
+
+            g_last_trigger_valid = (tk_get_otm(&now) >= E_OK) ? 1U : 0U;
+            g_last_trigger_msec  = now.lo;
+        }
 
         for (uint32_t waited = 0U;
              (waited < OBS_ECHO_TIMEOUT_MSEC) && (!b_ended); waited++)
@@ -115,6 +126,17 @@ ultrasonic_result_t ultrasonic_ping (int32_t * p_mm)
     }
 
     return result;
+}
+
+bool ultrasonic_last_trigger (uint32_t * p_msec)
+{
+    if ((NULL == p_msec) || (0U == g_last_trigger_valid))
+    {
+        return false;
+    }
+
+    *p_msec = g_last_trigger_msec;
+    return true;
 }
 
 int32_t ultrasonic_median_of_three (int32_t first, int32_t second,

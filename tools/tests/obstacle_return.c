@@ -20,8 +20,8 @@ void obs_state_set_width_cm(int32_t width) {(void)width;}
 void obs_state_count_bypass(void) {}
 void obs_state_faults_update(uint32_t set,uint32_t clear)
 {fault_bits=(fault_bits|set)&~clear;}
-void obs_state_plan_load(scan_plan_bypass_t *plan)
-{*plan=(scan_plan_bypass_t){0};}
+static scan_plan_bypass_t loaded_plan;
+void obs_state_plan_load(scan_plan_bypass_t *plan) {*plan=loaded_plan;}
 static int32_t watch_deg;
 void obs_state_watch_angle_set(int32_t angle) {watch_deg=angle;}
 uint32_t obs_state_side_seq_get(void) {return side_seq;}
@@ -352,6 +352,96 @@ int main(void)
     assert(g_seq.phase==OBS_PHASE_FAULT && drive.b_stop && drive.b_fault);
     assert(fault_bits==OBS_FAULT_NO_ROUTE);
     puts("PASS an obstacle that never ends stops at the configured travel limit");
+
+    /* 18 Nov video/log: odometry said 231 mm out against a 200 mm offset
+     * target, so the old pass steered back in by up to 5 degrees, towards
+     * the box; the side ultrasonic then measured the box face only 62 mm
+     * away (inside the half width) and the corner rode onto it. */
+    for(int32_t side=-1;side<=1;side+=2)
+    {
+        /* Further out than planned, nothing seen yet: hold, never turn in. */
+        passing(side);
+        g_seq.lateral_mm=200;g_seq.pose.y_mm=(float)side*231.0F;
+        g_seq.pose.x_mm=200.0F;
+        obstacle_drive_t d=step(-1,false,100);
+        assert(side*(d.right_rpm-d.left_rpm)>=0);
+        assert(offset_heading(&g_seq)==0);
+        /* The side echo measures the gap short: turn out at once, hard,
+         * whatever odometry says. */
+        d=step(62,false,150);
+        assert(g_seq.push_ddeg>0U);
+        assert(side*offset_heading(&g_seq)>=100); /* at least 10 degrees */
+        assert(side*(d.right_rpm-d.left_rpm)>0);   /* turning out */
+        assert(g_seq.lateral_mm>=231+40);          /* target moved out */
+        /* A later echo with room again: no more push, still no turn in. */
+        d=step(400,false,200);
+        assert(g_seq.push_ddeg==0U);
+        assert(side*offset_heading(&g_seq)>=0);
+        /* Repeated short echoes do not stack the offset target. */
+        passing(side);
+        g_seq.lateral_mm=200;g_seq.pose.y_mm=(float)side*231.0F;
+        g_seq.pose.x_mm=200.0F;
+        for(unsigned i=0;i<5;i++)(void)step(62,false,100U+i*50U);
+        assert(g_seq.lateral_mm<=231+(int32_t)OBS_HALF_PATH_MM);
+    }
+    puts("PASS passing never steers into the object; a short side gap turns "
+         "out at once");
+
+    /* An unconfirmed end assumes the box is as deep as it scanned wide,
+     * not just OBS_PASS_DEFAULT_MM (40 mm, shallower than the 15 cm box). */
+    passing(1);
+    g_seq.depth_guess_mm=150;
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-OBS_SENSOR_TO_AXLE_MM+
+        5.0F;
+    (void)step(-1,false,100);
+    assert(g_seq.phase==OBS_PHASE_PASS_SIDE);   /* 40 mm alone would end */
+    g_seq.pose.x_mm=g_seq.face_x_mm+150.0F-OBS_SENSOR_TO_AXLE_MM+1.0F;
+    (void)step(-1,false,150);
+    assert(g_seq.phase==OBS_PHASE_PASS_END);
+    assert(g_seq.rear_x_mm>=g_seq.face_x_mm+150.0F);
+    assert(g_seq.end_x_mm>g_seq.rear_x_mm);
+    puts("PASS default end assumes the scanned width as depth");
+
+    /* From a real plan: a 150 mm box 220 mm ahead, echoing -20..20 deg. */
+    {
+        scan_plan_point_t pts[OBS_SCAN_POINTS];
+        int32_t n=0;
+        for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
+            n<OBS_SCAN_POINTS;a=scan_plan_next_angle(a))
+        {
+            pts[n].angle_deg=a;pts[n].range_mm=(a>=-20&&a<=20)?225U:4000U;
+            ++n;
+        }
+        scan_plan_build_side(pts,n,0,0,&loaded_plan);
+        assert(scan_plan_result(&loaded_plan)==SCAN_PLAN_ROUTE);
+        g_seq=(obstacle_seq_t){0};g_seq.b_active=true;
+        obstacle_drive_t d={0};
+        handle_plan(&g_seq,&d,100U);
+        int32_t const reported=scan_plan_width_cm(&loaded_plan)*10;
+        printf("  plan for a 150 mm box: assumed depth %d mm (reported "
+               "width %d mm)\n",(int)g_seq.depth_guess_mm,
+               (int)scan_plan_width_cm(&loaded_plan)*10);
+        /* The beam-corrected width, not the padded planning width. */
+        assert(g_seq.depth_guess_mm<=OBS_OBJECT_MAX_MM);
+        assert(g_seq.depth_guess_mm==reported ||
+               g_seq.depth_guess_mm==OBS_OBJECT_MAX_MM);
+        assert(g_seq.depth_guess_mm<scan_plan_fallback_cm(&loaded_plan)*10-
+               (OBS_ROBOT_FRONT_MM+OBS_ROBOT_REAR_MM));
+        /* A wide scan (echoes -40..40 deg) is still assumed no deeper than
+         * the largest obstacle on the course. */
+        for(int32_t i=0;i<n;i++)
+            pts[i].range_mm=(pts[i].angle_deg>=-40&&pts[i].angle_deg<=40)?
+                225U:4000U;
+        scan_plan_build_side(pts,n,0,0,&loaded_plan);
+        assert(scan_plan_result(&loaded_plan)==SCAN_PLAN_ROUTE);
+        assert(scan_plan_width_cm(&loaded_plan)*10>OBS_OBJECT_MAX_MM);
+        g_seq=(obstacle_seq_t){0};g_seq.b_active=true;
+        handle_plan(&g_seq,&d,200U);
+        assert(g_seq.depth_guess_mm==OBS_OBJECT_MAX_MM);
+        loaded_plan=(scan_plan_bypass_t){0};
+    }
+    puts("PASS the plan sets the assumed depth from the scanned width, "
+         "capped at OBS_OBJECT_MAX_MM");
 
     /* Odometry alone brings it back: no black needed to straighten up. */
     passing(1);

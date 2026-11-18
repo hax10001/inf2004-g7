@@ -18,6 +18,9 @@
 /* Before a trigger, wait this long at most for ECHO to fall from the last
  * ping; still high counts as no echo (a stuck ECHO line is a fault). */
 #define OBS_ECHO_CLEAR_MSEC 50U
+/* Minimum time between two triggers (HC-SR04 guidance: lets the previous
+ * ping's echoes die away). Scans space pings by this from trigger to
+ * trigger, overlapping the echo and servo settling with it. */
 #define OBS_PING_PERIOD_MSEC 60U
 #define OBS_MEDIAN_SAMPLES 3U
 #define OBS_FAR_MM 4000
@@ -37,7 +40,11 @@
  */
 #define OBS_SERVO_FRONT_USEC 1500
 #define OBS_SERVO_USEC_PER_DEG 10
-/* A value of 1 means that a longer pulse turns the sensor left. */
+/* A value of 1 means that a longer pulse turns the sensor left. Keep 1:
+ * with -1 every bearing is mirrored, so the scan reads the box on the wrong
+ * side and the side watch looks away from the box while passing (logged
+ * 19:2x, -1: no echo from the box on either pass, only the open side 0.6-0.9
+ * m out; every logged pass that saw the box ran with 1). */
 #define OBS_SERVO_LEFT_SIGN 1
 /* SG90 pulse range; angles needing a pulse outside it are not used. */
 #define OBS_SERVO_MIN_USEC 500
@@ -57,7 +64,7 @@
  * +-OBS_SCAN_FINE_DEG it steps OBS_SCAN_STEP_DEG (a multiple of 10).
  * Inside, where the object usually is, it steps OBS_SCAN_FINE_STEP_DEG (a
  * multiple of 5 that divides the step), so the object's edges are found to
- * half the step. Each extra point adds about 0.25 s to a scan.
+ * half the step. Each extra point adds about 0.2 s to a scan pass.
  * OBS_SCAN_FINE_DEG: a multiple of OBS_SCAN_STEP_DEG; 0 turns it off.
  */
 #define OBS_SCAN_STEP_DEG 10
@@ -74,23 +81,70 @@
 /* Sweep direction. A servo settles a little short or past each target, the
  * same way every time it is approached from the same side, which shifts
  * every bearing of a one-way sweep and makes objects lean one way.
- *   0 = both ways: right to left, then back; each bearing keeps the nearer
- *       reading, so the two errors cancel and no echo is lost (twice the
- *       scan time, about 16 s).
+ *   0 = both ways: left to right first, then back right to left; each
+ *       bearing keeps the nearer reading, so the two errors cancel and no
+ *       echo is lost. The return pass covers +-OBS_SCAN_RETURN_DEG only.
  *   1 = right to left only; -1 = left to right only. Comparing the two in
  *       the log shows how much the servo shifts the bearings.
  */
 #ifndef OBS_SCAN_DIRECTION
 #define OBS_SCAN_DIRECTION 0
 #endif
-#define OBS_SCAN_PINGS 3U
+/* Pings per bearing per pass: two, and a third only when those two differ
+ * by more than OBS_SCAN_AGREE_MM (an edge that echoes only some of the
+ * time, or a stray echo); the bearing then reads the median of three, as
+ * every bearing used to. Two that agree read their average. (Keeping just
+ * the larger of two dropped a real edge on 18 Nov: 230 mm / no echo.) */
+#define OBS_SCAN_PINGS 2U
+#define OBS_SCAN_AGREE_MM 50
+/* Two-way scan only: the return pass re-reads only bearings within
+ * +-OBS_SCAN_RETURN_DEG, where the object's edges are found and servo lag
+ * matters; outer bearings keep the first pass's reading. The servo also
+ * stops short of the end of the return sweep. Replayed on the logged
+ * two-way scans, the plan was identical. Set to the sweep limit (70) for
+ * a full return pass. */
+#define OBS_SCAN_RETURN_DEG OBS_SCAN_FINE_DEG
+/* Corner band: bearings beyond +-OBS_SCAN_FINE_DEG up to this.
+ * The sensor faces the box square on, so its flat front face acts like a
+ * mirror: every bearing within about 30 degrees returns the same
+ * perpendicular distance, wherever the box sits, and the echo stops at
+ * about 30 degrees each side whatever the box's width. Those "edges" are the
+ * sensor's limit, not the box's, so a box half off the line still reads as
+ * centred (logged 18 Nov: box on the left, edges -30..30, every time). Only
+ * the box's vertical corners give a weak echo further out, and its range
+ * gives where the corner really is: sqrt(range^2 - depth^2) sideways,
+ * which does not depend on the beam or the bearing. So in this band each
+ * bearing takes up to OBS_CORNER_PINGS pings until two agree on an echo,
+ * instead of letting a median drop it. A multiple of OBS_SCAN_STEP_DEG,
+ * OBS_SCAN_FINE_DEG..sweep limit. */
+#define OBS_CORNER_MAX_DEG 50
+#define OBS_CORNER_PINGS 4U
+/* An echo in the corner band is the box's corner when it is no more than
+ * this beyond the face depth (a 15 cm box up to ~25 cm off centre at 22 cm
+ * ahead). Farther echoes are something else and are left to the corridor
+ * check. */
+#define OBS_CORNER_DEPTH_MM 150
+/* A bearing hears a corner at most this many degrees off its axis (the
+ * sensor's half beam), so a corner band echo nearer the line than
+ * face * tan(bearing - this) is the face itself still echoing (a face not
+ * square on, logged 18:59: 227 mm at 40 degrees, face 214 mm), not a
+ * corner. Multiple of 5, below OBS_SCAN_FINE_DEG. */
+#define OBS_CORNER_BEAM_DEG 15
+/* 1: when a corner is found, choose the side from the object's real
+ * extent: the seen corner(s), and for an unseen one the face's own edge if
+ * it stopped echoing inside +-OBS_SCAN_FINE_DEG, else the far edge of an
+ * OBS_OBJECT_MAX_MM wide object. The robot also drives out at least far
+ * enough to clear a seen corner on its side. With no corner echo the
+ * object's edges are both inside the sensor's blind zone (it is about
+ * centred) and the edges decide as before. 0: off. */
+#define OBS_SIDE_CORNER_ECHO 1
 #define OBS_SCAN_RANGE_MM 600
 #define OBS_EDGE_JUMP_MM 80
 #define OBS_FRONT_WINDOW_DEG 20
 #define OBS_LOOKAHEAD_MM 500
 
 /* 0: choose the clear corridor needing the smaller sideways move (see
- * OBS_SIDE_PREFERENCE_THRESHOLD_MM below). 1 or -1: always take left or
+ * least resistance below). 1 or -1: always take left or
  * right while it is clear. A blocked corridor cannot be made safe by
  * assuming unseen space beyond the sweep. */
 #define OBS_PREFERRED_SIDE 0
@@ -167,34 +221,46 @@
  */
 #define OBS_SIDE_MAX_AGE_MSEC 1000U
 /* Holding the passing offset: heading change per mm of offset error, in
- * tenths of a degree, and the most it may turn out or in.
+ * tenths of a degree, and the most it may turn out. While the object is
+ * beside the robot it never turns in towards it: encoder odometry can
+ * think the robot is further out than it is (logged 18 Nov: 231 mm by the
+ * encoders, about 160 mm in the video), and the old inward correction
+ * then steered the front corner into the box.
  */
 #define OBS_OFFSET_GAIN_DDEG_PER_MM 1
 #define OBS_OFFSET_OUT_MAX_DDEG 150
-#define OBS_OFFSET_IN_MAX_DDEG 50
+/* Measured push-out: when a side echo shows the gap to the object short
+ * of half the robot width plus OBS_SAFETY_MARGIN_MM, turn out by this
+ * many tenths of a degree per mm short (capped at OBS_OFFSET_OUT_MAX_DDEG),
+ * whatever odometry says. 3 turns 15 degrees out for a 50 mm shortfall. */
+#define OBS_SIDE_PUSH_GAIN_DDEG_PER_MM 3
 
 /* ---- Bypass side choice and straight-leg length -------------------------
  * All distances are millimetres. Travel is measured by encoder odometry
  * along the line from where the obstacle was confirmed.
  *
- * OBS_SIDE_PREFERENCE_THRESHOLD_MM: the scan works out how far sideways
- * each side needs the robot to move to clear the object (the object's edge
- * plus half the robot width plus OBS_SAFETY_MARGIN_MM). The side needing
- * less wins. When both sides are clear and differ by no more than this, the
- * object is treated as centred and OBS_SIDE_DEFAULT is used. 0..255 mm.
- * The ultrasonic beam (about +-15..20 degrees) spreads the echoes well past
- * a small object's real edges, so offsets of a few cm cannot be measured:
- * near-centred objects differ by up to ~70 mm from noise alone. They count
- * as centred and always take OBS_SIDE_DEFAULT; clearly offset objects and
- * blocked corridors (100+ mm apart) still choose by the scan.
- *
- * OBS_SIDE_DEFAULT: side taken for a centred object, 1 left or -1 right.
- * If neither edge was seen, the farther outermost echo decides instead, and
- * this is used only when those are equal. OBS_PREFERRED_SIDE, if not 0,
- * overrides both.
+ * Side choice, least resistance: the scan works out how far sideways each
+ * side needs the robot to move to clear the object (the object's edge plus
+ * half the robot width plus OBS_SAFETY_MARGIN_MM; with a corner echo, its
+ * real extent). The clear side needing less wins, however small the
+ * difference: there is no tie band and no fixed default side. Exactly equal
+ * moves go to the side with more open room past the object, then the
+ * smaller drive out, then the more open half of the sweep (scan_plan.c,
+ * least_resistance()). OBS_PREFERRED_SIDE, if not 0, overrides all of
+ * these.
  */
-#define OBS_SIDE_PREFERENCE_THRESHOLD_MM 90
-#define OBS_SIDE_DEFAULT 1
+/* Half-width of the ultrasonic beam, degrees (multiple of 5, 0..30). A
+ * bearing echoes while the object is anywhere within it, so edges appear
+ * this far outside the real ones. Used ONLY for the reported object width
+ * (log, dashboard); bypass offsets still use the conservative edges. Fit
+ * to the logged scans of the 15 cm obstacle: about 9-10 degrees. */
+#define OBS_BEAM_HALF_DEG 10
+/* 1: compare the two sides using the beam-corrected edges (each edge
+ * midway to the next empty bearing). The conservative edges, padded out to
+ * the next empty bearing, depend on the bearing spacing (5 degrees within
+ * +-30, 10 outside), which tilted close calls. The drive offset still uses
+ * the conservative edges. 0: compare the conservative edges (previous). */
+#define OBS_SIDE_COMPARE_MEASURED 1
 /* OBS_PASS_DEFAULT_MM: fallback length of the straight leg, as sensor travel
  * past the object's front face. If the side watch has not confirmed the end
  * (OBS_SIDE_CLEAR_HITS absent pings in a row) and has not seen the object in
@@ -209,8 +275,15 @@
  * this far past the front face while still passing, whatever the side watch
  * says. Must exceed OBS_PASS_DEFAULT_MM. 0..32767 mm.
  */
+/* The default end is never shorter than the object's beam-corrected
+ * scanned width, capped at OBS_OBJECT_MAX_MM: depth is not measured, so a
+ * box is assumed about as deep as it is wide. A deeper one is caught by the
+ * front guard on the way back. */
 #define OBS_PASS_DEFAULT_MM 40
 #define OBS_PASS_MAX_MM 600
+/* Largest obstacle on the course (width and depth), mm. Caps the depth
+ * assumed when the side watch cannot confirm the end. 15 cm boxes only. */
+#define OBS_OBJECT_MAX_MM 150
 /* 1 prints the side clearances and choice, and how and where the straight
  * leg ended; 0 turns those lines off.
  */
