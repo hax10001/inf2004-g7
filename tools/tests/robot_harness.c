@@ -476,12 +476,8 @@ static void run_units(void)
         assert((int32_t)sqrt((double)square) == terrain_magnitude(x, y, z));
     }
     assert(3547 == terrain_magnitude(-2048, -2048, -2048));
-    assert(5000 == terrain_jerk(1100, 1000, 20U));
-    assert(-5000 == terrain_jerk(1000, 1100, 20U));
-    assert(0 == terrain_jerk(1100, 1000, 0U));
-    assert(-100000 == terrain_jerk(1100, 1000, UINT32_MAX));
     puts("UNIT_CHECKS_PASS: IR, mutex failures, all 65536 register words, "
-         "4096 magnitude vectors, jerk boundaries");
+         "4096 magnitude vectors");
 }
 #endif
 

@@ -28,7 +28,6 @@ void lift_math_reset (lift_math_state_t * p_state)
     p_state->start_count   = 0U;
     p_state->still_count   = 0U;
     p_state->floor_count   = 0U;
-    p_state->b_active      = 0U;
 }
 
 uint16_t lift_math_step (lift_math_state_t * p_state, int16_t excess_mg,
@@ -63,7 +62,7 @@ uint16_t lift_math_step (lift_math_state_t * p_state, int16_t excess_mg,
     /* int16_t minus int16_t always fits int32_t. */
     int32_t net_mg = (int32_t)excess_mg - (int32_t)p_state->bias_mg;
 
-    if (!p_state->b_active)
+    if (!lift_math_is_active(p_state))
     {
         if (net_mg > LIFT_MATH_START_MG)
         {
@@ -74,8 +73,6 @@ uint16_t lift_math_step (lift_math_state_t * p_state, int16_t excess_mg,
 
             if (p_state->start_count >= LIFT_MATH_START_SAMPLES)
             {
-                p_state->b_active    = 1U;
-                p_state->start_count = 0U;
                 /* Floor seen before the lift does not end it at once. */
                 p_state->floor_count = 0U;
             }
@@ -131,7 +128,8 @@ bool lift_math_is_still (lift_math_state_t const * p_state)
 
 bool lift_math_is_active (lift_math_state_t const * p_state)
 {
-    return (NULL != p_state) && (0U != p_state->b_active);
+    return (NULL != p_state) &&
+           (p_state->start_count >= LIFT_MATH_START_SAMPLES);
 }
 
 static bool update_still (lift_math_state_t * p_state, int16_t excess_mg)

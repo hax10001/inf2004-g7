@@ -7,6 +7,7 @@
 #include "app/tasks.h"
 #include "drivers/lsm303.h"
 #include "modules/terrain/task_imu.h"
+#include "modules/line_barcode/ir_shared.h"
 #include "modules/terrain/terrain.h"
 
 static const char *scenario;
@@ -29,6 +30,8 @@ ER tk_cls_dev(ID id, UINT option)
 /* A task that gives up sleeps forever; end the scenario there instead. */
 ER tk_slp_tsk(TMO timeout) { (void)timeout; longjmp(escape, 1); return E_OK; }
 UW console_state(void) { return 3; }
+ER ir_shared_get_latest(ir_shared_snapshot_t *out)
+{ (void)out; return E_OBJ; }
 bool lsm303_init(ID id) { (void)id; return true; }
 ER tk_dly_tsk(UINT delay)
 {

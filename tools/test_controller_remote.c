@@ -7,7 +7,6 @@
 #define B1_ROBOT_APP 1
 #define B1_LIVE_COMMANDS 1
 #define APP_TEST 0
-#define APP_COLLISION_ENABLED 1 /* Exercise optional impact-stop behavior. */
 #define _PICO_RP2040_ 1
 #include "app_program/app/task_controller.c"
 
@@ -92,24 +91,9 @@ ER tk_unl_mtx(ID id)
 
 uint8_t b1_mqtt_connected(void) {return g_connected;}
 bool terrain_is_calibrated(void) {return true;}
-static uint8_t g_collision_latched = 0U;
-static bool g_collision_enabled;
-ER terrain_set_collision_enabled(bool enabled)
-{g_collision_enabled=enabled;return E_OK;}
-static unsigned int g_collision_acks = 0U;
-ER terrain_acknowledge_collision(void)
-{
-    g_collision_latched = 0U;
-    ++g_collision_acks;
-    return E_OK;
-}
-ER terrain_ack_collision(uint32_t seq)
-{(void)seq;return terrain_acknowledge_collision();}
-ER terrain_set_floor_contact(bool contact) {(void)contact;return E_OK;}
 ER terrain_get_snapshot(terrain_snapshot *s)
 {
-    *s=(terrain_snapshot){.b_valid=1U,.timestamp_msec=99U,
-                         .b_collision=g_collision_latched};
+    *s=(terrain_snapshot){.b_valid=1U,.timestamp_msec=99U};
     return E_OK;
 }
 void motor_last_command(uint16_t *l,uint16_t *r) {*l=0U;*r=0U;}
@@ -192,17 +176,6 @@ int main(void)
     uint8_t stop=0U, start=0U;
     assert(g7_controller_remote_init() == E_OK);
     assert(g7_controller_remote_ready() == 1U);
-    /* A previously latched collision must never kick a remote-held or
-     * stopped robot back into STOPPED before a later explicit START. */
-    terrain_snapshot collision = {0};
-    collision.b_collision = 1U;
-    assert(!collision_requires_stop(ROBOT_REMOTE_HOLD,E_OK,&collision));
-    assert(!collision_requires_stop(ROBOT_IDLE,E_OK,&collision));
-    assert(!collision_requires_stop(ROBOT_STOPPED,E_OK,&collision));
-    assert(!collision_requires_stop(ROBOT_NAV_SAFETY_STOP,E_OK,&collision));
-    assert(collision_requires_stop(ROBOT_LINE_FOLLOWING,E_OK,&collision));
-    assert(collision_requires_stop(ROBOT_OBSTACLE,E_OK,&collision));
-    assert(!collision_requires_stop(ROBOT_LINE_FOLLOWING,E_OBJ,&collision));
     /* Barcode recalibration is forwarded to the barcode task only. */
     assert(g7_controller_remote_command(B1_CMD_RECAL_BARCODE,NULL) == B1_OK);
     assert(g_relearn_calls == 1);
@@ -262,9 +235,7 @@ int main(void)
     assert(g7_controller_remote_command(B1_CMD_STOP,NULL) == B1_OK);
     remote_take_requests(&stop,&start,ROBOT_NAV_SAFETY_STOP);
     assert(stop == 1U && start == 0U);
-    g_collision_latched = 1U;
     assert(remote_reset_after_stop(ROBOT_NAV_SAFETY_STOP) == ROBOT_REMOTE_HOLD);
-    assert(g_collision_latched == 0U && g_collision_acks > 0U);
     assert(g_navigation.state == NAV_WAIT && g_navigation.pending == 0U);
     assert(g_obstacle_aborts != 0U);
     remote_publish_state(ROBOT_OBSTACLE);
@@ -276,8 +247,7 @@ int main(void)
     remote_publish_state(ROBOT_REMOTE_HOLD);
     assert(g7_controller_remote_ready() == 1U);
     /* Regression for the real-world STOP -> REMOTE HOLD -> START sequence
-     * after an impact. STOP ACK alone does not imply physical completion. */
-    g_collision_latched = 1U;
+     * after a fault. Check that the controller is held before START. */
     remote_publish_state(ROBOT_STOPPED);
     assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_NOT_READY);
     assert(g7_controller_remote_command(B1_CMD_STOP,NULL) == B1_OK);
@@ -286,7 +256,6 @@ int main(void)
     robot_state_t recovered = remote_reset_after_stop(ROBOT_STOPPED);
     assert(recovered == ROBOT_REMOTE_HOLD);
     remote_publish_state(recovered);
-    assert(g_collision_latched == 0U);
     assert(g7_controller_remote_hold_applied() == 1U);
     assert(g7_controller_remote_ready() == 1U);
     assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_OK);

@@ -220,7 +220,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
             b1_put16(&f.payload[4],(uint16_t)
                 clamp16(imu.pitch_deg*100.0f));
             b1_put16(&f.payload[6],imu.heading_valid ?
-                (uint16_t)(imu.heading_deg*100.0f) : 65535u);
+                imu.heading_centideg : 65535u);
             b1_put16(&f.payload[8],distance);
             f.payload[10]=(uint8_t)imu.hump_phase;
             f.payload[11]=(uint8_t)terrain_is_calibrated();

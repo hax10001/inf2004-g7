@@ -1,7 +1,7 @@
 'use strict';
 const {decodeFrame,interpret}=require('./protocol');
 const sourceNames=['motion','line','terrain','obstacle','mission'];
-const controllerFaults={1:'collision detected',2:'stale IR',3:'IR read failure',
+const controllerFaults={2:'stale IR',3:'IR read failure',
  4:'controller clock failure',5:'obstacle sensor fault',6:'decode timeout',
  7:'no usable action or junction clearance',8:'turn timeout or angle limit',
  9:'downhill overspeed',10:'IMU unavailable',11:'stale downhill IMU',

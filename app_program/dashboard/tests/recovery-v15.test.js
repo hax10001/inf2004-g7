@@ -6,14 +6,14 @@ const {RobotState}=require('../server/state');
 
 test('V15 fault source uses compatible EVENT payload and clears only on ready HOLD',()=>{
   const state=new RobotState();
-  const event=Buffer.from([5,21,42,0,1,0]);
+  const event=Buffer.from([5,21,42,0,2,0]);
   const wire=frame(TYPES.EVENT,event,{session:10,seq:1,ms:500});
   assert.equal(wire.length,20);
   assert.deepEqual(interpret(decodeFrame(wire)),
-    {kind:'event',source:5,eventKind:21,eventId:42,value:1});
+    {kind:'event',source:5,eventKind:21,eventId:42,value:2});
   state.ingest(wire);
-  assert.equal(state.view().controllerFault.reason,'collision detected');
-  assert(state.logs.some(x=>x.message==='SAFE STOP: collision detected'));
+  assert.equal(state.view().controllerFault.reason,'stale IR');
+  assert(state.logs.some(x=>x.message==='SAFE STOP: stale IR'));
   const status=Buffer.alloc(14);status[0]=1;status[4]=6;
   state.ingest(frame(TYPES.STATUS,status,{session:10,seq:2,ms:600}));
   assert(state.view().controllerFault);

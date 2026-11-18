@@ -1,5 +1,5 @@
 /** @file lift_math.h
- * @brief Pure lifted-height estimate from vertical acceleration.
+ * @brief Pure lifted-height estimate from excess acceleration magnitude.
  *
  * The robot has no downward range sensor, so the height above the floor
  * is an inertial ESTIMATE: the acceleration beyond gravity is integrated
@@ -39,7 +39,7 @@
 #define LIFT_MATH_MAX_STEP_MSEC 100U
 
 #if (LIFT_MATH_START_SAMPLES > 3U) || (LIFT_MATH_STILL_SAMPLES > 31U) || \
-    (LIFT_MATH_FLOOR_SAMPLES > 31U)
+    (LIFT_MATH_FLOOR_SAMPLES > 7U)
 #error Lift sample counts exceed their bit-field widths
 #endif
 
@@ -51,11 +51,9 @@ typedef struct
     int16_t bias_mg;       /**< Resting offset from calibrated gravity. */
     int16_t still_min_mg;  /**< Lowest reading of the rest window. */
     int16_t still_max_mg;  /**< Highest reading of the rest window. */
-    /* Counts saturate at their limits: 0..3, 0..25 and 0..25. */
-    unsigned int start_count:2;
-    unsigned int still_count:5;
-    unsigned int floor_count:5;
-    unsigned int b_active:1; /**< A lift is being integrated. */
+    unsigned short start_count:2; /**< 0..3; at the limit, lift is active. */
+    unsigned short still_count:5; /**< 0..25. */
+    unsigned short floor_count:3; /**< 0..5. */
 } lift_math_state_t;
 
 /** @brief Forget any lift: height zero, at rest. */

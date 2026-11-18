@@ -6,6 +6,7 @@
 #include "lift_math.h"
 #include "drivers/lsm303.h"
 #include "app/app_config.h"
+#include "modules/line_barcode/ir_shared.h"
 #include "platform/console.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -19,8 +20,9 @@
 #define IMU_CALIBRATION_MAX_MG 1200
 #define IMU_CALIBRATION_CHANGE_MG 50
 #define IMU_CALIBRATION_RETRY_MSEC 500U
-/* Trial limit from turn/flick logs; validate normal braking and humps too. */
-#define IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC 12000
+#if IMU_CALIBRATION_MAX_MG > 2047
+#error Calibrated gravity must fit 11 bits
+#endif
 
 /* Fraction of each new reading kept by the smoothing filter. Lower is
  * smoother but lags more and trims the peak; motor vibration needs some.
@@ -65,7 +67,7 @@ typedef struct
     float    tilt_deg;    /**< Size of the roll, degrees. */
     float    height_mm;
     float    peak_mm;     /**< Highest point of this hump. */
-    int16_t  gravity_mg;  /**< Total acceleration at rest: 800..1200. */
+    unsigned short gravity_mg:11; /**< 0 before calibration, at most 1200 mg. */
     uint16_t rejected;    /**< Shoved samples since last log. */
     /* IMU-task owned, so packing needs no lock. Phase is 0..2; the counts
      * stop at HUMP_LEVEL_CONFIRM_SAMPLES and HUMP_TILT_CONFIRM_SAMPLES. */
@@ -74,36 +76,20 @@ typedef struct
     unsigned int phase:2;        /**< A terrain_hump_phase value. */
     unsigned int level_count:4;
     unsigned int tilted_count:2; /**< Samples in a row above start. */
-    uint8_t            last_peak_mm; /**< 0..127, as published. */
-    uint8_t            max_peak_mm;  /**< 0..127, as published. */
-    uint8_t            hump_count;
+    unsigned int last_peak_mm:7; /**< 0..127, as published. */
+    unsigned int max_peak_mm:7;  /**< 0..127, as published. */
+    unsigned int hump_count:8;
 } hump_state_t;
 
 static hump_state_t g_hump = {0};
 /* Owned by the IMU task alone. */
 static lift_math_state_t g_lift = {0};
-/* Nonzero while the lifted state has been logged, so it prints once. */
-static uint8_t g_lift_reported = 0U;
-/* Samples in a row still and level, up to IMU_REST_SAMPLES. */
-#define IMU_REST_SAMPLES (APP_LIFT_REST_MSEC / IMU_SAMPLE_PERIOD_MSEC)
-#if (IMU_REST_SAMPLES < 1) || (IMU_REST_SAMPLES > 65535)
-#error APP_LIFT_REST_MSEC must be 20..1310700 ms
-#endif
-static uint16_t g_rest_samples = 0U;
-/* Last valid relative tilt, for the level test (only roll, pitch and
- * b_valid are used). IMU task only. */
-static terrain_snapshot g_rest_tilt = {0};
-
 typedef struct
 {
-    int32_t  previous_magnitude;
-    int16_t previous_x;
-    int16_t previous_y;
-    int16_t previous_z;
-    bool     b_have_previous;
-    bool     b_collision_enabled; /**< Previous sample was in an active run. */
     uint32_t previous_time_msec;
     uint32_t last_log_msec;
+    unsigned char b_have_previous:1;
+    unsigned char b_lift_reported:1;
 } imu_history_t;
 
 typedef struct
@@ -114,14 +100,8 @@ typedef struct
     int16_t mag_x;
     int16_t mag_y;
     int16_t mag_z;
-    int32_t magnitude;
-    /* Signed rate of change of acceleration magnitude, mg/s. */
-    int32_t jerk;
-    /* Signed sensor-axis vector jerk components, mg/s. */
-    int32_t jerk_x;
-    int32_t jerk_y;
-    int32_t jerk_z;
-    bool    b_mag_ok;
+    unsigned int magnitude:12; /**< 0..3547 mg from signed 12-bit axes. */
+    unsigned int b_mag_ok:1;
 } imu_sample_t;
 
 /** @brief Retrieve the same low 32 bits of kernel operating time. */
@@ -145,7 +125,7 @@ static void update_hump (terrain_snapshot const * p_snapshot);
 static uint8_t round_mm (float height_mm);
 /** @brief Advance the lifted-height estimate and publish it. */
 static void update_lift (imu_sample_t const * p_sample,
-                         uint32_t elapsed_msec, terrain_snapshot * p_snapshot);
+                         imu_history_t * p_history, terrain_snapshot * p_snapshot);
 
 void task_imu_task (INT start_code, void * p_context)
 {
@@ -287,7 +267,7 @@ static bool calibrate_sensor (ID h_device)
     g_hump.filtered[2]    = (float)avg_z;
     g_hump.b_filter_ready = true;
     /* Calibration accepted only 800..1200 mg, so this fits int16_t. */
-    g_hump.gravity_mg     = (int16_t)terrain_magnitude(avg_x, avg_y, avg_z);
+    g_hump.gravity_mg     = (uint16_t)terrain_magnitude(avg_x, avg_y, avg_z);
 
     if (error < E_OK)
     {
@@ -401,14 +381,16 @@ static void process_sample (ID h_device, imu_history_t * p_history)
     /* Compute the magnetic heading here */
     if (sample.b_mag_ok)
     {
+        float heading_deg = 0.0F;
         ER heading_error = terrain_heading_level(
             sample.mag_x,
             sample.mag_y,
-            &snapshot.heading_deg
+            &heading_deg
         );
 
         if(heading_error == E_OK)
         {
+            snapshot.heading_centideg = (uint16_t)(heading_deg * 100.0F);
             snapshot.heading_valid = true;
         }
     }
@@ -422,47 +404,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
             sample.axis_z
         );
 
-        if (p_history->b_have_previous)
-        {
-            uint32_t elapsed_msec =
-                now_msec - p_history->previous_time_msec;
-            update_lift(&sample, elapsed_msec, &snapshot);
-            /* Rate of change of the total acceleration magnitude. */
-            sample.jerk = terrain_jerk(sample.magnitude,
-                p_history->previous_magnitude,
-                elapsed_msec);
-
-            /* Rate of change of each acceleration axis. */
-            terrain_jerk_vector vector = terrain_vector_jerk(
-                sample.axis_x, sample.axis_y, sample.axis_z,
-                p_history->previous_x, p_history->previous_y,
-                p_history->previous_z, elapsed_msec);
-            sample.jerk_x = vector.x;
-            sample.jerk_y = vector.y;
-            sample.jerk_z = vector.z;
-        }
-        /* Sensor X/Y are sideways/forward. Keep Z in the diagnostic log;
-         * vertical jerk alone does not trigger this horizontal-impact rule.
-         */
-        bool const collision_enabled = APP_COLLISION_ENABLED != 0 &&
-                                        terrain_collision_enabled();
-        /* The first run sample establishes a fresh impact baseline. Handling
-         * the car in STOP must neither count nor become a START-time impact. */
-        if (collision_enabled && p_history->b_collision_enabled &&
-            (sample.jerk_x > IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
-            sample.jerk_x < -IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
-            sample.jerk_y > IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC ||
-            sample.jerk_y < -IMU_HORIZONTAL_JERK_THRESHOLD_MG_PER_SEC))
-        {
-            tm_printf((UB *)"[IMU] Collision detected! "
-                            "XYZ jerk=(%d,%d,%d) mg/s\n",
-                      (INT)sample.jerk_x, (INT)sample.jerk_y,
-                      (INT)sample.jerk_z);
-            /* Publish one event; the terrain store owns the latched state.
-             * STOP acknowledges it, not a separate unsynchronised IMU flag. */
-            snapshot.b_collision = true;
-        }
-        p_history->b_collision_enabled = collision_enabled;
+        update_lift(&sample, p_history, &snapshot);
         // Compute the tilt from smoothed readings: raw ones swing by
         // several degrees with motor vibration.
         int16_t smoothed[3] = {0};
@@ -478,9 +420,6 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         {
             snapshot.b_valid = true;
         }
-        g_rest_tilt.roll_deg  = snapshot.roll_deg;
-        g_rest_tilt.pitch_deg = snapshot.pitch_deg;
-        g_rest_tilt.b_valid   = snapshot.b_valid;
 
         if (snapshot.b_valid)
         {
@@ -500,7 +439,6 @@ static void process_sample (ID h_device, imu_history_t * p_history)
             snapshot.b_valid ? round_mm(g_hump.height_mm) : 0U;
         snapshot.last_hump_height_mm = g_hump.last_peak_mm;
         snapshot.max_hump_height_mm = g_hump.max_peak_mm;
-        snapshot.hump_count = g_hump.hump_count;
 
         // This is for logging (printfs) the readings to the console every 100ms
         if ((0 != APP_IMU_DEBUG_LOG) &&
@@ -518,22 +456,18 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                       (INT)(g_hump.height_mm * 10.0F),
                       (INT)(g_hump.peak_mm * 10.0F),
                       (UINT)g_hump.hump_count, (UINT)g_hump.rejected,
-                      (INT)(snapshot.heading_deg * 1000.0F));
+                      (INT)snapshot.heading_centideg * 10);
             tm_printf((UB *)"LIFT: height_mm=%u lifted=%u excess_mg=%d "
                             "bias_mg=%d\n",
                       (UINT)snapshot.lift_height_mm,
                       (UINT)snapshot.b_lifted,
-                      (INT)(sample.magnitude - g_hump.gravity_mg),
+                      (INT)sample.magnitude - g_hump.gravity_mg,
                       (INT)g_lift.bias_mg);
 #endif
             g_hump.rejected = 0U;
             p_history->last_log_msec = now_msec;
         }
 
-        p_history->previous_magnitude = sample.magnitude;
-        p_history->previous_x = sample.axis_x;
-        p_history->previous_y = sample.axis_y;
-        p_history->previous_z = sample.axis_z;
         p_history->previous_time_msec = now_msec;
         p_history->b_have_previous    = true;
     }
@@ -718,47 +652,41 @@ static uint8_t round_mm (float height_mm)
 }
 
 static void update_lift (imu_sample_t const * p_sample,
-                         uint32_t elapsed_msec, terrain_snapshot * p_snapshot)
+                         imu_history_t * p_history, terrain_snapshot * p_snapshot)
 {
-    bool const b_ir_floor = terrain_floor_contact();
-    /* Previous sample's tilt: this sample's is computed after. A robot
-     * sitting still and level on a junction (both line sensors black, as
-     * in the air) is standing on the floor; a hand is never that steady
-     * for long, and a real pickup breaks the stillness at once. */
-    bool const b_level = terrain_is_level(&g_rest_tilt);
-    if (lift_math_is_still(&g_lift) && b_level)
+    ir_shared_snapshot_t ir = {0};
+    uint32_t ir_checked_msec = 0U;
+    /* Read the clock after copying IR so a newer sample cannot appear stale.
+     * Both black is ambiguous. Stillness never supplies floor evidence. */
+    bool const b_floor = ir_shared_get_latest(&ir) >= E_OK && ir.b_valid &&
+        !(ir.left && ir.right) && operating_time(&ir_checked_msec) &&
+        (ir_checked_msec - ir.timestamp_msec <= APP_IR_MAX_AGE_MSEC);
+    p_snapshot->b_floor_contact = b_floor;
+    if (!p_history->b_have_previous)
     {
-        if (g_rest_samples < (uint16_t)IMU_REST_SAMPLES)
-        {
-            g_rest_samples++;
-        }
+        return;
     }
-    else
-    {
-        g_rest_samples = 0U;
-    }
-    bool const b_resting = (g_rest_samples >= (uint16_t)IMU_REST_SAMPLES);
-    bool const b_floor = b_ir_floor || b_resting;
+    uint32_t const elapsed_msec =
+        p_snapshot->timestamp_msec - p_history->previous_time_msec;
     /* 12-bit axes bound the magnitude to 3547 mg, so the difference from
      * the calibrated gravity fits int16_t. */
     int16_t const excess_mg =
-        (int16_t)(p_sample->magnitude - g_hump.gravity_mg);
+        (int16_t)((int32_t)p_sample->magnitude - g_hump.gravity_mg);
     uint16_t const height_mm =
         lift_math_step(&g_lift, excess_mg, elapsed_msec, b_floor);
     bool const b_lifted = lift_math_is_active(&g_lift) && (!b_floor) &&
                           (height_mm >= (uint16_t)APP_LIFT_STOP_HEIGHT_MM);
 
-    if (b_lifted && (0U == g_lift_reported))
+    if (b_lifted && !p_history->b_lift_reported)
     {
         /* UB views read-only string bytes; UINT matches %u. */
         tm_printf((UB *)"[IMU] Lifted: about %u mm off the floor\n",
                   (UINT)height_mm);
     }
 
-    g_lift_reported            = b_lifted ? 1U : 0U;
+    p_history->b_lift_reported = b_lifted;
     p_snapshot->lift_height_mm = height_mm;
     p_snapshot->b_lifted       = b_lifted ? 1U : 0U;
-    p_snapshot->b_resting      = b_resting ? 1U : 0U;
 }
 
 static void log_tilt(terrain_snapshot const *p_snapshot)
@@ -779,29 +707,23 @@ static void log_tilt(terrain_snapshot const *p_snapshot)
 static void log_sample (uint32_t now_msec, imu_sample_t const * p_sample)
 {
     /* UB preserves read-only string bytes. UINT preserves 32-bit time;
-     * int16_t axes, 12-bit magnitude, and jerk all fit the 32-bit INT ABI.
+     * int16_t axes and 12-bit magnitude fit the 32-bit INT ABI.
      */
     if (p_sample->b_mag_ok)
     {
         tm_printf((UB *)"t=%u ms ACCEL_mg=(%d,%d,%d) MAGNITUDE_mg=%d "
-                        "JERK_mg_s=%d JERK_XYZ_mg_s=(%d,%d,%d) "
                         "MAG=(%d,%d,%d)\n",
                   (UINT)now_msec, (INT)p_sample->axis_x, (INT)p_sample->axis_y,
                   (INT)p_sample->axis_z, (INT)p_sample->magnitude,
-                  (INT)p_sample->jerk, (INT)p_sample->jerk_x,
-                  (INT)p_sample->jerk_y, (INT)p_sample->jerk_z,
                   (INT)p_sample->mag_x,
                   (INT)p_sample->mag_y, (INT)p_sample->mag_z);
     }
     else
     {
         tm_printf((UB *)"t=%u ms ACCEL_mg=(%d,%d,%d) MAGNITUDE_mg=%d "
-                        "JERK_mg_s=%d JERK_XYZ_mg_s=(%d,%d,%d) "
                         "MAG=I2C_ERROR\n",
                   (UINT)now_msec, (INT)p_sample->axis_x, (INT)p_sample->axis_y,
-                  (INT)p_sample->axis_z, (INT)p_sample->magnitude,
-                  (INT)p_sample->jerk, (INT)p_sample->jerk_x,
-                  (INT)p_sample->jerk_y, (INT)p_sample->jerk_z);
+                  (INT)p_sample->axis_z, (INT)p_sample->magnitude);
     }
 }
 

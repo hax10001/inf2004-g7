@@ -16,9 +16,11 @@ evidence for V9 onwards (test logs, size audits, checklists) is in
 - False lift stop on a junction (fired 10 ms after stopping there): the
   height estimate could build up while driving and show the moment both
   line sensors went black. It is now held at 0 while a sensor sees the
-  floor and resets after 100 ms of floor. Still and level for
-  `APP_LIFT_REST_MSEC` (3 s) counts as on the floor, so a robot paused on a
-  junction can resume.
+  floor and resets after five floor samples. The IMU uses the latest line
+  sensor readings and publishes floor contact with the lift estimate.
+  A stationary robot held in the air stays paused. Automatic resume requires
+  fresh floor readings with at least one sensor seeing white for the full delay.
+- Removed IMU collision detection, jerk diagnostics and collision event handling.
 
 - No barcode problem stops a running robot by default: a barcode read too
   close to its junction now drops that action and crosses straight, and a
@@ -57,10 +59,9 @@ evidence for V9 onwards (test logs, size audits, checklists) is in
   line sensors losing the floor, and is shown on the dashboard (Overview,
   Map & robot and Console sensor panels). The SENSOR frame grows by one 16-bit word
   (10-bit height + lifted flag); 24/32-byte frames still decode.
-- Minimum-width storage: hump heights are 7 bits each and share one word
-  with the 10-bit lifted height, so `terrain_snapshot` stays 28 bytes on
-  ARM; hump state, pivot PWM and the brake/log/junction counters narrowed,
-  each with a compile-time range guard.
+- Minimum-width terrain storage: each hump height uses 7 bits, lift height
+  uses 10, floor contact uses 1, and heading uses 16 at telemetry precision.
+  Lift confirmation counters use 2, 5 and 3 bits.
 - `modules/terrain/host/run_tests.py` links again (missing `tk_slp_tsk`
   stub).
 

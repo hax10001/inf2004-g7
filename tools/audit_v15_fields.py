@@ -189,9 +189,6 @@ def main():
                         known, minimum = domains[fname], str(bits)
                         status = 'V15_TESTED'
                         rationale = 'Controller-only staged state; remote mutex protects published copy; no concurrent packed RMW.'
-                    if fname == 'collision_sequence':
-                        status, minimum = 'V15_TESTED', '32 (modulo event identity)'
-                        rationale = 'Snapshot mutex and compare-before-ACK; new events cannot be erased by stale ACK.'
                     if name == 'motion_status_t' and fname.startswith('downhill_'):
                         domains = {'downhill_percent':'0 before init; 65..100',
                             'downhill_engaged':'0..1',

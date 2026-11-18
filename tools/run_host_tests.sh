@@ -6,9 +6,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# --- Terrain collision latch (uses the caller's CC, else clang on macOS) ---
-python3 tools/test_v14_terrain_host.py
-
 # --- Downhill, motion, standards, network, precision, minbits, obstacle,
 #     navigation and dashboard. These run with CC exported (default clang). ---
 export CC="${CC:-clang}"
@@ -46,7 +43,7 @@ python3 tools/test_v11_minbits.py
 python3 tools/test_obstacle_integration.py --cc "$CC"
 bash tools/test_autonav.sh
 (cd app_program/dashboard && node --test --test-concurrency=1 tests/*.test.js)
-printf '\nCore host tests passed: collision rearm, STOP/START, governor, navigation, dashboard.\n'
+printf '\nCore host tests passed: lift estimation, STOP/START, governor, navigation, dashboard.\n'
 
 # --- Scan handoff, production controller, scanner readiness, ramp plant ---
 mkdir -p tmp/v15

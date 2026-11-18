@@ -68,10 +68,9 @@ Pins are in `board/board_config.h`; timing and features in
 - No CPU affinity is added.
 
 `APP_IMU_ENABLED` is 1 in normal builds and 0 in the `B1_BARCODE_TEST`
-(`G7_BARCODE_TEST=1`) profile, which keeps scanner-only capture timing. IMU
-collision stops are separately controlled by `APP_COLLISION_ENABLED` (default
-0); that threshold is uncalibrated and must be bench-tested with the wheels
-lifted before enabling. IR pin configuration stays inside the sampling task's
+(`G7_BARCODE_TEST=1`) profile, which keeps scanner-only capture timing.
+Lift detection uses the IMU and line IR readings. IR pin configuration
+stays inside the sampling task's
 startup. The motion driver initialises before task creation.
 
 ## Build and checks

@@ -50,9 +50,10 @@ typedef struct
 #if (JUNCTION_HOLD_CYCLES > 255U) || (JUNCTION_SETTLE_CYCLES > 255U)
 #error Junction hold/settle periods no longer fit their 8-bit counters
 #endif
-static uint32_t g_collision_seen;
 #if APP_IMU_ENABLED
 static uint32_t g_imu_last_good_msec;
+#endif
+#if APP_IMU_ENABLED && APP_LIFT_STOP_ENABLED && APP_LIFT_RESUME_ENABLED
 /* When the robot was first seen standing on the floor again while
  * ROBOT_LIFTED; 0 while it is not. Controller task only. */
 static uint32_t g_lift_floor_since;
@@ -94,14 +95,6 @@ static robot_state_t handle_junction (controller_history_t * p_history);
 static robot_state_t lift_try_resume (bool b_on_floor, uint32_t now_msec,
                                       controller_history_t * p_history);
 #endif
-/* Preserve V14's distinction between holding and driving states. */
-static bool collision_requires_stop(robot_state_t state, ER result,
-                                    terrain_snapshot const *p_snapshot)
-{
-    return APP_COLLISION_ENABLED != 0 && result >= E_OK && p_snapshot != NULL &&
-           p_snapshot->b_collision &&
-           (state == ROBOT_LINE_FOLLOWING || state == ROBOT_OBSTACLE);
-}
 /** @brief Apply and log an action.
  * @return ROBOT_AT_JUNCTION when both sensors are black.
  */
@@ -270,7 +263,6 @@ uint8_t g7_controller_remote_blockers (void)
         tk_get_otm(&now) < E_OK ||
         (uint32_t)(now.lo - terrain.timestamp_msec) > APP_IR_MAX_AGE_MSEC)
         reason |= 8U;
-    if (APP_COLLISION_ENABLED != 0 && terrain.b_collision) reason |= 64U;
 #endif
     if (ir_shared_get_latest(&reading) < E_OK || !reading.b_valid)
     {
@@ -381,18 +373,8 @@ uint8_t g7_controller_remote_command (uint8_t cmd, void * p_context)
  */
 static robot_state_t remote_reset_after_stop(robot_state_t prior)
 {
-    terrain_snapshot stopped = {0};
     obstacle_abort();
     motion_reset_run();
-    /* Freeze the producer before acknowledging the latest run impact.
-     * Pickup/placement while stopped cannot race this ACK or block START. */
-    if (terrain_set_collision_enabled(false) < E_OK ||
-        terrain_get_snapshot(&stopped) < E_OK ||
-        terrain_ack_collision(stopped.collision_sequence) < E_OK)
-    {
-        tm_printf((UB *)"[CTRL] IMU event ACK changed/unavailable\n");
-        return prior == ROBOT_ERROR ? ROBOT_ERROR : ROBOT_NAV_SAFETY_STOP;
-    }
     /* Also forgets a repeat-mode action: each START begins clean. */
     nav_forget(&g_navigation);
     g_control.fault = 0U;
@@ -559,7 +541,6 @@ static robot_state_t controller_cycle(robot_state_t state,
                 /* Apply physical zero-output request before touching the
                  * network event mailbox; STOP always wins. */
                 motion_stop_now();
-                (void)terrain_set_collision_enabled(false);
                 g7_nav_clear_decoded();
                 *p_history = (controller_history_t){0};
                 /* A navigation safety stop is recoverable only by STOP.
@@ -601,12 +582,6 @@ static robot_state_t controller_cycle(robot_state_t state,
             remote_publish_state(state);
         }
 #endif
-        /* IDLE here is the startup check reached after authorized START.
-         * Keep monitoring through run-time junction holds and bypasses. */
-        (void)terrain_set_collision_enabled(
-            APP_COLLISION_ENABLED != 0 &&
-            (state == ROBOT_IDLE || state == ROBOT_LINE_FOLLOWING ||
-             state == ROBOT_AT_JUNCTION || state == ROBOT_OBSTACLE));
         /* Driving off the track round an obstacle passes floor edges and
          * marks that are not barcodes; do not start captures then.
          */
@@ -625,16 +600,6 @@ static robot_state_t controller_cycle(robot_state_t state,
             g_imu_last_good_msec = snapshot.timestamp_msec;
             g_control.imu_seen = 1U;
         }
-        /* The line sensors read black in the air, so a fresh reading with
-         * either one white means the robot stands on the floor. The IMU
-         * task uses this to zero its lifted-height estimate. */
-        ir_shared_snapshot_t ir_floor = {0};
-        bool const b_floor = imu_clock_ok &&
-            ir_shared_get_latest(&ir_floor) >= E_OK && ir_floor.b_valid &&
-            (uint32_t)(terrain_now.lo - ir_floor.timestamp_msec) <=
-                APP_IR_MAX_AGE_MSEC &&
-            !(ir_floor.left && ir_floor.right);
-        (void)terrain_set_floor_contact(b_floor);
 #endif
         if (state == ROBOT_LINE_FOLLOWING || state == ROBOT_OBSTACLE)
         {
@@ -649,21 +614,6 @@ static robot_state_t controller_cycle(robot_state_t state,
                           (UINT)motion_downhill_fault());
                 state = ROBOT_STOPPED;
                 report_fault(motion_downhill_fault() == 2U ? 9U : 11U);
-            }
-        }
-        if (snapshot.b_collision)
-        {
-            g_collision_seen = snapshot.collision_sequence;
-            if (collision_requires_stop(state, terrain_error, &snapshot))
-            {
-                report_fault(1U);
-                motion_apply(LINE_UNCERTAIN);
-#ifdef B1_LIVE_COMMANDS
-                g7_nav_clear_decoded();
-#endif
-                tm_printf((UB *)"[CTRL] SAFE STOP: collision seq=%u\n",
-                          (UINT)g_collision_seen);
-                state = ROBOT_STOPPED;
             }
         }
 #if APP_IMU_ENABLED
@@ -697,14 +647,16 @@ static robot_state_t controller_cycle(robot_state_t state,
                       (UINT)snapshot.lift_height_mm,
                       (UINT)APP_LIFT_STOP_HEIGHT_MM);
             state = APP_LIFT_RESUME_ENABLED ? ROBOT_LIFTED : ROBOT_STOPPED;
+#if APP_LIFT_RESUME_ENABLED
             g_lift_floor_since = 0U;
+#endif
             report_fault(14U);
         }
 #if APP_LIFT_RESUME_ENABLED
         else if (state == ROBOT_LIFTED)
         {
             state = lift_try_resume(imu_fresh &&
-                                        (b_floor || snapshot.b_resting) &&
+                                        snapshot.b_floor_contact &&
                                         !snapshot.b_lifted &&
                                         (snapshot.lift_height_mm <
                                          APP_LIFT_STOP_HEIGHT_MM),
@@ -761,9 +713,6 @@ static robot_state_t controller_cycle(robot_state_t state,
             break;
         }
 
-        if (state != ROBOT_IDLE && state != ROBOT_LINE_FOLLOWING &&
-            state != ROBOT_AT_JUNCTION && state != ROBOT_OBSTACLE)
-            (void)terrain_set_collision_enabled(false);
 #ifdef B1_LIVE_COMMANDS
         remote_publish_state(state);
 #endif
@@ -783,9 +732,10 @@ static robot_state_t lift_try_resume (bool b_on_floor, uint32_t now_msec,
 
     if (0U == g_lift_floor_since)
     {
-        /* Zero means "not on the floor", so never store it as a time. */
-        g_lift_floor_since = (0U != now_msec) ? now_msec : 1U;
+        /* At clock wrap, wait for the next nonzero time to start. */
+        g_lift_floor_since = now_msec;
         tm_printf((UB *)"[CTRL] Put down -> resuming if it stays down\n");
+        return ROBOT_LIFTED;
     }
 
     if ((uint32_t)(now_msec - g_lift_floor_since) < APP_LIFT_RESUME_MSEC)

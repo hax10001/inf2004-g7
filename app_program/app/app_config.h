@@ -20,10 +20,6 @@
 #ifndef APP_OBSTACLE_ENABLED
 #define APP_OBSTACLE_ENABLED 1
 #endif
-/* Set to 1 to restore IMU impact-triggered stops. IMU telemetry stays on. */
-#ifndef APP_COLLISION_ENABLED
-#define APP_COLLISION_ENABLED 0
-#endif
 #define APP_OBSTACLE_PRIORITY 6
 #define APP_STARTUP_DELAY_MSEC 2000
 /* Live control: the controller waits at most this long each period for the
@@ -243,11 +239,7 @@
  * lifts it this far sideways from the other, so height = this x sin(roll).
  */
 #define WHEEL_SPACING_MM 110
-/* IMU telemetry and calibration are independent of collision stops.
- * Calibrates only while the robot is stationary/level at boot. Missing or
- * invalid IMU must block motion rather than cause an unverified fallback.
- * The 5000 mg/s jerk threshold is NOT physically validated; keep wheels
- * elevated with physical motor power cutoff for first tests. */
+/* Calibrate the IMU while the robot is stationary and level at boot. */
 #ifdef B1_BARCODE_TEST
 #define APP_IMU_ENABLED 0 /* Motor-free barcode capture profile. */
 #else
@@ -260,11 +252,9 @@
  *                           to make the stop more or less sensitive.
  * There is no downward range sensor: the height is ESTIMATED from the
  * accelerometer (see modules/terrain/lift_math.h) and shown on the
- * dashboard. "Lifted" also needs both line sensors to have lost the floor
- * (they read black in the air), so bumps and humps cannot trigger it.
- * What happens after the stop is set by APP_LIFT_RESUME_ENABLED below.
- * A very slow, gentle lift is below what the accelerometer can see; the
- * junction time limits then stop the robot instead. */
+ * dashboard. Fresh white IR readings suppress lift estimation. Two black
+ * readings can mean a junction or air. A slow pickup can evade the IMU.
+ * What happens after the stop is set by APP_LIFT_RESUME_ENABLED below. */
 #ifndef APP_LIFT_STOP_ENABLED
 #define APP_LIFT_STOP_ENABLED 1
 #endif
@@ -277,22 +267,13 @@
  *                           then START, like the other safety stops.
  *   APP_LIFT_RESUME_MSEC    how long it must stand on the floor (a line
  *                           sensor seeing white) before it moves again.
- * STOP or an MQTT loss while lifted still ends the run. Put down on a
- * junction (both sensors black, as in the air), it resumes once it has
- * been still and level for APP_LIFT_REST_MSEC. */
+ * STOP or MQTT loss ends the run. To resume, place the robot where
+ * at least one line sensor sees white. */
 #ifndef APP_LIFT_RESUME_ENABLED
 #define APP_LIFT_RESUME_ENABLED 1
 #endif
 #ifndef APP_LIFT_RESUME_MSEC
 #define APP_LIFT_RESUME_MSEC 1000U
-#endif
-/* Still (accelerometer within 16 mg) and level (within 2 degrees) for this
- * long counts as standing on the floor even where both line sensors read
- * black, such as a junction; a hand is never that steady. Lets a paused
- * robot put down on a junction resume, and stops a still robot on a
- * junction being taken for lifted. */
-#ifndef APP_LIFT_REST_MSEC
-#define APP_LIFT_REST_MSEC 3000U
 #endif
 /* Periodic IMU sample lines, for tuning only. Printing blocks interrupts,
  * and with both cores printing the encoders lose pulses, so wheel speed

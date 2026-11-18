@@ -8,21 +8,12 @@
 #include "app/tasks.h"
 
 #define TERRAIN_ROOT_START_BIT (1U << 30U)
-#define TERRAIN_MSEC_PER_SECOND 1000
-#define TERRAIN_SIGNED_TIME_MAX 0x7FFFFFFFU
-#define TERRAIN_LEVEL_TOLERANCE_DEG 2.0F
 
 /* Initialise before tasks start; protect all subsequent shared access. */
 static ID volatile gh_calibration_mutex = 0;
 static ID volatile gh_snapshot_mutex = 0;
 static terrain_calibration volatile g_calibration = {0};
 static terrain_snapshot volatile g_snapshot = {0};
-/* Protected by the snapshot mutex, including the producer's final gate. */
-static bool g_collision_enabled;
-/* Protected by the snapshot mutex: written by the controller, read by the
- * IMU task for the lift estimate. */
-static bool g_floor_contact;
-
 /** @brief Compute an integer square root without the floating-point library. */
 static uint32_t integer_sqrt (uint32_t number);
 /** @brief Wrap an angle difference into -180..180 degrees. */
@@ -67,8 +58,6 @@ ER terrain_init(void)
     g_calibration = (terrain_calibration){0.0F, 0.0F, false};
 
     g_snapshot = (terrain_snapshot){0};
-    g_collision_enabled = false;
-    g_floor_contact = false;
 
     return E_OK;
 }
@@ -167,20 +156,6 @@ float terrain_hump_height (float roll_deg)
     return tilt_math_hump_height(roll_deg, (float)WHEEL_SPACING_MM);
 }
 
-bool terrain_is_level (terrain_snapshot const * p_snapshot)
-{
-    if ((NULL == p_snapshot) || (!p_snapshot->b_valid))
-    {
-        return false;
-    }
-
-    return
-        (p_snapshot->roll_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
-        (p_snapshot->roll_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG) &&
-        (p_snapshot->pitch_deg >= -TERRAIN_LEVEL_TOLERANCE_DEG) &&
-        (p_snapshot->pitch_deg <=  TERRAIN_LEVEL_TOLERANCE_DEG);
-}
-
 ER terrain_heading_level (int16_t mag_x, int16_t mag_y, float * p_heading_deg)
 {
     if (!tilt_math_heading_level(mag_x, mag_y, p_heading_deg))
@@ -253,57 +228,6 @@ int32_t terrain_magnitude (int16_t axis_x, int16_t axis_y, int16_t axis_z)
     return (int32_t)integer_sqrt(sum_squared);
 }
 
-int32_t terrain_jerk (int32_t magnitude, int32_t previous,
-                      uint32_t elapsed_msec)
-{
-    int32_t elapsed_signed = 0;
-
-    if (0U == elapsed_msec)
-    {
-        return 0;
-    }
-
-    /* Both branches use representable casts. Preserve the original ARM
-     * two's-complement conversion even when the uint32_t high bit is set.
-     */
-    if (elapsed_msec <= TERRAIN_SIGNED_TIME_MAX)
-    {
-        elapsed_signed = (int32_t)elapsed_msec;
-    }
-    else
-    {
-        elapsed_signed = -(int32_t)(UINT32_MAX - elapsed_msec) - 1;
-    }
-
-    /* 12-bit magnitudes bound the signed numerator to +/-3547000. */
-    return ((magnitude - previous) * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
-}
-
-terrain_jerk_vector terrain_vector_jerk (
-    int16_t current_x, int16_t current_y, int16_t current_z,
-    int16_t previous_x, int16_t previous_y, int16_t previous_z,
-    uint32_t elapsed_msec)
-{
-    terrain_jerk_vector jerk = {0};
-
-    /* Very long intervals round every int16_t axis change to zero mg/s. */
-    if ((0U == elapsed_msec) || (elapsed_msec > TERRAIN_SIGNED_TIME_MAX))
-    {
-        return jerk;
-    }
-
-    int32_t elapsed_signed = (int32_t)elapsed_msec;
-    int32_t change_x = (int32_t)current_x - previous_x;
-    int32_t change_y = (int32_t)current_y - previous_y;
-    int32_t change_z = (int32_t)current_z - previous_z;
-
-    /* Each difference is at most +/-65535; multiplying by 1000 fits int32_t. */
-    jerk.x = (change_x * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
-    jerk.y = (change_y * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
-    jerk.z = (change_z * TERRAIN_MSEC_PER_SECOND) / elapsed_signed;
-    return jerk;
-}
-
 static float angle_difference (float current_deg, float reference_deg)
 {
     float difference = current_deg - reference_deg;
@@ -374,94 +298,7 @@ ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot)
         return error;
     }
 
-    /* Preserve an impact event until the controller explicitly acknowledges
-     * STOP.  Both producer and consumer use this same mutex.  The IMU
-     * publishes a pulse, not a permanently latched local boolean. */
-    terrain_snapshot next = *p_snapshot;
-    next.collision_sequence = g_snapshot.collision_sequence;
-    next.b_collision = p_snapshot->b_collision && g_collision_enabled;
-    if (next.b_collision) ++next.collision_sequence;
-    if (g_snapshot.b_collision) next.b_collision = 1U;
-    g_snapshot = next;
-
-    return tk_unl_mtx(gh_snapshot_mutex);
-}
-
-ER terrain_set_collision_enabled(bool enabled)
-{
-    if (gh_snapshot_mutex <= E_OK) return E_OBJ;
-    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
-    if (error < E_OK) return error;
-    g_collision_enabled = enabled;
-    return tk_unl_mtx(gh_snapshot_mutex);
-}
-
-bool terrain_collision_enabled(void)
-{
-    if (gh_snapshot_mutex <= E_OK) return false;
-    if (tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR) < E_OK) return false;
-    bool const enabled = g_collision_enabled;
-    (void)tk_unl_mtx(gh_snapshot_mutex);
-    return enabled;
-}
-
-ER terrain_set_floor_contact (bool b_contact)
-{
-    if (gh_snapshot_mutex <= E_OK)
-    {
-        return E_OBJ;
-    }
-
-    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
-
-    if (error < E_OK)
-    {
-        return error;
-    }
-
-    g_floor_contact = b_contact;
-    return tk_unl_mtx(gh_snapshot_mutex);
-}
-
-bool terrain_floor_contact (void)
-{
-    if (gh_snapshot_mutex <= E_OK)
-    {
-        return false;
-    }
-
-    if (tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR) < E_OK)
-    {
-        return false;
-    }
-
-    bool const b_contact = g_floor_contact;
-    (void)tk_unl_mtx(gh_snapshot_mutex);
-    return b_contact;
-}
-
-ER terrain_acknowledge_collision(void)
-{
-    /* Only an explicit STOP / controlled START rearm may clear the event.
-     * The next independently sampled impact can then latch again. */
-    if (gh_snapshot_mutex <= E_OK) return E_OBJ;
-    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
-    if (error < E_OK) return error;
-    g_snapshot.b_collision = 0U;
-    return tk_unl_mtx(gh_snapshot_mutex);
-}
-
-ER terrain_ack_collision(uint32_t sequence)
-{
-    if (gh_snapshot_mutex <= E_OK) return E_OBJ;
-    ER error = tk_loc_mtx(gh_snapshot_mutex, TMO_FEVR);
-    if (error < E_OK) return error;
-    if (sequence != g_snapshot.collision_sequence)
-    {
-        (void)tk_unl_mtx(gh_snapshot_mutex);
-        return E_OBJ;
-    }
-    g_snapshot.b_collision = 0U;
+    g_snapshot = *p_snapshot;
     return tk_unl_mtx(gh_snapshot_mutex);
 }
 

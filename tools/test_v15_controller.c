@@ -7,7 +7,6 @@
 #define B1_ROBOT_APP 1
 #define B1_LIVE_COMMANDS 1
 #define APP_TEST 0
-#define APP_COLLISION_ENABLED 1 /* Exercise optional impact-stop behavior. */
 #define _PICO_RP2040_ 1
 #include "app_program/app/task_controller.c"
 
@@ -27,9 +26,6 @@ static float g_left_rpm, g_right_rpm;
 static obstacle_drive_t g_bypass_drive;
 static uint32_t g_now = 100U;
 static terrain_snapshot g_terrain = {.b_valid=true};
-static bool g_collision_enabled;
-ER terrain_set_collision_enabled(bool enabled)
-{g_collision_enabled=enabled;return E_OK;}
 static uint8_t g_ir_left, g_ir_right, g_scan_pending, g_capture, g_guard;
 static uint8_t g_scan_letter, g_scan_action;
 static uint16_t g_scan_seq;
@@ -42,14 +38,6 @@ static uint16_t g_output_pwm;
 void motor_last_command(uint16_t *l,uint16_t *r)
 {*l=g_output_pwm;*r=g_output_pwm;}
 ER terrain_get_snapshot(terrain_snapshot *s) {*s=g_terrain;return E_OK;}
-static bool g_floor_contact;
-ER terrain_set_floor_contact(bool contact)
-{g_floor_contact=contact;return E_OK;}
-ER terrain_ack_collision(uint32_t seq)
-{
-    if (seq != g_terrain.collision_sequence) return E_OBJ;
-    g_terrain.b_collision=false; return E_OK;
-}
 void motion_reset_run(void) {}
 void motion_observe_terrain(terrain_snapshot const *s,uint32_t now)
 {(void)s;(void)now;}
@@ -271,7 +259,6 @@ static void v15_cycles(void)
         assert(g7_controller_remote_command(B1_CMD_START,NULL)==B1_OK);
         state=cycle(state,&history);
         assert(state==ROBOT_LINE_FOLLOWING);
-        assert(g_collision_enabled);
         assert(g_decoded_clears == clears_before_start);
         state=cycle(state,&history);
         assert(g_last_action==LINE_FORWARD);
@@ -302,7 +289,6 @@ static void v15_cycles(void)
         assert(g7_controller_remote_command(B1_CMD_START,NULL)==B1_NOT_READY);
         state=cycle(state,&history);
         assert(state==ROBOT_REMOTE_HOLD && g_last_action==LINE_UNCERTAIN);
-        assert(!g_collision_enabled);
         assert(!g_navigation.held && !g_navigation.pending);
         assert(g7_controller_remote_hold_applied());
         assert(g7_controller_remote_ready());
@@ -339,29 +325,13 @@ static void v15_cycles(void)
     state=ROBOT_NAV_SAFETY_STOP;g_force_busy=true;
     state=cycle(state,&history);g_force_busy=false;
     assert(state==ROBOT_NAV_SAFETY_STOP && g_last_action==LINE_UNCERTAIN);
-    /* Genuine new collision after an old ACK still stops. */
-    g_scan_pending=1U;g_scan_result=1;
-    g_terrain.b_collision=true;g_terrain.collision_sequence=1U;
-    state=ROBOT_LINE_FOLLOWING;state=cycle(state,&history);
-    assert(state==ROBOT_STOPPED && g_last_action==LINE_UNCERTAIN);
-    assert(!g_collision_enabled);
-    assert(g_scan_result==1); /* Fault preempts result consumption. */
-    assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
-    state=cycle(state,&history);
-    assert(state==ROBOT_REMOTE_HOLD && !g_terrain.b_collision);
-    assert(!g_collision_enabled && g7_controller_remote_ready());
-    state=cycle(state,&history);
-    assert(state==ROBOT_REMOTE_HOLD && g_last_action==LINE_UNCERTAIN);
-    g_terrain.b_collision=true;g_terrain.collision_sequence=2U;
-    state=ROBOT_LINE_FOLLOWING;state=cycle(state,&history);
-    assert(state==ROBOT_STOPPED && g_last_action==LINE_UNCERTAIN);
-    g_governor_fault=2U;g_terrain.b_collision=false;
+    g_governor_fault=2U;
     state=ROBOT_LINE_FOLLOWING;state=cycle(state,&history);
     assert(state==ROBOT_STOPPED && g_last_action==LINE_UNCERTAIN);
     g_governor_fault=0U;
     /* Clearing is NOT capture: it must not move the barcode's origin to
      * the junction and manufacture a clearance fault. */
-    g_terrain.b_collision=false;g_scan_result=0;g_scan_pending=0U;
+    g_scan_result=0;g_scan_pending=0U;
     g_ir_left=g_ir_right=0U;g_now+=100;g_capture=1U;
     nav_init(&g_navigation,&repeat);nav_start(&g_navigation,g_now);
     state=ROBOT_LINE_FOLLOWING;state=cycle(state,&history);
@@ -503,9 +473,10 @@ static robot_state_t lift_run(controller_history_t *history)
     g_model_cancel=false;g_cancel_pending=false;
     g_terrain=(terrain_snapshot){.b_valid=true};
     g_ir_left=g_ir_right=0U;g_control.fault=0U;
+    g_terrain.b_floor_contact=1U;
     nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
     g_now+=50;state=cycle(ROBOT_LINE_FOLLOWING,history);
-    assert(state==ROBOT_LINE_FOLLOWING && g_floor_contact);
+    assert(state==ROBOT_LINE_FOLLOWING);
     return state;
 }
 /* Lifted in the air: both line sensors black, IMU reports the lift. */
@@ -513,12 +484,14 @@ static void lift_up(void)
 {
     g_ir_left=g_ir_right=1U;
     g_terrain.lift_height_mm=60U;g_terrain.b_lifted=1U;
+    g_terrain.b_floor_contact=0U;
 }
 /* Put down with the line between the sensors; the estimate is zero. */
 static void lift_down(void)
 {
     g_ir_left=g_ir_right=0U;
     g_terrain.lift_height_mm=0U;g_terrain.b_lifted=0U;
+    g_terrain.b_floor_contact=1U;
 }
 
 /* Lifted robot: motors cut at once. Resume mode carries on line following
@@ -537,7 +510,7 @@ static void lift_stop(void)
     /* Both line sensors black: the floor is no longer reported. */
     g_ir_left=g_ir_right=1U;
     g_now+=50;state=cycle(state,&history);
-    assert(state==ROBOT_LINE_FOLLOWING && !g_floor_contact);
+    assert(state==ROBOT_LINE_FOLLOWING);
     lift_up();
     g_now+=50;state=cycle(state,&history);
     assert(g_last_action==LINE_UNCERTAIN && g_output_pwm==0U);
@@ -553,7 +526,7 @@ static void lift_stop(void)
     }
     /* A hand under one sensor briefly is not being put down: the wait
      * restarts once it is lifted clear again. */
-    g_ir_left=0U;g_terrain.b_lifted=0U;
+    lift_down();
     for (unsigned i=0U;i+2U<settle;i++)
     {
         g_now+=50;state=cycle(state,&history);
@@ -576,28 +549,14 @@ static void lift_stop(void)
     /* A second lift is reported and paused again. */
     lift_up();g_now+=50;state=cycle(state,&history);
     assert(state==ROBOT_LIFTED && g_control.fault==14U);
-    /* Put down on a junction (both black): the line sensors cannot tell
-     * the floor from the air, so it waits... */
+    /* Both black is ambiguous. Even a zero height for five seconds
+     * must leave the motor output off until floor contact returns. */
     g_terrain.lift_height_mm=0U;g_terrain.b_lifted=0U;
-    for (unsigned i=0U;i<3U*settle;i++)
+    for (unsigned i=0U;i<5U*settle;i++)
     {
         g_now+=50;state=cycle(state,&history);
         assert(state==ROBOT_LIFTED && g_output_pwm==0U);
     }
-    /* ...until the IMU reports it still and level (resting): then it
-     * resumes after the normal settle time, on the junction. */
-    g_terrain.b_resting=1U;
-    for (unsigned i=0U;i<settle;i++)
-    {
-        g_now+=50;state=cycle(state,&history);
-        assert(state==ROBOT_LIFTED && g_output_pwm==0U);
-    }
-    g_now+=50;state=cycle(state,&history);
-    assert(state==ROBOT_LINE_FOLLOWING);
-    g_terrain.b_resting=0U;
-    lift_up();g_now+=50;state=cycle(state,&history);
-    assert(state==ROBOT_LIFTED);
-    g_terrain.lift_height_mm=0U;g_terrain.b_lifted=0U;
     /* Scanner still rearming after the lift's cancel: resume anyway after
      * the normal settle time; the scanner finishes rearming on the move. */
     g_model_cancel=true;g_cancel_pending=true;g_barcode_ready=0U;
@@ -674,7 +633,6 @@ static void lift_stop(void)
         g_now+=50;state=cycle(state,&history);
         assert(state==ROBOT_STOPPED && g_output_pwm==0U);
     }
-    assert(g_floor_contact);
     /* Explicit STOP acknowledges it. */
     assert(g7_controller_remote_command(B1_CMD_STOP,NULL)==B1_OK);
     g_now+=50;state=cycle(state,&history);
@@ -687,12 +645,6 @@ static void lift_stop(void)
     state=cycle(ROBOT_IDLE,&history);
     assert(state==(APP_LIFT_RESUME_ENABLED ? ROBOT_LIFTED : ROBOT_STOPPED));
     assert(g_control.fault==14U && g_output_pwm==0U);
-    /* Stale IR is not proof of floor contact. */
-    g_terrain=(terrain_snapshot){.b_valid=true};
-    g_ir_left=g_ir_right=0U;g_now+=50;
-    g_terrain.timestamp_msec=g_now;g_ir_timestamp=g_now-500U;
-    (void)controller_cycle(ROBOT_REMOTE_HOLD,&history);
-    assert(!g_floor_contact);
     puts(APP_LIFT_RESUME_ENABLED ?
          "Lift stop (resume): immediate stop, pause while carried, settle "
          "time, resume while scanner rearms, junction/stale-IMU waits, STOP "
