@@ -222,6 +222,12 @@ static float return_clearance_mm (obstacle_seq_t const * p_seq);
  *  confirm the end: OBS_PASS_DEFAULT_MM, or the scanned width if larger.
  */
 static float default_depth_mm (obstacle_seq_t const * p_seq);
+/** @brief Axle travel past the rear before turning in: the swept-arc
+ *  clearance, at least the robot's rear plus the safety margin. */
+static float body_past_mm (float clearance_mm);
+/** @brief Measured rear (never nearer than the assumed depth) and the
+ *  turn-in point from it. */
+static void set_measured_end (obstacle_seq_t * p_seq);
 static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed);
 /** @brief Log how the straight leg ended and how far past the face.
  *  @param event PASS_LOG_END_FOUND, PASS_LOG_TURN_BACK or PASS_LOG_LINE.
@@ -575,11 +581,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                      * end: the measured rear bound now decides.
                      */
                     p_seq->b_default_end = false;
-                    p_seq->rear_x_mm =
-                        p_seq->clear_rear_mm > p_seq->hit_rear_mm ?
-                        p_seq->clear_rear_mm : p_seq->hit_rear_mm;
-                    p_seq->end_x_mm = p_seq->rear_x_mm +
-                                      return_clearance_mm(p_seq);
+                    set_measured_end(p_seq);
                 }
                 side_log_report(p_seq);
                 set_straight(p_out, heading, offset_heading(p_seq));
@@ -850,6 +852,41 @@ static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed)
            (sensor_x >= (p_seq->face_x_mm + default_depth_mm(p_seq)));
 }
 
+static float body_past_mm (float clearance_mm)
+{
+    /* The whole body past the rear before turning in: the robot's rear
+     * (OBS_ROBOT_REAR_MM behind the axle) plus the margin. The swept-arc
+     * clearance alone let it start turning while still beside the box. */
+    float const body = (float)(OBS_ROBOT_REAR_MM + OBS_SAFETY_MARGIN_MM);
+
+    return (clearance_mm > body) ? clearance_mm : body;
+}
+
+static void set_measured_end (obstacle_seq_t * p_seq)
+{
+    /* Use actual heading/sensor position at each empty ray, retaining the
+     * tightest bound and every confirmed hit. */
+    p_seq->rear_x_mm = (p_seq->clear_rear_mm > p_seq->hit_rear_mm)
+                           ? p_seq->clear_rear_mm : p_seq->hit_rear_mm;
+
+    /* A flat side face beside the path barely echoes at the side watch's
+     * angle: logged 19 Nov 14:0x, two front-corner hits then silence
+     * "confirmed" the end before the sensor passed the face, and the robot
+     * turned back into the box; and re-confirming on the final straight
+     * pulled the turn 60 mm earlier again. Never take the rear nearer than
+     * the depth assumed when the end cannot be confirmed (the scanned
+     * width, at least OBS_PASS_DEFAULT_MM). */
+    float const min_rear = p_seq->face_x_mm + default_depth_mm(p_seq);
+
+    if (p_seq->rear_x_mm < min_rear)
+    {
+        p_seq->rear_x_mm = min_rear;
+    }
+
+    p_seq->end_x_mm = p_seq->rear_x_mm +
+                      body_past_mm(return_clearance_mm(p_seq));
+}
+
 static float default_depth_mm (obstacle_seq_t const * p_seq)
 {
     int32_t depth = OBS_PASS_DEFAULT_MM;
@@ -962,27 +999,12 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
         if (!b_default_end)
         {
-            /* Use actual heading/sensor position at each empty ray,
-             * retaining the tightest bound and every confirmed hit. */
-            p_seq->rear_x_mm = p_seq->clear_rear_mm > p_seq->hit_rear_mm ?
-                p_seq->clear_rear_mm : p_seq->hit_rear_mm;
-
-            /* A flat side face beside the path barely echoes at the side
-             * watch's angle: logged 19 Nov 14:0x, two hits off the front
-             * corner and then silence "confirmed" the end before the sensor
-             * had passed the face, and the robot turned back into the box.
-             * Never take the end nearer than the depth assumed when it
-             * cannot be confirmed (the scanned width, at least
-             * OBS_PASS_DEFAULT_MM). */
-            float const min_rear = p_seq->face_x_mm + default_depth_mm(p_seq);
-
-            if (p_seq->rear_x_mm < min_rear)
-            {
-                p_seq->rear_x_mm = min_rear;
-            }
+            set_measured_end(p_seq);
         }
-
-        p_seq->end_x_mm = p_seq->rear_x_mm + past_mm;
+        else
+        {
+            p_seq->end_x_mm = p_seq->rear_x_mm + body_past_mm(past_mm);
+        }
 
         /* Values fit INT on the 32-bit target; UB preserves string bytes. */
         tm_printf((UB *)"[OBS] Side end candidate x=%d; body clear at %d mm\n",
@@ -1356,7 +1378,16 @@ static void seek_leg_towards (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 {
     if (p_seq->seek_legs >= OBS_SEEK_LEGS)
     {
-        raise_fault(p_seq, p_out, OBS_FAULT_LINE_LOST);
+        /* The line is not where the straight-line return expects it (an
+         * obstacle on a curve: the line bends away behind the box). Rather
+         * than stop with a fault, hand back to line following, which pivots
+         * on the spot towards the side the line should be on, up to
+         * MOTION_SEARCH_SWEEP_DEG each way, and stops there if it is not
+         * found. */
+        tm_printf((UB *)"[OBS] Line not found by the seek legs; line "
+                        "following spins to find it\n");
+        p_seq->rejoin_hint = (search_side > 0) ? -1 : 1;
+        finish_bypass(p_seq, p_out, true);
     }
     else
     {

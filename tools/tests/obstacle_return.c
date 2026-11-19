@@ -75,10 +75,14 @@ static obstacle_drive_t finish_side(int32_t side)
     /* Rear bound: where the first empty ray crossed the object's side. */
     assert(g_seq.rear_x_mm >= g_seq.clear_rear_mm);
     assert(g_seq.end_x_mm >= g_seq.rear_x_mm);
-    /* No fixed extra run: only the body clearance for the return angle
-     * (under OBS_SAFETY_MARGIN_MM at 60 degrees, more turning square). */
-    assert(g_seq.end_x_mm <= g_seq.rear_x_mm + return_clearance_mm(&g_seq) +
-           OBS_SAFETY_MARGIN_MM);
+    /* The body clearance for the return angle, at least the whole rear
+     * body plus margin past the rear (19 Nov), and no more. */
+    {
+        float const body=(float)(OBS_ROBOT_REAR_MM+OBS_SAFETY_MARGIN_MM);
+        float const arc=return_clearance_mm(&g_seq);
+        float const want=g_seq.rear_x_mm+(arc>body?arc:body);
+        assert(g_seq.end_x_mm>=want-0.5F && g_seq.end_x_mm<=want+0.5F);
+    }
     g_seq.pose.x_mm=g_seq.end_x_mm-1.0F;
     (void)step(-1,false,600);
     assert(g_seq.phase==OBS_PHASE_PASS_END);
@@ -118,9 +122,10 @@ int main(void)
     (void)step(-1,false,150);
     assert(g_seq.phase==OBS_PHASE_PASS_END);
     assert(g_seq.end_x_mm>=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM);
-    /* No longer waits for the whole rear body plus margin. */
-    assert(g_seq.end_x_mm<g_seq.face_x_mm+OBS_PASS_DEFAULT_MM+
-           OBS_ROBOT_REAR_MM+OBS_SAFETY_MARGIN_MM);
+    /* 19 Nov: the whole body (rear plus margin) clears the assumed rear
+     * before turning in; turning earlier swung back in beside the box. */
+    assert(g_seq.end_x_mm+0.5F>=g_seq.rear_x_mm+OBS_ROBOT_REAR_MM+
+           OBS_SAFETY_MARGIN_MM);
     g_seq.pose.x_mm=g_seq.end_x_mm-1.0F;
     (void)step(-1,false,200);
     assert(g_seq.phase==OBS_PHASE_PASS_END);
@@ -500,8 +505,10 @@ int main(void)
     g_seq.seek_legs=OBS_SEEK_LEGS;
     g_seq.pose.y_mm=(float)OBS_SEEK_BAND_MM+1.0F;
     drive=step(4000,false,300);
-    assert(drive.b_fault && (fault_bits&OBS_FAULT_LINE_LOST));
-    puts("PASS seek zig-zags across the band and stops after the last leg");
+    /* Obstacle on a curve: no fault, hand back so line following spins
+     * towards where the line should be (search_side 1 = towards -y). */
+    assert(!drive.b_fault && drive.b_done && drive.line_hint==-1);
+    puts("PASS seek zig-zags across the band, then hands back to spin for it");
 
     /* The servo follows the object round the turn out. */
     passing(1);
