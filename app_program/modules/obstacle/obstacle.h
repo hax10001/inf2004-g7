@@ -25,6 +25,9 @@ typedef struct
     unsigned char b_line_follow:1; /**< Normal line action this period. */
     unsigned char b_done:1;        /**< Bypass finished. */
     unsigned char b_fault:1;       /**< Stop and enter the error state. */
+    /** With b_done: where line following should look first if neither
+     *  sensor is on the line, +1 left, -1 right, 0 unknown. */
+    signed char   line_hint:2;
 } obstacle_drive_t;
 
 /** @brief Create the shared state, sensor and servo. */

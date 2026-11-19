@@ -10,6 +10,7 @@
 #include "modules/line_barcode/line_follow.h"
 #include "modules/motion/motion.h"
 #include "modules/obstacle/obstacle.h"
+#include "modules/obstacle/scan_plan.h"
 #include "modules/barcode_scanning/bc_wave.h"
 #include "modules/terrain/terrain.h"
 #include <tm/tmonitor.h>
@@ -150,6 +151,84 @@ static uint32_t g_capture_start_travel = 0U;
 static uint8_t g_capture_was_active = 0U;
 static int32_t g_nav_last_left = 0;
 static int32_t g_nav_last_right = 0;
+static int32_t g_nav_fwd_left = 0;
+static int32_t g_nav_fwd_right = 0;
+
+/* Heading relative to the line, for the obstacle scan's centre. While line
+ * following, the robot's heading is averaged over the last
+ * LINE_HEADING_TAU_MM of travel: that average is the line's direction (the
+ * follower zig-zags about it). When an obstacle stops the robot, its
+ * heading minus the average is how far it is turned off the line, so the
+ * scan can split left/right about the line instead of sonar zero (logged
+ * 19 Nov: a robot stopped 10-20 degrees off picked the longer side). */
+#define LINE_HEADING_TAU_MM 150.0f
+#define LINE_HEADING_MIN_MM 300.0f
+#define LINE_HEADING_MM_PER_COUNT (219.8f / 1056.0f)
+#define LINE_HEADING_TRACK_MM 110.0f
+static float g_line_heading_deg = 0.0f;
+static float g_line_average_deg = 0.0f;
+static float g_line_tracked_mm = 0.0f;
+
+static void line_heading_reset (void)
+{
+    g_line_heading_deg = 0.0f;
+    g_line_average_deg = 0.0f;
+    g_line_tracked_mm = 0.0f;
+}
+
+#ifdef B1_LIVE_COMMANDS
+static void line_heading_update (void)
+{
+    float const left_mm = (float)g_nav_fwd_left * LINE_HEADING_MM_PER_COUNT;
+    float const right_mm = (float)g_nav_fwd_right * LINE_HEADING_MM_PER_COUNT;
+    float const travel = 0.5f * (left_mm + right_mm);
+    float weight = (travel > 0.0f) ? (travel / LINE_HEADING_TAU_MM) : 0.0f;
+
+    if ((travel > 50.0f) || (travel < -50.0f))
+    {
+        /* Not driven there in one period: picked up or a stale reading. */
+        line_heading_reset();
+        return;
+    }
+    if (weight > 1.0f)
+    {
+        weight = 1.0f;
+    }
+    g_line_heading_deg += ((right_mm - left_mm) / LINE_HEADING_TRACK_MM) *
+                          57.29578f;
+    g_line_average_deg += (g_line_heading_deg - g_line_average_deg) * weight;
+    if (travel > 0.0f)
+    {
+        g_line_tracked_mm += travel;
+    }
+}
+#endif
+
+/* Robot heading minus the line's, + = turned left; publishes it (or "not
+ * known" after too little straight following) for the obstacle scan. */
+static void line_heading_publish (void)
+{
+    if (g_line_tracked_mm >= LINE_HEADING_MIN_MM)
+    {
+        float const off = g_line_heading_deg - g_line_average_deg;
+
+        scan_plan_set_line_offset_ddeg((int32_t)(off * 10.0f));
+        tm_printf((UB *)"[OBS] Heading off the line at the stop: %d.%d deg "
+                        "(+ = left), over %d mm of following\n",
+                  (INT)((int32_t)(off * 10.0f) / 10),
+                  (INT)(((int32_t)(off * 10.0f) % 10 + 10) % 10),
+                  (INT)g_line_tracked_mm);
+    }
+    else
+    {
+        scan_plan_set_line_offset_ddeg(SCAN_PLAN_LINE_OFFSET_UNKNOWN);
+        tm_printf((UB *)"[OBS] Heading off the line unknown (%d mm of "
+                        "following); scan centre is sonar zero\n",
+                  (INT)g_line_tracked_mm);
+    }
+    line_heading_reset();
+}
+
 static uint32_t nav_path_counts(void)
 {
     encoder_sample_t left = {0};
@@ -162,6 +241,10 @@ static uint32_t nav_path_counts(void)
     dr = (uint32_t)right.count - (uint32_t)g_nav_last_right;
     g_nav_last_left = left.count;
     g_nav_last_right = right.count;
+    /* Forward travel per wheel: the left encoder counts down when driving
+     * forward (logged: encL falls while encR rises). */
+    g_nav_fwd_left = -(int32_t)dl;
+    g_nav_fwd_right = (int32_t)dr;
     g_nav_path_counts += (dl > INT32_MAX ? 0U - dl : dl) +
                          (dr > INT32_MAX ? 0U - dr : dr);
     return g_nav_path_counts;
@@ -889,6 +972,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
     }
     if (obstacle_is_blocked())
     {
+        line_heading_publish();
         motion_apply(LINE_UNCERTAIN);
 #ifdef B1_LIVE_COMMANDS
         /* A route queued before leaving the line cannot drive the bypass. */
@@ -1071,6 +1155,16 @@ static robot_state_t handle_following (controller_history_t * p_history)
 #endif
         }
         decision = nav_step(&g_navigation, &sample);
+        if ((NAV_OUTPUT_FOLLOW == decision.drive) ||
+            (NAV_OUTPUT_FORWARD == decision.drive))
+        {
+            line_heading_update();
+        }
+        else
+        {
+            /* Junction turns and stops: the line ahead is a new one. */
+            line_heading_reset();
+        }
         if (0U != g_navigation.tape_capture)
         {
             /* The capture is the crossing tape: drop it so it cannot
@@ -1222,6 +1316,9 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
     {
         /* Stop before handing ownership back; discard bypass line touches. */
         motion_apply(LINE_UNCERTAIN);
+        /* With both sensors white the lost-line check had no side to lean
+         * to and drove straight past the line. */
+        motion_line_hint((int)drive.line_hint);
         (void)ir_shared_take_junction(&b_both);
         (void)ir_shared_take_sides(&b_left, &b_right);
         p_history->b_have_previous_action = false;

@@ -318,6 +318,14 @@ void motion_line_seen (bool b_left, bool b_right)
     g_search.seen_now   = (b_left == b_right) ? 0 : (b_left ? 1 : -1);
 }
 
+void motion_line_hint (int side)
+{
+    if (0 == g_search.side)
+    {
+        g_search.side = (side > 0) ? 1 : (side < 0) ? -1 : 0;
+    }
+}
+
 void motion_apply (line_follow_action_t action)
 {
     if (g_downhill.fault)

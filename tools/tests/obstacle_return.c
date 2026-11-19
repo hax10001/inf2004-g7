@@ -176,6 +176,7 @@ int main(void)
         (void)step(4000,true,1200);(void)step(4000,true,1250);
         g_seq.pose.y_mm=5.0F;
         (void)step(4000,false,1300);
+        g_seq.pose.y_mm=40.0F; /* beyond OBS_ALIGN_ON_LINE_MM */
         assert(g_seq.phase==OBS_PHASE_ALIGN && g_seq.b_line_past);
         (void)step_ir(true,false,1350);
         (void)step_ir(false,true,1400); /* trailing sensor too: swept over */
@@ -196,6 +197,7 @@ int main(void)
         (void)step(4000,true,1200);(void)step(4000,true,1250);
         g_seq.pose.y_mm=5.0F;
         (void)step(4000,false,1300);
+        g_seq.pose.y_mm=40.0F; /* beyond OBS_ALIGN_ON_LINE_MM */
         g_seq.pose.heading_rad=0.0F;
         drive=step(4000,false,1400);
         assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.search_side==-1);
@@ -225,11 +227,30 @@ int main(void)
         (void)step(4000,true,1200);(void)step(4000,true,1250);
         g_seq.pose.y_mm=-5.0F;
         (void)step(4000,false,1300);
+        g_seq.pose.y_mm=-40.0F; /* beyond OBS_ALIGN_ON_LINE_MM */
         (void)step_ir(true,true,1350);
         g_seq.pose.heading_rad=0.0F;
         (void)step(4000,false,1400);
         assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.search_side==-1);
         puts("PASS right bypass: leading sensor only hands back, both rejoin");
+
+        /* Logged 19 Nov 13:05: odometry within 11-17 mm of the line, both
+         * sensors crossed, and the seek legs that followed made the rejoin
+         * worse. Within OBS_ALIGN_ON_LINE_MM hand back, telling line
+         * following which side the line is on. */
+        drive=finish_side(1);
+        g_seq.pose.heading_rad=-OBS_RETURN_DEG*OBS_RAD_PER_DEG;
+        (void)step(4000,false,1100);
+        g_seq.pose.y_mm=y_before;
+        (void)step(4000,true,1200);(void)step(4000,true,1250);
+        g_seq.pose.y_mm=5.0F;
+        (void)step(4000,false,1300);
+        (void)step_ir(true,false,1350);
+        (void)step_ir(false,true,1400);
+        g_seq.pose.heading_rad=0.0F;
+        drive=step(4000,false,1450);
+        assert(drive.b_done && !g_seq.b_active && drive.line_hint==-1);
+        puts("PASS beside the line by odometry: hand back, lean towards it");
     }
 
     /* The rejoin check is for the main return's large turn only: a seek

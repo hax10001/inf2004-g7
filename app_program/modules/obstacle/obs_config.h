@@ -341,10 +341,6 @@
 #ifndef OBS_FORWARD_EDGE_SPLIT
 #define OBS_FORWARD_EDGE_SPLIT 1
 #endif
-/* Both ends of the echo span must be at least this much farther than its
- * nearest echo before the face normal (not sonar zero) is trusted as the
- * line's direction for the side comparison. */
-#define OBS_TILT_BOWL_MM 10
 #define OBS_EDGE_SPLIT_JUMP_MM 25
 #define OBS_EDGE_PROJECTION_PAD_MM 25
 /* OBS_PASS_DEFAULT_MM: fallback length of the straight leg, as sensor travel
@@ -428,6 +424,12 @@
 #define OBS_ALIGN_CHECK_DEG 30
 #define OBS_LINE_CONFIRM_CYCLES 2U
 #define OBS_VERIFY_CYCLES 10U
+/* Odometry this close to the line after straightening up counts as on it:
+ * the sensors straddle 18 mm tape only 4 mm clear each side, so crossing
+ * it with both sensors on the way in is normal, and seeking from there
+ * (stop, turn, drive across) made the rejoin worse (logged 19 Nov 13:05:
+ * y = -11..17 mm, then seek legs). Line following finds the tape. */
+#define OBS_ALIGN_ON_LINE_MM 30
 #define OBS_SEEK_DEG 30
 #define OBS_SEEK_BAND_MM 150
 #define OBS_SEEK_LEGS 4U

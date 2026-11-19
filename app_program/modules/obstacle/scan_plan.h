@@ -136,6 +136,14 @@ void scan_plan_build_side_report (scan_plan_point_t * p_points, int32_t count,
                                   scan_plan_bypass_t * p_plan,
                                   scan_plan_sides_t * p_sides);
 
+/** No heading-off-the-line measurement: split about sonar zero. */
+#define SCAN_PLAN_LINE_OFFSET_UNKNOWN INT32_MIN
+/** @brief Controller task: the robot's heading off the line when it stopped
+ *  for this obstacle, tenths of a degree, + = turned left, or
+ *  SCAN_PLAN_LINE_OFFSET_UNKNOWN. The side comparison and the reported
+ *  left/right split are measured about the line. One aligned 32-bit word,
+ *  written before the scan starts and read by the scanner task. */
+void scan_plan_set_line_offset_ddeg (int32_t offset_ddeg);
 /** @brief SCAN_PLAN_CLEAR, SCAN_PLAN_ROUTE or SCAN_PLAN_NO_ROUTE. */
 uint32_t scan_plan_result (scan_plan_bypass_t const * p_plan);
 /** @brief True when the bypass goes round the left side. */

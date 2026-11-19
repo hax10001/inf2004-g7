@@ -48,6 +48,10 @@ void motion_apply (line_follow_action_t action);
  *  seen while navigation drives straight over a both-black run.
  */
 void motion_line_seen (bool b_left, bool b_right);
+/** @brief Where the line should be when following resumes with neither
+ *  sensor on it (after a bypass): +1 left, -1 right. Lets the lost-line
+ *  check lean and pivot that way first instead of driving straight on. */
+void motion_line_hint (int side);
 /** @brief Stop like motion_apply(LINE_UNCERTAIN), but if the robot was
  * driving, short-brake for APP_JUNCTION_BRAKE_MSEC before coasting. Later
  * stop requests keep the brake until that time is used up.

@@ -34,6 +34,8 @@ obstacle_drive_t obstacle_bypass_step(uint32_t l,uint32_t r,uint32_t ms)
 }
 void motion_apply(line_follow_action_t action) {g_last_action=action;}
 void motion_brake(void) {g_last_action=LINE_UNCERTAIN;}
+void motion_line_hint(int side) {(void)side;}
+void scan_plan_set_line_offset_ddeg(int32_t offset_ddeg) {(void)offset_ddeg;}
 void motion_stop_now(void) {g_last_action=LINE_UNCERTAIN;}
 void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
 void motion_apply_maneuver(uint8_t action) {(void)action;}
@@ -140,10 +142,10 @@ static void obstacle_handoff(void)
     assert(handle_obstacle(&history)==ROBOT_OBSTACLE);
     assert(g_last_action==LINE_UNCERTAIN);
 
-    g_bypass_drive=(obstacle_drive_t){0,0,false,true,false,false};
+    g_bypass_drive=(obstacle_drive_t){0,0,false,true,false,false,0};
     assert(handle_obstacle(&history)==ROBOT_OBSTACLE);
     assert(g_last_action==LINE_FORWARD);
-    g_bypass_drive=(obstacle_drive_t){0,0,false,false,true,false};
+    g_bypass_drive=(obstacle_drive_t){0,0,false,false,true,false,0};
     assert(handle_obstacle(&history)==ROBOT_LINE_FOLLOWING);
     /* The barcode's turn was not used yet: it survives the bypass and is
      * done at the next junction (single mode then discards it). */
@@ -151,7 +153,7 @@ static void obstacle_handoff(void)
            g_navigation.action==NAV_LEFT);
     assert(g_last_action==LINE_UNCERTAIN);
 
-    g_bypass_drive=(obstacle_drive_t){0,0,false,false,false,true};
+    g_bypass_drive=(obstacle_drive_t){0,0,false,false,false,true,0};
     assert(handle_obstacle(&history)==ROBOT_ERROR);
     assert(g_last_action==LINE_UNCERTAIN);
     unsigned int steps=g_bypass_steps;

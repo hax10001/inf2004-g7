@@ -738,30 +738,55 @@ static int32_t isqrt (int32_t value)
     return (int32_t)root;
 }
 
-/* The face normal only says where the line runs when the face's nearest
- * echo lies inside the echo span, ranges rising towards both ends (logged
- * 19 Nov 12:32: 250 mm at -15, 211 at 25, 227 at 40 deg: a face turned 20
- * degrees, the robot stopped turned on the line). When the nearest echo is
- * an end of the span (a box wholly to one side, square on) the normal is
- * not seen, so measure from sonar zero instead. */
+static volatile int32_t g_line_offset_ddeg = SCAN_PLAN_LINE_OFFSET_UNKNOWN;
+
+void scan_plan_set_line_offset_ddeg (int32_t offset_ddeg)
+{
+    g_line_offset_ddeg = offset_ddeg;
+}
+
+/* The frame the sides are compared in. The face normal cannot be used: it
+ * is estimated from where the face echoes, so a box sticking out further
+ * on one side pulls it to the middle of the box and every box looked
+ * centred (logged 19 Nov 13:0x: splits 80/80, 76/76, 87/87; a box at -20..40
+ * deg went left on the tie-break). The controller measures the robot's
+ * heading off the line from the wheels while following; the line runs at
+ * minus that bearing. Unknown (too little following): sonar zero. */
 static int32_t compare_tilt_x2 (scan_plan_point_t const * p_points,
                                 int32_t low, int32_t high, int32_t tilt_x2)
 {
-    int32_t nearest = (int32_t)p_points[low].range_mm;
+    int32_t const offset = g_line_offset_ddeg;
+    int32_t const limit  = HALF * OBS_FACE_TILT_MAX_DEG;
 
-    for (int32_t index = low; index <= high; index++)
+    (void)p_points;
+    (void)low;
+    (void)high;
+    (void)tilt_x2;
+
+    if (SCAN_PLAN_LINE_OFFSET_UNKNOWN == offset)
     {
-        if ((int32_t)p_points[index].range_mm < nearest)
-        {
-            nearest = (int32_t)p_points[index].range_mm;
-        }
+        return 0;
     }
 
-    bool const b_bowl =
-        (((int32_t)p_points[low].range_mm - nearest) >= OBS_TILT_BOWL_MM) &&
-        (((int32_t)p_points[high].range_mm - nearest) >= OBS_TILT_BOWL_MM);
+    /* The line's bearing is minus the offset. In half degrees that is
+     * -offset / 5; round it to the 2.5 degree (5 half degree) grid that
+     * lateral_mm() accepts: steps of 25 tenths. */
+    int32_t const grid = 25;
+    int32_t const turns = (offset >= 0) ? ((offset + (grid / HALF)) / grid)
+                                        : -(((-offset) + (grid / HALF)) / grid);
+    int32_t       x2    = -turns * TRIG_STEP_DEG;
 
-    return b_bowl ? tilt_x2 : 0;
+    if (x2 > limit)
+    {
+        x2 = limit;
+    }
+
+    if (x2 < -limit)
+    {
+        x2 = -limit;
+    }
+
+    return x2;
 }
 
 static int32_t face_tilt_x2 (scan_plan_point_t const * p_points, int32_t low,

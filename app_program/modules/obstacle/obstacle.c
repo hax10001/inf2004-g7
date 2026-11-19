@@ -104,6 +104,8 @@ typedef struct
     unsigned int b_align_right:1;
     unsigned int b_line_past:1;
     unsigned int b_align_check:1; /**< Main-return ALIGN: check crossings. */
+    /** Handed back next to the line: +1 it is on the left, -1 right. */
+    signed int   rejoin_hint:2;
     uint32_t          enter_msec;
     int32_t           last_left;
     int32_t           last_right;
@@ -746,7 +748,21 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                                       : (UB *)"line on the left, rejoin");
                     }
 
-                    if (0 != rejoin)
+                    float const y_abs = (p_seq->pose.y_mm < 0.0F)
+                                            ? -p_seq->pose.y_mm
+                                            : p_seq->pose.y_mm;
+
+                    if ((0 != rejoin) &&
+                        (y_abs <= (float)OBS_ALIGN_ON_LINE_MM))
+                    {
+                        /* Just beside it (the sensors are only 4 mm clear
+                         * of the tape each side): hand back and let line
+                         * following lean towards it, instead of a seek leg
+                         * that stops, turns and drives across. */
+                        p_seq->rejoin_hint = (rejoin > 0) ? -1 : 1;
+                        finish_bypass(p_seq, p_out, true);
+                    }
+                    else if (0 != rejoin)
                     {
                         /* Beside the line, not on it: line following
                          * would drive on along the white. */
@@ -770,8 +786,19 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                  */
                 if (p_seq->verify_cycles >= OBS_VERIFY_CYCLES)
                 {
-                    if (p_seq->b_black_seen)
+                    float const y_abs = (p_seq->pose.y_mm < 0.0F)
+                                            ? -p_seq->pose.y_mm
+                                            : p_seq->pose.y_mm;
+                    bool const b_crossed =
+                        (0U != p_seq->b_line_past) ||
+                        (0U != p_seq->b_align_left) ||
+                        (0U != p_seq->b_align_right);
+
+                    if (p_seq->b_black_seen ||
+                        (b_crossed && (y_abs <= (float)OBS_ALIGN_ON_LINE_MM)))
                     {
+                        /* Seen, or crossed on the way in and odometry is
+                         * on it: the line is between the sensors. */
                         finish_bypass(p_seq, p_out, true);
                     }
                     else
@@ -1530,6 +1557,7 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
                        int32_t right_count, uint32_t now_msec)
 {
     p_seq->b_active         = true;
+    p_seq->rejoin_hint      = 0;
     p_seq->last_left        = left_count;
     p_seq->last_right       = right_count;
     p_seq->pose.x_mm        = 0.0F;
@@ -1771,6 +1799,13 @@ static void finish_bypass (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
     obs_state_set_phase(OBS_PHASE_IDLE);
     p_seq->b_active = false;
     p_out->b_done   = true;
+    /* The line runs along y = 0: a robot left of it (y > 0) finds it on its
+     * right. Right on it, look back towards the side it came from. */
+    p_out->line_hint = (0 != p_seq->rejoin_hint)    ? p_seq->rejoin_hint
+                       : (p_seq->pose.y_mm > 3.0F)  ? -1
+                       : (p_seq->pose.y_mm < -3.0F) ? 1
+                       : (p_seq->side > 0)           ? 1
+                                                     : -1;
 }
 
 static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
