@@ -112,6 +112,4 @@ for SIGN in 0 1 -1; do
     app_program/modules/motion/wheel_speed.c -lm -o tmp/v15/ramp_motion
   tmp/v15/ramp_motion
 done
-mkdir -p docs/V15/evidence
-cp tmp/v15/plant-sign-1.csv tmp/v15/plant-sign--1.csv docs/V15/evidence/
 echo 'HOST PASS; ARM build and physical acceptance are still required.'

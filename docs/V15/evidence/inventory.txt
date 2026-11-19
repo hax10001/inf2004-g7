@@ -1,2 +1,0 @@
-Parsed 43 ARM translation units; 535 record fields; 240 global/static instances.
-Inventory is source coverage evidence; OPEN items are not certified.

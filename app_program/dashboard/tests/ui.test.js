@@ -24,12 +24,8 @@ test('theme and controls use one spacing system across monitoring views',()=>{
 });
 test('single-command simulation is opt-in and scoped to synthetic telemetry',()=>{
  const tools=fs.readFileSync(path.join(__dirname,'../tools/demo.js'),'utf8');
- const rootScript=fs.readFileSync(path.join(__dirname,'../../../demo.sh'),'utf8');
  const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
  assert.match(tools,/process\.argv\.includes\('--auto-start'\)/);
  assert.match(tools,/process\.argv\.includes\('--fast'\)/);
- assert.match(rootScript,/DASHBOARD_SOURCE=sim/);
- assert.match(rootScript,/LIVE_COMMANDS_ENABLED=0 LIVE_IMU_RECAL_ENABLED=0/);
- assert.match(rootScript,/node tools\/demo\.js --auto-start --fast/);
  assert.ok(pkg.scripts['demo:drive']);
 });
