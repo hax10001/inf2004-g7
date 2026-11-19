@@ -42,6 +42,12 @@ kernel/ include/ lib/ device/ config/   µT-Kernel port, Wi-Fi/lwIP/MQTT
 build_make/             make build;  tools/  build helpers and host tests
 ```
 
+## Minimum-bit data representation (Change Requirement 1)
+
+[`docs/min-bits/MINIMUM_BITS.md`](docs/min-bits/MINIMUM_BITS.md): the data
+representation table, RAM and message-size comparisons and test/timing
+evidence, with the generated tables beside it.
+
 ## Tests
 
 - Firmware host tests: `bash tools/run_host_tests.sh`

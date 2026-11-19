@@ -52,7 +52,25 @@
 #define OBS_ATAN2F(y, x) __builtin_atan2f((y), (x))
 #define OBS_PI 3.14159265F
 /* No servo angle can equal this, so the next aim is always sent. */
-#define OBS_AIM_NONE 1000
+/* No servo angle requested yet: outside the +-90 degree servo range and
+ * inside int8_t. */
+#define OBS_AIM_NONE 127
+/* Saturating 8-bit counter step (counts only compared to small limits). */
+/* Store a bounded value in a 16-bit field; values are within range by
+ * the configured limits, the clamp only makes that explicit. */
+static int16_t clamp_i16 (int32_t value)
+{
+    return (int16_t)((value > INT16_MAX) ? INT16_MAX
+                     : (value < INT16_MIN) ? INT16_MIN : value);
+}
+
+/* Servo angles are within +-90 degrees. */
+static int8_t clamp_servo (int32_t deg)
+{
+    return (int8_t)((deg > 90) ? 90 : (deg < -90) ? -90 : deg);
+}
+
+#define SAT_INC8(count) ((uint8_t)(((count) < 255U) ? ((count) + 1U) : 255U))
 /* Body side beyond the wheel centre: the corner a pivot must clear. */
 #define OBS_BODY_PAST_WHEEL_MM                                                 \
     ((OBS_ROBOT_WIDTH_MM / HALF) - (OBS_TRACK_WIDTH_MM / HALF))
@@ -112,18 +130,22 @@ typedef struct
     int32_t           last_left;
     int32_t           last_right;
     obstacle_pose_t   pose;
-    int32_t           out_ddeg;
-    int32_t           lateral_mm; /**< Offset from the line while passing. */
+    /* Minimum widths for the configured limits (single owner, no locks):
+     * angles in tenths of a degree within +-1800, servo angles within
+     * +-90 (OBS_AIM_NONE 127), offsets below DIST_LIMIT_CM (5.1 m),
+     * counters saturating at 255 and compared to small thresholds. */
+    int16_t           out_ddeg;   /**< Turn-out angle, 0..900. */
+    int16_t           lateral_mm; /**< Offset from the line while passing. */
     /** Measured push-out while passing, tenths of a degree (0..150). */
     uint8_t           push_ddeg;
     /** Assumed object depth for a default end: the scanned width. */
     int16_t           depth_guess_mm;
-    int32_t           look_deg;   /**< Servo angle of the side watch. */
-    int32_t           aim_deg;    /**< Servo angle last requested. */
-    uint32_t          log_n[5];   /**< Side pings by kind since last log. */
-    int32_t           log_min_mm; /**< Nearest side echo since last log. */
+    int8_t            look_deg;   /**< Servo angle of the side watch. */
+    int8_t            aim_deg;    /**< Servo angle last requested. */
+    uint8_t           log_n[5];   /**< Side pings by kind since last log. */
+    int16_t           log_min_mm; /**< Nearest side echo since last log. */
     float             log_x_mm;   /**< Pose x of the last side summary. */
-    int32_t           turn_target_ddeg;
+    int16_t           turn_target_ddeg; /**< -1800..1800. */
     float             face_x_mm; /**< Front face of the object. */
     float             rear_x_mm; /**< Best estimate of the object's rear. */
     float             end_x_mm;  /**< Where the axle may turn back in. */
@@ -133,11 +155,11 @@ typedef struct
     uint32_t          side_seq;   /**< Last side ping handled. */
     uint32_t          side_sample_msec; /**< Time of last fresh side sample. */
     uint32_t          front_seq;  /**< Last front ping handled. */
-    uint32_t          guard_hits; /**< Front pings in a row that were near. */
-    uint32_t          replans;
-    int32_t           search_ddeg; /**< Heading of the run to the line. */
-    uint32_t          line_hits;
-    uint32_t          verify_cycles;
+    uint8_t           guard_hits; /**< Front pings in a row that were near. */
+    uint8_t           replans;    /**< 0..OBS_REPLAN_MAX + 1. */
+    int16_t           search_ddeg; /**< Heading of the run to the line. */
+    uint8_t           line_hits;
+    uint8_t           verify_cycles; /**< 0..OBS_VERIFY_CYCLES. */
     float             approach_from_mm; /**< Pose x where the creep began. */
     uint32_t          approach_msec;    /**< When the creep began. */
 } obstacle_seq_t;
@@ -588,7 +610,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                 side_log_report(p_seq);
                 set_straight(p_out, heading, offset_heading(p_seq));
                 p_seq->line_hits =
-                    line_near(p_seq, b_black) ? (p_seq->line_hits + 1U) : 0U;
+                    line_near(p_seq, b_black) ? SAT_INC8(p_seq->line_hits) : 0U;
 
                 if ((now_msec - p_seq->side_sample_msec) >
                     OBS_SIDE_MAX_AGE_MSEC)
@@ -640,7 +662,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
             case OBS_PHASE_TURN_BACK:
                 p_seq->line_hits =
-                    line_seen(p_seq, b_black) ? (p_seq->line_hits + 1U) : 0U;
+                    line_seen(p_seq, b_black) ? SAT_INC8(p_seq->line_hits) : 0U;
 
                 if (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES)
                 {
@@ -677,7 +699,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
                 set_straight(p_out, heading, p_seq->search_ddeg);
                 p_seq->line_hits =
-                    line_seen(p_seq, b_black) ? (p_seq->line_hits + 1U) : 0U;
+                    line_seen(p_seq, b_black) ? SAT_INC8(p_seq->line_hits) : 0U;
 
                 if ((!p_seq->b_black_seen) &&
                     (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES))
@@ -782,7 +804,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
             case OBS_PHASE_VERIFY:
                 p_out->b_line_follow = true;
-                p_seq->verify_cycles++;
+                p_seq->verify_cycles = SAT_INC8(p_seq->verify_cycles);
                 p_seq->b_black_seen = p_seq->b_black_seen || b_black;
 
                 /* Another object ahead is left to the normal front monitor
@@ -1106,7 +1128,7 @@ static bool side_ping_update (obstacle_seq_t * p_seq)
 
                 if (target > p_seq->lateral_mm)
                 {
-                    p_seq->lateral_mm = target;
+                    p_seq->lateral_mm = clamp_i16(target);
                 }
 
                 if (push > OBS_OFFSET_OUT_MAX_DDEG)
@@ -1239,7 +1261,7 @@ static void aim_side_watch (obstacle_seq_t * p_seq, uint32_t now_msec)
     int32_t const look =
         (reach < OBS_SIDE_LOOK_DEG) ? reach : OBS_SIDE_LOOK_DEG;
 
-    p_seq->look_deg      = object_side * look;
+    p_seq->look_deg      = clamp_servo(object_side * look);
     p_seq->aim_deg       = p_seq->look_deg;
     p_seq->side_skip     = 1U;
     p_seq->clear_hits    = 0U;
@@ -1277,12 +1299,12 @@ static void side_log_count (obstacle_seq_t * p_seq, int32_t range_mm,
         /* Valid echo neither in the corridor nor beyond the line. */
     }
 
-    p_seq->log_n[kind]++;
+    p_seq->log_n[kind] = SAT_INC8(p_seq->log_n[kind]);
 
     if ((range_mm >= 0) &&
         ((p_seq->log_min_mm < 0) || (range_mm < p_seq->log_min_mm)))
     {
-        p_seq->log_min_mm = range_mm;
+        p_seq->log_min_mm = clamp_i16(range_mm);
     }
 }
 
@@ -1355,7 +1377,7 @@ static void aim_at_object (obstacle_seq_t * p_seq)
 
     if (deg != p_seq->aim_deg)
     {
-        p_seq->aim_deg = deg;
+        p_seq->aim_deg = clamp_servo(deg);
         obs_state_watch_angle_set(deg);
     }
 }
@@ -1488,7 +1510,7 @@ static void line_found (obstacle_seq_t * p_seq, uint32_t now_msec)
         /* Exactly on it: keep the side the robot came from. */
     }
     /* Carry straight on at this heading to the start of the turn. */
-    p_seq->search_ddeg = heading_ddeg(&p_seq->pose);
+    p_seq->search_ddeg = clamp_i16(heading_ddeg(&p_seq->pose));
     /* Values fit INT on the target; UB preserves the string bytes. */
     tm_printf((UB *)"[OBS] Line found; axle %d mm from it\n",
               (INT)(((float)p_seq->search_side) * p_seq->pose.y_mm));
@@ -1528,7 +1550,7 @@ static bool guard_tripped (obstacle_seq_t * p_seq, bool b_to_line)
                      (float)(-OBS_GUARD_BEYOND_LINE_MM);
         }
 
-        p_seq->guard_hits = b_near ? (p_seq->guard_hits + 1U) : 0U;
+        p_seq->guard_hits = b_near ? SAT_INC8(p_seq->guard_hits) : 0U;
     }
 
     return p_seq->guard_hits >= OBS_GUARD_HITS;
@@ -1769,7 +1791,7 @@ static void enter_phase (obstacle_seq_t * p_seq, obs_state_phase_t phase,
 static void enter_turn (obstacle_seq_t * p_seq, obs_state_phase_t phase,
                         int32_t target_ddeg, uint32_t now_msec)
 {
-    p_seq->turn_target_ddeg = target_ddeg;
+    p_seq->turn_target_ddeg = clamp_i16(target_ddeg);
     p_seq->turn_dir =
         (target_ddeg >= heading_ddeg(&p_seq->pose)) ? 1 : -1;
     enter_phase(p_seq, phase, now_msec);
@@ -1923,14 +1945,14 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         }
 
         p_seq->b_planned = true;
-        p_seq->out_ddeg =
-            scan_plan_angle_deg(scan_plan_angle_index(&plan)) * DDEG_PER_DEG;
+        p_seq->out_ddeg = clamp_i16(
+            scan_plan_angle_deg(scan_plan_angle_index(&plan)) * DDEG_PER_DEG);
         /* The plan's offset is from where the robot is now, which is on the
          * line at first and beside it after a stop to look again.
          */
-        p_seq->lateral_mm =
+        p_seq->lateral_mm = clamp_i16(
             (int32_t)(((float)p_seq->side) * p_seq->pose.y_mm) +
-            (scan_plan_lateral_cm(&plan) * MM_PER_CM);
+            (scan_plan_lateral_cm(&plan) * MM_PER_CM));
         p_seq->face_x_mm   = face_x;
         p_seq->rear_x_mm   = (face_x > p_seq->rear_x_mm) ? face_x
                                                        : p_seq->rear_x_mm;

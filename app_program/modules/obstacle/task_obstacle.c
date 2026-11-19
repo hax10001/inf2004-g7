@@ -23,21 +23,31 @@
 #error "OBS_CORNER_PINGS must be 3..8."
 #endif
 
+/* Obstacle task only. Ranges 0..4000 mm; index/fill 0..MONITOR_WINDOW;
+ * hits 0..OBS_CONFIRM_HITS; no_echo 0..OBS_NO_ECHO_LIMIT. */
 typedef struct
 {
-    int32_t  history[MONITOR_WINDOW];
-    uint32_t next;
-    uint32_t filled;
-    uint32_t hits;
-    uint32_t no_echo;
+    int16_t      history[MONITOR_WINDOW];
+    unsigned int next:2;
+    unsigned int filled:2;
+    unsigned int hits:2;
+    unsigned int no_echo:3;
 } monitor_t;
+#if (MONITOR_WINDOW > 3U) || (OBS_CONFIRM_HITS > 3U) || \
+    (OBS_NO_ECHO_LIMIT > 7U)
+#error Front monitor limits no longer fit their bit-fields
+#endif
 
+/* Obstacle task only: pings 0..OBS_GLANCE_EVERY, servo angle +-90. */
 typedef struct
 {
-    bool     b_aimed;
-    uint32_t pings;     /**< Side pings since the last front glance. */
-    int32_t  aimed_deg; /**< Angle the servo was last aimed at. */
+    bool         b_aimed:1;
+    unsigned int pings:3;   /**< Side pings since the last front glance. */
+    int8_t       aimed_deg; /**< Angle the servo was last aimed at. */
 } side_watch_t;
+#if OBS_GLANCE_EVERY > 7U
+#error Side-watch glance count no longer fits 3 bits
+#endif
 
 /** @brief Ping the front and raise OBS_EVT_BLOCKED on a confirmed hit. */
 static void run_monitor (monitor_t * p_monitor);
@@ -194,7 +204,8 @@ static void run_monitor (monitor_t * p_monitor)
             range_mm = OBS_FAR_MM;
         }
 
-        p_monitor->history[p_monitor->next] = range_mm;
+        /* 0..4000 mm fits int16_t. */
+        p_monitor->history[p_monitor->next] = (int16_t)range_mm;
         p_monitor->next = (p_monitor->next + 1U) % MONITOR_WINDOW;
 
         if (p_monitor->filled < MONITOR_WINDOW)
@@ -415,7 +426,8 @@ static void run_side_watch (side_watch_t * p_watch, UINT pattern)
         {
             tk_dly_tsk((RELTIM)servo_set_angle(want_deg));
             p_watch->b_aimed   = true;
-            p_watch->aimed_deg = want_deg;
+            /* Servo angles are within +-90 degrees. */
+            p_watch->aimed_deg = (int8_t)want_deg;
         }
 
         result = ultrasonic_ping(&range_mm);

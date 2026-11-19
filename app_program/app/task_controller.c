@@ -41,12 +41,12 @@ typedef enum
 typedef struct
 {
     line_follow_action_t previous_action;
-    bool                 b_have_previous_action;
-    uint32_t             junction_count;
+    bool                 b_have_previous_action:1;
+    uint16_t             junction_count; /**< Log only; wraps harmlessly. */
     /* Both stop counting at their limits (5 and 3 periods by default). */
     uint8_t              junction_cycles; /**< Periods since stopping. */
     uint8_t              settle_cycles;   /**< Periods back on a line. */
-    bool                 b_rearmed;       /**< Both black after the hold. */
+    bool                 b_rearmed:1;     /**< Both black after the hold. */
 } controller_history_t;
 #if (JUNCTION_HOLD_CYCLES > 255U) || (JUNCTION_SETTLE_CYCLES > 255U)
 #error Junction hold/settle periods no longer fit their 8-bit counters
@@ -148,11 +148,16 @@ static uint8_t g_nav_handoff_retry = 0U;
 static uint32_t g_capture_end_travel = 0U;
 /* Forward travel when the running capture began (junction-tape check). */
 static uint32_t g_capture_start_travel = 0U;
-static uint8_t g_capture_was_active = 0U;
+/* Controller task only: a capture was recording last period (1 bit). */
+static struct
+{
+    unsigned int capture_was_active:1;
+} g_capture_flags = {0U};
 static int32_t g_nav_last_left = 0;
 static int32_t g_nav_last_right = 0;
-static int32_t g_nav_fwd_left = 0;
-static int32_t g_nav_fwd_right = 0;
+/* Forward counts per 50 ms period: at most ~60 at 65 RPM, so 16 bits. */
+static int16_t g_nav_fwd_left = 0;
+static int16_t g_nav_fwd_right = 0;
 
 /* Heading relative to the line, for the obstacle scan's centre. While line
  * following, the robot's heading is averaged over the last
@@ -227,7 +232,7 @@ static void line_heading_publish (void)
     if ((g_line_tracked_mm >= LINE_HEADING_MIN_MM) &&
         (mag <= LINE_HEADING_MAX_DDEG))
     {
-        scan_plan_set_line_offset_ddeg(off_ddeg);
+        scan_plan_set_line_offset_ddeg((int16_t)off_ddeg);
         tm_printf((UB *)"[OBS] Heading off the line at the stop: %s%d.%d deg "
                         "(+ = left), over %d mm of following\n",
                   (off_ddeg < 0) ? (UB *)"-" : (UB *)"",
@@ -244,6 +249,14 @@ static void line_heading_publish (void)
     line_heading_reset();
 }
 
+/* A period's counts fit 16 bits; a larger jump (lifted, stale) saturates
+ * and the heading tracker discards that period anyway. */
+static int16_t clamp_period_counts(int32_t counts)
+{
+    return (int16_t)((counts > INT16_MAX) ? INT16_MAX :
+                     (counts < -INT16_MAX) ? -INT16_MAX : counts);
+}
+
 static uint32_t nav_path_counts(void)
 {
     encoder_sample_t left = {0};
@@ -258,8 +271,8 @@ static uint32_t nav_path_counts(void)
     g_nav_last_right = right.count;
     /* Forward travel per wheel: the left encoder counts down when driving
      * forward (logged: encL falls while encR rises). */
-    g_nav_fwd_left = -(int32_t)dl;
-    g_nav_fwd_right = (int32_t)dr;
+    g_nav_fwd_left = clamp_period_counts(-(int32_t)dl);
+    g_nav_fwd_right = clamp_period_counts((int32_t)dr);
     g_nav_path_counts += (dl > INT32_MAX ? 0U - dl : dl) +
                          (dr > INT32_MAX ? 0U - dr : dr);
     return g_nav_path_counts;
@@ -1080,11 +1093,11 @@ static robot_state_t handle_following (controller_history_t * p_history)
         sample.capture_active = bc_wave_capture_active();
         if (bc_wave_capture_active())
         {
-            if (0U == g_capture_was_active)
+            if (0U == g_capture_flags.capture_was_active)
             {
                 g_capture_start_travel = sample.travel_counts;
             }
-            g_capture_was_active = 1U;
+            g_capture_flags.capture_was_active = 1U;
             sample.capture_start_known = 1U;
             sample.capture_start_counts = g_capture_start_travel;
             /* Where the robot was when the barcode was last under it. */
@@ -1093,7 +1106,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
         }
         else
         {
-            g_capture_was_active = 0U;
+            g_capture_flags.capture_was_active = 0U;
         }
         received = g7_nav_take_scan(&letter, &mapped, &sequence,
                                      &captured_msec, &completed_msec,

@@ -135,7 +135,8 @@ static void transitions(void)
     motion_status_t status={0};
     motion_reset_run();motion_stop_now();
     unsigned int changes=0U;
-    float prior_effort=0.0f, prior_target=0.0f, cruise=0.0f;
+    float prior_effort=0.0f, cruise=0.0f;
+    unsigned int prior_percent=100U;
     for(unsigned i=0;i<600;i++)
     {
         bool const descending=i>=100 && i<350;
@@ -154,16 +155,21 @@ static void transitions(void)
             float const change=fabsf(effort(0)-prior_effort);
             if(change>0.01f) changes++;
             assert(change<=2.02f);
-            /* The governor moves its scale 5 % of cruise per period
-             * (DOWNHILL_SCALE_STEP): 0.75 RPM at 15 RPM. */
+            /* The governor moves its scale at most 5 % per period
+             * (DOWNHILL_SCALE_STEP). Checked on the governor's own scale:
+             * the wheel target also follows the steering's curve slowdown,
+             * which is not the governor's step (it added ~2 % at 35 RPM
+             * and failed the old target-based check). */
             assert(cruise>0.0f);
-            assert(fabsf(status.left_target_rpm-prior_target)<=
-                   0.05f*cruise+0.001f);
+            {
+                int const step=(int)status.downhill_percent-(int)prior_percent;
+                assert(step<=5 && step>=-5);
+            }
             assert(status.left_target_rpm>0.0f);
             assert(rpm[0]>1.0f); /* No repeated stop/start at slope edges. */
         }
         assert(pins[8]<=MOTOR_PWM_WRAP && pins[9]<=MOTOR_PWM_WRAP);
-        prior_effort=effort(0);prior_target=status.left_target_rpm;
+        prior_effort=effort(0);prior_percent=status.downhill_percent;
         if(i==200) assert(status.downhill_engaged &&
                           status.downhill_percent==65U);
     }
@@ -191,6 +197,15 @@ static void transitions(void)
 
 /* Barcodes are read at driving speed: a capture neither slows nor brakes
  * the robot, whenever it starts. */
+/* The ramped base speed behind both wheel targets: the steering splits it
+ * between the wheels and sheds MOTION_CURVE_SLOWDOWN (0.6) of it at full
+ * steer, which is not the capture's doing. */
+static float base_rpm(motion_status_t const *s)
+{
+    float const mag=(s->steer<0.0f)?-s->steer:s->steer;
+    return 0.5f*(s->left_target_rpm+s->right_target_rpm)/(1.0f-0.6f*mag);
+}
+
 static void scan_entry(void)
 {
     motion_status_t status={0};
@@ -198,7 +213,7 @@ static void scan_entry(void)
     g_capturing=0U;
     for (unsigned i=0;i<200;i++){advance(0.0f);motion_apply(LINE_FORWARD);}
     assert(motion_get_status(&status)==E_OK);
-    float const cruise=status.left_target_rpm;
+    float const cruise=base_rpm(&status);
     float const cruise_rpm=rpm[0];
     assert(cruise>0.0f);
     g_capturing=1U;
@@ -206,8 +221,7 @@ static void scan_entry(void)
     {
         advance(0.0f);motion_apply(LINE_FORWARD);
         assert(motion_get_status(&status)==E_OK);
-        assert(status.left_target_rpm==cruise);
-        assert(status.right_target_rpm==cruise);
+        assert(fabsf(base_rpm(&status)-cruise)<0.01f*cruise);
         assert(!(pins[8]==pins[9] && pins[8]!=0U));   /* never braked */
         assert(!(pins[10]==pins[11] && pins[10]!=0U));
     }
@@ -216,7 +230,8 @@ static void scan_entry(void)
     motion_reset_run();motion_stop_now();
     for (unsigned i=0;i<10;i++) {rpm[0]=rpm[1]=0.0f;advance(0.0f);}
     for (unsigned i=0;i<10;i++){advance(0.0f);motion_apply(LINE_FORWARD);}
-    assert(motion_get_status(&status)==E_OK && status.left_target_rpm==cruise);
+    assert(motion_get_status(&status)==E_OK &&
+           fabsf(base_rpm(&status)-cruise)<0.01f*cruise);
     g_capturing=0U;
     motion_stop_now();
     printf("PASS scan at driving speed: capture keeps %.1f RPM, no slowdown "

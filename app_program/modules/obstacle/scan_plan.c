@@ -738,9 +738,9 @@ static int32_t isqrt (int32_t value)
     return (int32_t)root;
 }
 
-static volatile int32_t g_line_offset_ddeg = SCAN_PLAN_LINE_OFFSET_UNKNOWN;
+static volatile int16_t g_line_offset_ddeg = SCAN_PLAN_LINE_OFFSET_UNKNOWN;
 
-void scan_plan_set_line_offset_ddeg (int32_t offset_ddeg)
+void scan_plan_set_line_offset_ddeg (int16_t offset_ddeg)
 {
     g_line_offset_ddeg = offset_ddeg;
 }

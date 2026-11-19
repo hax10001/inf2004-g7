@@ -55,7 +55,7 @@ void motion_apply(line_follow_action_t action)
 {g_last_action=action;g_output_pwm=action==LINE_UNCERTAIN?0U:1000U;}
 void motion_brake(void) {motion_apply(LINE_UNCERTAIN);}
 void motion_line_hint(int side) {(void)side;}
-void scan_plan_set_line_offset_ddeg(int32_t offset_ddeg) {(void)offset_ddeg;}
+void scan_plan_set_line_offset_ddeg(int16_t offset_ddeg) {(void)offset_ddeg;}
 void motion_stop_now(void) {motion_apply(LINE_UNCERTAIN);}
 void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
 void motion_apply_maneuver(uint8_t action) {g_maneuver=action;}

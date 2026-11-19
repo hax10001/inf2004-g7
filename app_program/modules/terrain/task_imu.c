@@ -81,6 +81,8 @@ typedef struct
     unsigned int last_peak_mm:7; /**< 0..127, as published. */
     unsigned int max_peak_mm:7;  /**< 0..127, as published. */
     unsigned int hump_count:8;
+    unsigned int b_spoiled:1;    /**< Lifted during this hump. */
+    unsigned int b_was_lifted:1; /**< Lifted at the last sample. */
 } hump_state_t;
 
 static hump_state_t g_hump = {0};
@@ -101,8 +103,6 @@ static bool    g_climb_counts  = false;
 /* Lifting the robot tilts it like a hump: a hump that overlaps a lift, or
  * starts within HUMP_AFTER_LIFT_MSEC of being put down, is not recorded. */
 #define HUMP_AFTER_LIFT_MSEC 1500U
-static bool     g_hump_spoiled  = false;
-static bool     g_was_lifted    = false;
 static uint32_t g_landed_msec   = 0U;
 /** @brief Add this sample's axle travel times sin(tilt) to the climb. */
 static void climb_update (float tilt_signed_deg);
@@ -559,15 +559,15 @@ static void update_hump (terrain_snapshot const * p_snapshot)
     if (0U != p_snapshot->b_lifted)
     {
         /* Handled, not a hump: spoil one in progress, start none. */
-        g_was_lifted   = true;
-        g_hump_spoiled = g_hump.b_on_hump;
+        g_hump.b_was_lifted = 1U;
+        g_hump.b_spoiled = g_hump.b_on_hump;
         g_hump.tilted_count = 0U;
         return;
     }
 
-    if (g_was_lifted)
+    if (0U != g_hump.b_was_lifted)
     {
-        g_was_lifted  = false;
+        g_hump.b_was_lifted = 0U;
         g_landed_msec = (now_msec != 0U) ? now_msec : 1U;
     }
 
@@ -601,7 +601,7 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         }
         if (b_tilted)
         {
-            g_hump_spoiled  = false;
+            g_hump.b_spoiled = 0U;
             g_hump.b_on_hump   = true;
             g_hump.phase       = TERRAIN_HUMP_CLIMBING;
             g_hump.level_count = 0U;
@@ -674,10 +674,10 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         return;
     }
 
-    if (g_hump_spoiled)
+    if (0U != g_hump.b_spoiled)
     {
         /* The robot was lifted during it: not a hump height. */
-        g_hump_spoiled     = false;
+        g_hump.b_spoiled = 0U;
         g_hump.b_on_hump   = false;
         g_hump.phase       = TERRAIN_HUMP_LEVEL;
         g_hump.level_count = 0U;
