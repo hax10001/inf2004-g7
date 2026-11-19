@@ -252,14 +252,14 @@ app_program/modules/telemetry/buddy1_rt.c,24,last_mission,uint8_t,static,B1 stor
 app_program/modules/telemetry/buddy1_rt.c,25,mutex_id,ID,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/telemetry/buddy1_rt.c,239,mutex_cfg,const T_CMTX,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/telemetry/buddy1_rt.c,240,task_cfg,const T_CTSK,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,88,g_hump,hump_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,98,g_climb_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,99,g_climb_peak_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,100,g_climb_up,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,101,g_climb_last,int32_t[2],static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,102,g_climb_counts,bool,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,106,g_landed_msec,uint32_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,110,g_lift,lift_math_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,91,g_hump,hump_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,101,g_climb_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,102,g_climb_peak_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,103,g_climb_up,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,104,g_climb_last,int32_t[2],static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,114,g_climb_counts,bool,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,118,g_landed_msec,uint32_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,122,g_lift,lift_math_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/terrain/terrain.c,13,gh_calibration_mutex,volatile ID,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/terrain/terrain.c,14,gh_snapshot_mutex,volatile ID,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/terrain/terrain.c,15,g_calibration,volatile terrain_calibration,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table

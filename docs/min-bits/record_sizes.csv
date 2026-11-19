@@ -33,7 +33,7 @@ encoder_pins_t,0,8,8,0
 encoder_sample_t,0,8,8,0
 encoder_state_t,0,8,8,0
 front_span_t,0,8,8,0
-hump_state_t,11,72,36,36
+hump_state_t,12,76,36,40
 imu_history_t,2,12,12,0
 imu_sample_t,2,20,16,4
 ir_shared_diag_t,0,8,8,0
@@ -52,14 +52,14 @@ nav_sample_t,7,24,20,4
 obstacle_drive_t,5,16,12,4
 obstacle_pose_t,0,12,12,0
 obstacle_seq_t,27,212,112,100
-plan_fields_t,0,32,32,0
-scan_anchor_t,0,12,12,0
+plan_fields_t,1,32,32,0
+scan_anchor_t,1,12,12,0
 scan_handoff_t,7,24,12,12
 scan_plan_bypass_t,0,8,8,0
 scan_plan_point_t,3,12,4,8
 scan_plan_side_info_t,12,48,12,36
 scan_plan_sides_t,16,88,40,48
-side_option_t,0,24,24,0
+side_option_t,1,24,24,0
 side_watch_t,2,12,4,8
 steering_t,3,32,28,4
 terrain_calibration,1,12,12,0

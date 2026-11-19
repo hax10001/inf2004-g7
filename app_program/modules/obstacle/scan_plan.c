@@ -136,7 +136,7 @@ typedef struct
 {
     int32_t  need_mm;
     uint32_t angle_index;
-    bool     b_ok;
+    bool     b_ok:1;
     uint32_t reason;  /**< SCAN_PLAN_NEED_*. */
     int32_t  blocker; /**< Nearest corridor blocker index, or -1. */
     /** The need before the OBS_MIN_LATERAL_MM floor, used to compare the
@@ -155,13 +155,13 @@ typedef struct
 {
     int32_t stop_mm; /**< Earlier confirmed forward range, or 0. */
     int32_t tie_side; /**< Earlier plan's side if the fresh scan ties. */
-    bool    b_measured; /**< The centre sample came from this sweep. */
+    bool    b_measured:1; /**< The centre sample came from this sweep. */
 } scan_anchor_t;
 
 typedef struct
 {
     uint32_t result;
-    bool     b_left;
+    bool     b_left:1;
     uint32_t angle_index;
     uint32_t width_cm;
     uint32_t near_cm;
