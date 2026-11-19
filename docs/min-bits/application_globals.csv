@@ -1,29 +1,29 @@
 Source,Line,Name,Type,Storage,Ownership,Status
-app_program/app/task_controller.c,55,g_imu_last_good_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,60,g_lift_floor_since,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,72,g_control,struct (unnamed struct at ../app_program/app/task_controller.c:63:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,111,g_remote_mutex,ID,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,112,g_stop_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,113,g_start_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,115,g_reported_state,robot_state_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,116,g_navigation,nav_controller_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,117,g_nav_report_event,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,118,g_nav_report_value,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,119,g_nav_report_seq,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,143,g_nav_path_counts,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,146,g_nav_handoff_retry,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,148,g_capture_end_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,150,g_capture_start_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,155,g_capture_flags,struct (unnamed struct at ../app_program/app/task_controller.c:152:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,156,g_nav_last_left,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,157,g_nav_last_right,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,159,g_nav_fwd_left,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,160,g_nav_fwd_right,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,174,g_line_heading_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,175,g_line_average_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,176,g_line_tracked_mm,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,499,g_remote_lock_misses,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,1255,reasons,const char *const[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,54,g_imu_last_good_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,59,g_lift_floor_since,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,71,g_control,struct (unnamed struct at ../app_program/app/task_controller.c:62:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,110,g_remote_mutex,ID,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,111,g_stop_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,112,g_start_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,114,g_reported_state,robot_state_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,115,g_navigation,nav_controller_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,116,g_nav_report_event,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,117,g_nav_report_value,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,118,g_nav_report_seq,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,142,g_nav_path_counts,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,145,g_nav_handoff_retry,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,147,g_capture_end_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,149,g_capture_start_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,154,g_capture_flags,struct (unnamed struct at ../app_program/app/task_controller.c:151:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,155,g_nav_last_left,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,156,g_nav_last_right,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,158,g_nav_fwd_left,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,159,g_nav_fwd_right,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,173,g_line_heading_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,174,g_line_average_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,175,g_line_tracked_mm,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,498,g_remote_lock_misses,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,1254,reasons,const char *const[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/app_main.c,21,g7_usermain_stage,volatile unsigned int,external,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/app_main.c,22,g7_usermain_error,volatile int,external,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/drivers/encoder.c,41,g_pins,const encoder_pins_t[2],static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table

@@ -10,7 +10,6 @@
 #include "modules/line_barcode/line_follow.h"
 #include "modules/motion/motion.h"
 #include "modules/obstacle/obstacle.h"
-#include "modules/obstacle/scan_plan.h"
 #include "modules/barcode_scanning/bc_wave.h"
 #include "modules/terrain/terrain.h"
 #include <tm/tmonitor.h>
@@ -232,7 +231,7 @@ static void line_heading_publish (void)
     if ((g_line_tracked_mm >= LINE_HEADING_MIN_MM) &&
         (mag <= LINE_HEADING_MAX_DDEG))
     {
-        scan_plan_set_line_offset_ddeg((int16_t)off_ddeg);
+        obstacle_set_line_offset_ddeg((int16_t)off_ddeg);
         tm_printf((UB *)"[OBS] Heading off the line at the stop: %s%d.%d deg "
                         "(+ = left), over %d mm of following\n",
                   (off_ddeg < 0) ? (UB *)"-" : (UB *)"",
@@ -241,7 +240,7 @@ static void line_heading_publish (void)
     }
     else
     {
-        scan_plan_set_line_offset_ddeg(SCAN_PLAN_LINE_OFFSET_UNKNOWN);
+        obstacle_set_line_offset_ddeg(OBSTACLE_LINE_OFFSET_UNKNOWN);
         tm_printf((UB *)"[OBS] Heading off the line unknown (%d mm of "
                         "following, %d ddeg); scan centre is sonar zero\n",
                   (INT)g_line_tracked_mm, (INT)off_ddeg);

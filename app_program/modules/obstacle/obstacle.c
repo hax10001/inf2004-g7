@@ -326,6 +326,13 @@ static void finish_bypass (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                          uint32_t now_msec);
 
+void obstacle_set_line_offset_ddeg (int16_t offset_ddeg)
+{
+    scan_plan_set_line_offset_ddeg(
+        (OBSTACLE_LINE_OFFSET_UNKNOWN == offset_ddeg)
+            ? SCAN_PLAN_LINE_OFFSET_UNKNOWN : offset_ddeg);
+}
+
 ER obstacle_init (void)
 {
     ER error = E_OK;

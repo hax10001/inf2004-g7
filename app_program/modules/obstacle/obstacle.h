@@ -40,6 +40,13 @@ bool obstacle_is_blocked (void);
 bool obstacle_has_fault (void);
 /** @brief Cancel any scan or bypass and park the servo. */
 void obstacle_abort (void);
+/** Heading off the line not measured: split the scan about sonar zero. */
+#define OBSTACLE_LINE_OFFSET_UNKNOWN INT16_MIN
+/** @brief Controller task, when an obstacle stops line following: the
+ *  robot's heading off the line, tenths of a degree (+ = turned left), or
+ *  OBSTACLE_LINE_OFFSET_UNKNOWN. The scan splits left/right about the line.
+ */
+void obstacle_set_line_offset_ddeg (int16_t offset_ddeg);
 /** @brief Advance the bypass one step; call once per controller period.
  *  @param line_left Left IR, 1 if black now or since the last period.
  *  @param line_right Right IR, 1 if black now or since the last period.

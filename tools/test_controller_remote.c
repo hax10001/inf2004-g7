@@ -35,7 +35,7 @@ obstacle_drive_t obstacle_bypass_step(uint32_t l,uint32_t r,uint32_t ms)
 void motion_apply(line_follow_action_t action) {g_last_action=action;}
 void motion_brake(void) {g_last_action=LINE_UNCERTAIN;}
 void motion_line_hint(int side) {(void)side;}
-void scan_plan_set_line_offset_ddeg(int16_t offset_ddeg) {(void)offset_ddeg;}
+void obstacle_set_line_offset_ddeg(int16_t offset_ddeg) {(void)offset_ddeg;}
 void motion_stop_now(void) {g_last_action=LINE_UNCERTAIN;}
 void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
 void motion_apply_maneuver(uint8_t action) {(void)action;}
