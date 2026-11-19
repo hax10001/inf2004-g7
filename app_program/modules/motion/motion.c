@@ -138,10 +138,10 @@ static uint8_t g_brake_cycles = 0U;
  * continues. Only if it has still not seen the line by
  * MOTION_SEARCH_AFTER_MM does it stop and pivot (a missed corner). */
 #ifndef MOTION_SEARCH_ROLL_MM
-#define MOTION_SEARCH_ROLL_MM 40U
+#define MOTION_SEARCH_ROLL_MM 50U
 #endif
 #ifndef MOTION_SEARCH_ROLL_STEER
-#define MOTION_SEARCH_ROLL_STEER 0.25f
+#define MOTION_SEARCH_ROLL_STEER 0.2f
 #endif
 #if MOTION_SEARCH_ROLL_MM >= MOTION_SEARCH_AFTER_MM
 #error The rolling check must start before the pivot search
@@ -320,9 +320,15 @@ void motion_line_seen (bool b_left, bool b_right)
 
 void motion_line_hint (int side)
 {
-    if (0 == g_search.side)
+    if (0 != side)
     {
-        g_search.side = (side > 0) ? 1 : (side < 0) ? -1 : 0;
+        /* After a bypass the line is beside the robot, not ahead of it:
+         * with neither sensor on it, pivot towards it straight away
+         * (as far as MOTION_SEARCH_SWEEP_DEG, then back the other way)
+         * instead of driving on along the white first. */
+        g_search.side         = (side > 0) ? 1 : -1;
+        g_search.phase        = SEARCH_FOLLOWING;
+        g_search.white_counts = MOTION_SEARCH_AFTER_COUNTS;
     }
 }
 

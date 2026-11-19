@@ -5,11 +5,13 @@
 #include "terrain.h"
 #include "lift_math.h"
 #include "drivers/lsm303.h"
+#include "drivers/encoder.h"
 #include "app/app_config.h"
 #include "modules/line_barcode/ir_shared.h"
 #include "platform/console.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <math.h>
 #include <tm/tmonitor.h>
 
 #define IMU_SAMPLE_PERIOD_MSEC 20
@@ -82,6 +84,22 @@ typedef struct
 } hump_state_t;
 
 static hump_state_t g_hump = {0};
+/* Hump height from the climb. The robot drives along its own body axis, so
+ * every bit of axle travel ds rises ds * sin(tilt); adding that up over
+ * the hump gives how high the axle actually went, whatever the hump's
+ * length or slope. The body tilt alone (WHEEL_SPACING_MM * sin(tilt)) only
+ * measures how far the robot is tipped: on a long hump that is the slope,
+ * not the height. The larger of the two is reported, so a short bump that
+ * only lifts one end still counts. IMU task only. */
+#define CLIMB_MM_PER_COUNT (219.8F / 1056.0F)
+#define CLIMB_DEG_TO_RAD 0.0174532925F
+static float   g_climb_mm      = 0.0F;
+static float   g_climb_peak_mm = 0.0F;
+static float   g_climb_up      = 1.0F; /**< Sign of the tilt when climbing. */
+static int32_t g_climb_last[2] = {0, 0};
+static bool    g_climb_counts  = false;
+/** @brief Add this sample's axle travel times sin(tilt) to the climb. */
+static void climb_update (float tilt_signed_deg);
 /* Owned by the IMU task alone. */
 static lift_math_state_t g_lift = {0};
 typedef struct
@@ -551,12 +569,17 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
     if (!g_hump.b_on_hump)
     {
+        climb_update(0.0F); /* keep the encoder reference current */
         if (b_tilted)
         {
             g_hump.b_on_hump   = true;
             g_hump.phase       = TERRAIN_HUMP_CLIMBING;
             g_hump.level_count = 0U;
             g_hump.peak_mm     = g_hump.height_mm;
+            /* The first tilt of a hump is the way up. */
+            g_climb_up      = (p_snapshot->roll_deg < 0.0F) ? -1.0F : 1.0F;
+            g_climb_mm      = 0.0F;
+            g_climb_peak_mm = 0.0F;
             /* UB views read-only string bytes. */
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP STARTED: climbing\n");
@@ -565,6 +588,8 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
         return;
     }
+
+    climb_update(p_snapshot->roll_deg);
 
     if (g_hump.height_mm > g_hump.peak_mm)
     {
@@ -619,6 +644,12 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         return;
     }
 
+    /* The climb, unless the body tilt says more (a short bump). */
+    if (g_climb_peak_mm > g_hump.peak_mm)
+    {
+        g_hump.peak_mm = g_climb_peak_mm;
+    }
+
     uint8_t const peak_mm = round_mm(g_hump.peak_mm);
 
     g_hump.b_on_hump    = false;
@@ -634,9 +665,46 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
     /* UB views read-only string bytes; tenths avoid float printing. */
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
-    tm_printf((UB *)"HUMP DONE: peak_x10mm=%d count=%u\n",
-              (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count);
+    tm_printf((UB *)"HUMP DONE: peak_x10mm=%d count=%u climb_x10mm=%d\n",
+              (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count,
+              (INT)(g_climb_peak_mm * 10.0F));
 #endif
+}
+
+static void climb_update (float tilt_signed_deg)
+{
+    encoder_sample_t left  = {0};
+    encoder_sample_t right = {0};
+
+    encoder_read(ENCODER_LEFT, &left);
+    encoder_read(ENCODER_RIGHT, &right);
+
+    if (g_climb_counts)
+    {
+        /* Sizes only: the drive is forward-only and the left encoder is
+         * mounted mirrored. Unsigned subtraction is wrap-safe. */
+        uint32_t const dl = (uint32_t)left.count - (uint32_t)g_climb_last[0];
+        uint32_t const dr = (uint32_t)right.count - (uint32_t)g_climb_last[1];
+        uint32_t const sl = (dl > (uint32_t)INT32_MAX) ? (0U - dl) : dl;
+        uint32_t const sr = (dr > (uint32_t)INT32_MAX) ? (0U - dr) : dr;
+        float const    ds = 0.5F * (float)(sl + sr) * CLIMB_MM_PER_COUNT;
+
+        /* More than 50 mm between IMU samples is not driving (lifted and
+         * the wheels spun, or a stale reading): ignore it. */
+        if (ds < 50.0F)
+        {
+            g_climb_mm += ds * sinf(g_climb_up * tilt_signed_deg *
+                                    CLIMB_DEG_TO_RAD);
+            if (g_climb_mm > g_climb_peak_mm)
+            {
+                g_climb_peak_mm = g_climb_mm;
+            }
+        }
+    }
+
+    g_climb_last[0] = left.count;
+    g_climb_last[1] = right.count;
+    g_climb_counts  = true;
 }
 
 static uint8_t round_mm (float height_mm)

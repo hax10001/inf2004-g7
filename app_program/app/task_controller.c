@@ -165,6 +165,7 @@ static int32_t g_nav_fwd_right = 0;
 #define LINE_HEADING_MIN_MM 300.0f
 #define LINE_HEADING_MM_PER_COUNT (219.8f / 1056.0f)
 #define LINE_HEADING_TRACK_MM 110.0f
+#define LINE_HEADING_MAX_DDEG 150
 static float g_line_heading_deg = 0.0f;
 static float g_line_average_deg = 0.0f;
 static float g_line_tracked_mm = 0.0f;
@@ -190,6 +191,15 @@ static void line_heading_update (void)
         line_heading_reset();
         return;
     }
+    if ((right_mm - left_mm > (2.0f * travel) + 5.0f) ||
+        (left_mm - right_mm > (2.0f * travel) + 5.0f))
+    {
+        /* Turning on the spot (a lost-line pivot): the average cannot
+         * follow a heading change made without travel, so start again
+         * (logged 19 Nov 13:44: 40 degrees "off the line" after one). */
+        line_heading_reset();
+        return;
+    }
     if (weight > 1.0f)
     {
         weight = 1.0f;
@@ -208,23 +218,28 @@ static void line_heading_update (void)
  * known" after too little straight following) for the obstacle scan. */
 static void line_heading_publish (void)
 {
-    if (g_line_tracked_mm >= LINE_HEADING_MIN_MM)
-    {
-        float const off = g_line_heading_deg - g_line_average_deg;
+    float const off = g_line_heading_deg - g_line_average_deg;
+    int32_t const off_ddeg = (int32_t)(off * 10.0f);
+    int32_t const mag = (off_ddeg < 0) ? -off_ddeg : off_ddeg;
 
-        scan_plan_set_line_offset_ddeg((int32_t)(off * 10.0f));
-        tm_printf((UB *)"[OBS] Heading off the line at the stop: %d.%d deg "
+    /* More than LINE_HEADING_MAX_DDEG off a straight line is a bend or a
+     * turn the average has not caught up with, not the zig-zag. */
+    if ((g_line_tracked_mm >= LINE_HEADING_MIN_MM) &&
+        (mag <= LINE_HEADING_MAX_DDEG))
+    {
+        scan_plan_set_line_offset_ddeg(off_ddeg);
+        tm_printf((UB *)"[OBS] Heading off the line at the stop: %s%d.%d deg "
                         "(+ = left), over %d mm of following\n",
-                  (INT)((int32_t)(off * 10.0f) / 10),
-                  (INT)(((int32_t)(off * 10.0f) % 10 + 10) % 10),
+                  (off_ddeg < 0) ? (UB *)"-" : (UB *)"",
+                  (INT)(mag / 10), (INT)(mag % 10),
                   (INT)g_line_tracked_mm);
     }
     else
     {
         scan_plan_set_line_offset_ddeg(SCAN_PLAN_LINE_OFFSET_UNKNOWN);
         tm_printf((UB *)"[OBS] Heading off the line unknown (%d mm of "
-                        "following); scan centre is sonar zero\n",
-                  (INT)g_line_tracked_mm);
+                        "following, %d ddeg); scan centre is sonar zero\n",
+                  (INT)g_line_tracked_mm, (INT)off_ddeg);
     }
     line_heading_reset();
 }

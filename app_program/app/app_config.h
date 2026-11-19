@@ -104,7 +104,7 @@
 #define APP_BARCODE_WAVE_MIN_VOTES 3U
 #define APP_BARCODE_WAVE_MAX_FIT_PERCENT 30U
 /* Wide-bar layout + blurred-model decoder (bc_layout.c) decides. Tuned on
- * saved passes: replay tools/barcode_data with tools/barcode_replay.py.
+ * saved passes.
  * The older segmentation and template decoders then do not run: together
  * they took ~5 s per pass and read small prints poorly.
  */

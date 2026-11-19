@@ -173,7 +173,7 @@ echo "Console: $CONSOLE_MODE; barcode result ACK owned by telemetry."
 echo "WiFi join deadline: 10 seconds; motion/IR starts independently."
 if [[ "$BARCODE_TEST" == "1" ]]; then
   echo "BARCODE TEST IMAGE: motors and obstacle detection compiled OUT."
-  echo "Push the robot by hand; capture with tools/barcode_capture.py."
+  echo "Push the robot by hand; each pass prints its waveform to the log."
 elif [[ "$LIVE_CONTROL" == "1" ]]; then
   echo "Obstacle and collision stops follow APP_OBSTACLE_ENABLED / APP_COLLISION_ENABLED in app_config.h."
 else

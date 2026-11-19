@@ -63,7 +63,7 @@ class RobotState {
     this.log('scanner',detail,level); // important event in command monitor
   }
   ingestMeasurementLine(line,source){
-    const hump=/^HUMP DONE: peak_x10mm=(\d{1,4}) count=\d{1,3}\s*$/.exec(line);
+    const hump=/^HUMP DONE: peak_x10mm=(\d{1,4}) count=\d{1,3}(?: climb_x10mm=-?\d{1,5})?\s*$/.exec(line);
     if(hump && Number(hump[1])>0){
       this.latestHumpMm=Number(hump[1])/10;
       return true;

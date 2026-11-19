@@ -2,6 +2,7 @@
 import argparse
 import os
 from pathlib import Path
+import tempfile
 import subprocess
 import sys
 
@@ -9,7 +10,7 @@ from host_compiler_flags import dead_code_flags
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app_program"
-OUT = ROOT / "tmp" / "obstacle_tests"
+OUT = Path(tempfile.gettempdir()) / "g7-obstacle-tests"
 
 
 def main():

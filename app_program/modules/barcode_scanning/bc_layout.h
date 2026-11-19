@@ -11,8 +11,7 @@
  * Refuses (valid = 0) rather than guess when layouts fit about equally.
  *
  * Replay saved logs with tools/tests/barcode_layout.c (runs this file)
- * before changing thresholds here. tools/barcode_replay.py mirrors the
- * earlier whole-symbol decision only. Pure C: no kernel calls.
+ * before changing thresholds here. Pure C: no kernel calls.
  */
 #ifndef BC_LAYOUT_H
 #define BC_LAYOUT_H

@@ -1,3 +1,4 @@
+#include <stdlib.h>
 /* Production PI, encoder estimator and PWM driver against a simple plant.
  * Plant parameters are assumptions, never physical qualification evidence. */
 #include <assert.h>
@@ -224,8 +225,9 @@ static void scan_entry(void)
 
 int main(void)
 {
-    char path[80];
-    snprintf(path,sizeof(path),"tmp/v15/plant-sign-%d.csv",
+    char path[256];
+    char const *dir=getenv("G7_TEST_TMP");
+    snprintf(path,sizeof(path),"%s/plant-sign-%d.csv",dir?dir:".",
              APP_DOWNHILL_NOSE_DOWN_SIGN);
     recording=fopen(path,"w");assert(recording);
     fputs("gravity_rpm,pitch_deg,time_ms,target_left_rpm,target_right_rpm,"

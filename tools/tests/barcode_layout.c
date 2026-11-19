@@ -4,11 +4,11 @@
  *       tools/tests/barcode_layout.c \
  *       app_program/modules/barcode_scanning/bc_layout.c \
  *       app_program/modules/barcode_scanning/bc_code.c -o layout_replay
- *   ./layout_replay tools/barcode_data/2026-11-05/small_F_push.log ...
+ *   ./layout_replay <capture.log> ...
  *
  * Prints one line per pass: the expected letter from the file name
  * (size_LETTER_method.log), then what the firmware decoder decides.
- * Should agree with tools/barcode_replay.py (default combined mode).
+ *
  */
 #include <stdio.h>
 #include <stdlib.h>

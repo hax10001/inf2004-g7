@@ -64,20 +64,20 @@ bash tools/test_autonav.sh
 printf '\nCore host tests passed: lift estimation, STOP/START, governor, navigation, dashboard.\n'
 
 # --- Scan handoff, production controller, scanner readiness, ramp plant ---
-mkdir -p tmp/v15
+mkdir -p "$TMP/v15"
 GC=-Wl,--gc-sections
 if [[ "$(uname -s)" == Darwin ]]; then GC=-Wl,-dead_strip; fi
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   -include tools/tests/v11_sem_stub.h \
-  tools/test_scan_handoff.c -o tmp/v15/scan_handoff
-tmp/v15/scan_handoff
+  tools/test_scan_handoff.c -o "$TMP"/v15/scan_handoff
+"$TMP"/v15/scan_handoff
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -I. -Iapp_program \
   tools/test_v15_controller.c app_program/app/nav_core.c \
   app_program/modules/line_barcode/line_follow.c \
-  -o tmp/v15/controller
-tmp/v15/controller
+  -o "$TMP"/v15/controller
+"$TMP"/v15/controller
 # Same production controller with the previous stopping behaviour: lift
 # stop latched, and unmapped/lost barcodes as navigation safety stops.
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
@@ -85,31 +85,31 @@ cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -DAPP_LIFT_RESUME_ENABLED=0 -DAPP_NAV_SCAN_FAIL_STOP=1 \
   tools/test_v15_controller.c app_program/app/nav_core.c \
   app_program/modules/line_barcode/line_follow.c \
-  -o tmp/v15/controller_lift_latched
-tmp/v15/controller_lift_latched
+  -o "$TMP"/v15/controller_lift_latched
+"$TMP"/v15/controller_lift_latched
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
-  tools/test_scanner_ready.c -o tmp/v15/scanner_ready
-tmp/v15/scanner_ready
+  tools/test_scanner_ready.c -o "$TMP"/v15/scanner_ready
+"$TMP"/v15/scanner_ready
 # Same real scanner reusing the startup white (setting on).
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   -DAPP_BARCODE_KEEP_STARTUP_WHITE=1 \
-  tools/test_scanner_ready.c -o tmp/v15/scanner_ready_keep
-tmp/v15/scanner_ready_keep
+  tools/test_scanner_ready.c -o "$TMP"/v15/scanner_ready_keep
+"$TMP"/v15/scanner_ready_keep
 # Same real scanner with the capture gate off (previous trigger, no drop).
 cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   -DAPP_BARCODE_TRIGGER_RISE=0U -DAPP_BARCODE_MIN_DARK_UNITS=0U \
-  tools/test_scanner_ready.c -o tmp/v15/scanner_ready_gate_off
-tmp/v15/scanner_ready_gate_off
+  tools/test_scanner_ready.c -o "$TMP"/v15/scanner_ready_gate_off
+"$TMP"/v15/scanner_ready_gate_off
 for SIGN in 0 1 -1; do
   cc -std=c99 -O2 -Wall -Wextra -Werror -Itools/tests/stubs -Iapp_program \
     -DAPP_DOWNHILL_NOSE_DOWN_SIGN="$SIGN" \
     tools/test_ramp_motion.c app_program/modules/motion/motion.c \
     app_program/modules/motion/downhill.c app_program/drivers/motor.c \
     app_program/modules/motion/steering.c \
-    app_program/modules/motion/wheel_speed.c -lm -o tmp/v15/ramp_motion
-  tmp/v15/ramp_motion
+    app_program/modules/motion/wheel_speed.c -lm -o "$TMP"/v15/ramp_motion
+  G7_TEST_TMP="$TMP/v15" "$TMP"/v15/ramp_motion
 done
 echo 'HOST PASS; ARM build and physical acceptance are still required.'

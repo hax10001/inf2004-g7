@@ -5,6 +5,7 @@ with unused embedded-only functions dropped by the host linker.
 """
 import argparse
 from pathlib import Path
+import tempfile
 import subprocess
 import sys
 
@@ -14,7 +15,7 @@ from host_compiler_flags import dead_code_flags
 ROOT = Path(__file__).resolve().parents[2]
 TESTS = ROOT / "tools" / "tests"
 APP = ROOT / "app_program"
-OUT = ROOT / "tmp" / "buddy5_clearance"
+OUT = Path(tempfile.gettempdir()) / "g7-buddy5-clearance"
 
 
 def run(command):
