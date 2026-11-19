@@ -7,6 +7,16 @@
 /* A capture starting no more than this far before a both-black run (or
  * after it) began is the crossing tape: 40 mm at 1056 counts per 219.8 mm.
  * Real barcodes sit well before the junction (logged: ~300 mm). */
+/* A capture still recording when a junction confirms can only finish if
+ * the robot keeps moving: roll on up to this much more (100 mm) before
+ * deciding. Stopping there froze it for 15 s into a failed read and timed
+ * the crossing out (logged 19 Nov 14:25). Centring counts from where the
+ * bar was first seen, so the extra roll does not shift a turn. */
+#ifndef NAV_CAPTURE_ROLL_COUNTS
+#define NAV_CAPTURE_ROLL_COUNTS ((100U * 1056U * 10U) / 2198U)
+#endif
+/* And never longer than this (a stalled robot does not travel). */
+#define NAV_CAPTURE_ROLL_MSEC 3000U
 #ifndef NAV_TAPE_LEAD_COUNTS
 #define NAV_TAPE_LEAD_COUNTS ((40U * 1056U * 10U) / 2198U)
 #endif
@@ -227,6 +237,12 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
     both = (uint8_t)(s->left_black && s->right_black);
     edge = (uint8_t)((s->left_black != s->right_black) && !both);
     if ((nav->state == NAV_FOLLOW || nav->state == NAV_APPROACH) &&
+        nav->capture_roll)
+    {
+        /* Past the bar while letting a capture finish: still this junction. */
+        both = 1U;
+    }
+    if ((nav->state == NAV_FOLLOW || nav->state == NAV_APPROACH) &&
         nav->decode_hold)
     {
         nav_decode_hold(nav, s, &result);
@@ -248,7 +264,8 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
             /* A run starts at the first both-black reading, and starts
              * again if the 1 ms sampler saw white in between (barcode
              * bars, or a curve swept under both sensors twice). */
-            if (nav->black_since == 0U || s->both_interrupted)
+            if (nav->black_since == 0U ||
+                (s->both_interrupted && !nav->capture_roll))
             {
                 nav->black_since = (s->now_msec != 0U) ? s->now_msec : 1U;
                 nav->black_from_counts = s->travel_counts;
@@ -275,11 +292,28 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
                  * so the stripe never ended: the capture ran 15 s and
                  * decoded junk, and the crossing timed out (logged 19 Nov
                  * 12:34, "V", SAFE STOP). Ignore it; the caller drops it. */
-                uint8_t const b_tape = (uint8_t)(s->barcode_capturing &&
+                uint8_t b_tape = (uint8_t)(s->barcode_capturing &&
                     s->capture_start_known &&
                     ((int32_t)(s->capture_start_counts -
                                nav->black_from_counts) >=
                      -(int32_t)NAV_TAPE_LEAD_COUNTS));
+                if (!b_tape && s->capture_active)
+                {
+                    if ((travel < (nav->cfg.junction_confirm_counts +
+                                   NAV_CAPTURE_ROLL_COUNTS)) &&
+                        (elapsed < (nav->cfg.junction_confirm_max_msec +
+                                    NAV_CAPTURE_ROLL_MSEC)))
+                    {
+                        /* Let the capture finish before stopping for it. */
+                        nav->capture_roll = 1U;
+                        result.drive = NAV_OUTPUT_FORWARD;
+                        return result;
+                    }
+                    /* Still recording 100 mm on: a long dark area, not a
+                     * barcode. Drop it like the tape and carry on. */
+                    b_tape = 1U;
+                }
+                nav->capture_roll = 0U;
                 if (b_tape) nav->tape_capture = 1U;
                 if ((!nav->pending || nav->cfg.repeat_action) &&
                     s->barcode_decoding && !b_tape &&

@@ -175,6 +175,28 @@ int main(void)
     tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
     CHECK(n.decode_hold==0U && result.event!=NAV_EVENT_DECODE_WAIT);
     CHECK(n.state==NAV_CROSS && n.tape_capture==1U);
+    /* Logged 19 Nov 14:25: a capture that began ~100 mm before the junction
+     * was still recording when it confirmed; stopping froze it (15 s, no
+     * letter) and the crossing timed out. Roll on while it records, keep
+     * the junction after the bar has passed, then stop for the letter. */
+    nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
+    s.barcode_decoding=1U;s.barcode_capturing=1U;s.capture_active=1U;
+    s.capture_start_known=1U;s.capture_start_counts=300U;
+    tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
+    CHECK(result.drive==NAV_OUTPUT_FORWARD && n.capture_roll==1U);
+    tick(1520U,950U,0U,0U); /* past the bar, still recording */
+    CHECK(result.drive==NAV_OUTPUT_FORWARD && n.state==NAV_FOLLOW);
+    s.capture_active=0U;s.barcode_capturing=0U; /* capture ended: decoding */
+    tick(1570U,960U,0U,0U);
+    CHECK(n.decode_hold==1U && result.drive==NAV_OUTPUT_STOP);
+    CHECK(result.event==NAV_EVENT_DECODE_WAIT && n.capture_roll==0U);
+    /* Still recording 100 mm on: not a barcode, drop it and cross. */
+    nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
+    s.barcode_decoding=1U;s.barcode_capturing=1U;s.capture_active=1U;
+    s.capture_start_known=1U;s.capture_start_counts=300U;
+    tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
+    tick(1700U,800U+((100U*1056U*10U)/2198U)+200U,1U,1U); /* 100 mm on */
+    CHECK(n.tape_capture==1U && n.decode_hold==0U && n.state==NAV_CROSS);
     /* A barcode whose capture began well before the junction still waits. */
     nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
     s.barcode_decoding=1U;s.barcode_capturing=1U;

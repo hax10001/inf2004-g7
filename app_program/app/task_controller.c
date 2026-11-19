@@ -1077,6 +1077,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
         sample.left_black = (uint8_t)(reading.left != 0U);
         sample.right_black = (uint8_t)(reading.right != 0U);
         sample.barcode_capturing = bc_wave_navigation_guard_active();
+        sample.capture_active = bc_wave_capture_active();
         if (bc_wave_capture_active())
         {
             if (0U == g_capture_was_active)

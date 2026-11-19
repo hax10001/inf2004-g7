@@ -90,6 +90,8 @@ typedef struct {
     unsigned char both_interrupted:1;
     /** capture_start_counts holds where the current capture began. */
     unsigned char capture_start_known:1;
+    /** A barcode capture is recording right now (it needs motion to end). */
+    unsigned char capture_active:1;
     /** travel_counts when the barcode capture now running began. */
     uint32_t capture_start_counts;
     /** Both wheels' movement added together, either direction, never
@@ -120,6 +122,9 @@ typedef struct {
     /** Set when a capture that began at this junction (the crossing tape
      *  under the barcode sensor) was ignored; the caller drops it. */
     unsigned int tape_capture:1;
+    /** Junction confirmed while a capture was recording: rolling on for it
+     *  to end, the junction kept even after the bar has passed. */
+    unsigned int capture_roll:1;
     uint32_t hold_since;
     uint32_t decode_idle_since; /* 0 while the scanner is still decoding */
     uint32_t state_since;
