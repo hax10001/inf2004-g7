@@ -89,7 +89,18 @@ function buildUnifiedConsole(){
   if(panel===logPanel)extra.append(el('robotLogFile'));
   head.querySelector('p').textContent=description;
   const buttons=head.querySelector('.consoleBtns');
-  if(panel===sensorPanel)el('copyTelemetry').textContent='Copy';
+  if(panel===sensorPanel){
+   el('copyTelemetry').textContent='Copy';
+   const readings=document.createElement('dl');
+   readings.className='sensorReadouts';
+   readings.setAttribute('aria-label','Latest sensor measurements');
+   readings.innerHTML=`
+    <div><dt>Latest hump peak</dt><dd id="latestHumpPeak">—</dd></div>
+    <div><dt>Est. obstacle width</dt><dd id="latestObstacleWidth">—</dd></div>
+    <div><dt title="Estimated obstacle share left of the robot's forward scan direction">Left of 0°</dt><dd id="latestObstacleLeft">—</dd></div>
+    <div><dt title="Estimated obstacle share right of the robot's forward scan direction">Right of 0°</dt><dd id="latestObstacleRight">—</dd></div>`;
+   buttons.before(readings);
+  }
   else {
    const menu=document.createElement('details');menu.className='panelTools';
    menu.innerHTML='<summary aria-label="'+title+' actions">Actions <span aria-hidden="true">⌄</span></summary>';
@@ -181,6 +192,24 @@ function show(){if(!view)return;const s=view.snapshot||{},p=view.pose||{x:0,y:0,
  el('distance').innerHTML=view.lastMotionSeq==null?'— <em>m</em>':`${num(p.distanceMm/1000,2)} <em>m</em>`;
  el('heading').innerHTML=view.lastMotionSeq==null?'— <em>°</em>':`${num(((p.theta*180/Math.PI)%360+360)%360,1)} <em>°</em>`;
  el('humpmax').innerHTML=s.maxHumpMm==null?'— <em>mm</em>':`${s.maxHumpMm} <em>mm</em>`;
+ const scan=view.latestObstacleScan;
+ const leftPercent=scan?.widthMm>0&&Number.isFinite(scan.leftMm)?
+  Math.round(100*scan.leftMm/scan.widthMm):null;
+ const rightPercent=leftPercent==null?null:100-leftPercent;
+ for(const [id,mm,percent] of [['latestHumpPeak',view.latestHumpMm],
+  ['latestObstacleWidth',scan?.widthMm],['latestObstacleLeft',scan?.leftMm,leftPercent],
+  ['latestObstacleRight',scan?.rightMm,rightPercent]]){
+  const reading=el(id),approximate=scan?.echoEstimate===true&&percent!=null&&Number.isFinite(mm);
+  const value=Number.isFinite(mm)?`${mm} mm${percent==null?'':` · ${percent}%`}`:'—';
+  reading.textContent=approximate?`≈${value}`:value;
+  if(approximate){
+   reading.title='Coarse estimate from sonar echo edges';
+   reading.setAttribute('aria-label',`Approximately ${mm} millimetres, ${percent} percent. ${reading.title}`);
+  }else{
+   reading.removeAttribute('title');
+   reading.removeAttribute('aria-label');
+  }
+ }
 el('mission').textContent=(s.sourceMask&16)?missionNames[s.mission]||'UNKNOWN':'UNREPORTED';
  el('leftWheel').textContent=s.sourceMask&1?`${s.speedLeft} mm/s`:'— mm/s';el('rightWheel').textContent=s.sourceMask&1?`${s.speedRight} mm/s`:'— mm/s';
  el('lineState').textContent=live&&(s.sourceMask&2)?lineNames[s.line]||'UNKNOWN':'UNAVAILABLE';el('barcode').textContent=s.barcode|| (view.serialBarcode?.letter?`${view.serialBarcode.letter} (USB serial)`:'—');el('action').textContent=s.action==null?'—':actions[s.action];

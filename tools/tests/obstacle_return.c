@@ -146,32 +146,11 @@ int main(void)
     (void)step(4000,false,1100);
     assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
     g_seq.pose.y_mm=80.0F;
-#if OBS_RETURN_LINE_FOLLOW
-    /* Line seen on the 60 degree return: line following takes over at
-     * once and steers onto it; no odometry straightening turn. */
     (void)step(4000,true,1200);
     assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
     drive=step(4000,true,1250);
-    assert(g_seq.phase==OBS_PHASE_VERIFY && g_seq.b_black_seen);
-    for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
-    {
-        drive=step(4000,false,1300U+i*50U);
-        if(i+1U<OBS_VERIFY_CYCLES) assert(drive.b_line_follow);
-    }
-    assert(drive.b_done && !g_seq.b_active);
-    puts("PASS line seen on the return: line following takes over");
-
-    /* Right bypass mirrors it. */
-    drive=finish_side(-1);
-    g_seq.pose.heading_rad=OBS_RETURN_DEG*OBS_RAD_PER_DEG;
-    (void)step(4000,false,1100);
-    g_seq.pose.y_mm=-80.0F;
-    (void)step(4000,true,1200);(void)step(4000,true,1250);
-    assert(g_seq.phase==OBS_PHASE_VERIFY);
-    puts("PASS right bypass return also hands over to line following");
-#else
-    (void)step(4000,true,1200);(void)step(4000,true,1250);
-    assert(g_seq.b_black_seen);
+    assert(g_seq.phase==OBS_PHASE_SEARCH_LINE && g_seq.b_black_seen &&
+           !drive.b_line_follow);
     g_seq.pose.y_mm=5.0F;
     (void)step(4000,false,1300);
     assert(g_seq.phase==OBS_PHASE_ALIGN && g_seq.turn_dir==1);
@@ -228,7 +207,10 @@ int main(void)
         g_seq.pose.heading_rad=OBS_RETURN_DEG*OBS_RAD_PER_DEG;
         (void)step(4000,false,1100);
         g_seq.pose.y_mm=-y_before;
-        (void)step(4000,true,1200);(void)step(4000,true,1250);
+        (void)step(4000,true,1200);
+        drive=step(4000,true,1250);
+        assert(g_seq.phase==OBS_PHASE_SEARCH_LINE && g_seq.b_black_seen &&
+               !drive.b_line_follow);
         g_seq.pose.y_mm=-5.0F;
         (void)step(4000,false,1300);
         assert(g_seq.phase==OBS_PHASE_ALIGN && g_seq.turn_dir==-1);
@@ -249,7 +231,6 @@ int main(void)
         assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.search_side==-1);
         puts("PASS right bypass: leading sensor only hands back, both rejoin");
     }
-#endif
 
     /* The rejoin check is for the main return's large turn only: a seek
      * leg's small straightening turn never starts another rejoin. */
@@ -523,21 +504,41 @@ int main(void)
     assert(fault_bits==0U);
     puts("PASS blocked way out rescans rather than faulting");
 
-    /* The drive out covers the whole offset before pivoting: the pivot's
-     * outward carry is not counted, as the stopped wheel slides.
-     */
+    /* A wide initial pass credits only part of the outward pivot. */
     passing(1);
     g_seq.pose=(obstacle_pose_t){50.0F,0.0F,90.0F*OBS_RAD_PER_DEG};
     g_seq.lateral_mm=300;g_seq.out_ddeg=900;front_mm=1000;
     enter_phase(&g_seq,OBS_PHASE_DIAG_OUT,0);
     g_seq.pose.y_mm=300.0F-30.0F;
     (void)step(-1,false,50);
-    assert(g_seq.phase==(OBS_PIVOT_GAIN_PCT>=60?OBS_PHASE_TURN_PARALLEL
-                                              :OBS_PHASE_DIAG_OUT));
+    int32_t const gain_left = (OBS_WIDE_PASS_PIVOT_GAIN_PCT > OBS_PIVOT_GAIN_PCT)
+                              ? OBS_WIDE_PASS_PIVOT_GAIN_PCT
+                              : OBS_PIVOT_GAIN_PCT;
+    assert(g_seq.phase==(gain_left>=60?OBS_PHASE_TURN_PARALLEL
+                                      :OBS_PHASE_DIAG_OUT));
     g_seq.pose.y_mm=300.0F;
     (void)step(-1,false,100);
     assert(g_seq.phase==OBS_PHASE_TURN_PARALLEL);
-    puts("PASS drive out reaches the full offset before the pivot");
+    if(gain_left>OBS_PIVOT_GAIN_PCT)
+    {
+        float const shortfall=(float)OBS_TRACK_WIDTH_MM*
+                              (float)(gain_left+OBS_PIVOT_GAIN_PCT)/400.0F;
+
+        for(int32_t k=0;k<3;k++)
+        {
+            int32_t const side=(k==1)?-1:1;
+            passing(side);
+            g_seq.pose=(obstacle_pose_t){50.0F,(float)side*(300.0F-shortfall),
+                                       (float)side*90.0F*OBS_RAD_PER_DEG};
+            g_seq.out_ddeg=900;
+            g_seq.replans=(k==2)?1U:0U;
+            enter_phase(&g_seq,OBS_PHASE_DIAG_OUT,0);
+            (void)step(-1,false,50);
+            assert(g_seq.phase==(k<2?OBS_PHASE_TURN_PARALLEL
+                                     :OBS_PHASE_DIAG_OUT));
+        }
+    }
+    puts("PASS only a wide initial pass credits extra outward pivot");
 
     /* Overshoot root cause 1: one unconfirmed echo used to disable the
      * unseen fallback, so the leg ran on to the OBS_PASS_MAX_MM fault.

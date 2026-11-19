@@ -243,6 +243,7 @@ static void run_scan (void)
     int32_t           second_mm[OBS_SCAN_POINTS];
     int32_t           lone_mm[OBS_SCAN_POINTS];
     int32_t           count = 0;
+    int32_t           centre_mm = OBS_FAR_MM;
     bool              b_ok  = true;
     /* Bearings the servo can reach; the rest of the sequence is skipped,
      * so every sample is taken where it is labelled. */
@@ -264,6 +265,21 @@ static void run_scan (void)
             second_mm[count]        = OBS_FAR_MM;
             lone_mm[count]          = 0;
             count++;
+        }
+    }
+
+    if ((0 != OBS_FRESH_SCAN_CENTRE) && (count > 0) &&
+        (0U == (obs_state_flags_read() & OBS_EVT_ABORT)))
+    {
+        int32_t lone = 0;
+        tk_dly_tsk((RELTIM)servo_set_angle(0));
+        centre_mm = scan_range(0, &lone);
+
+        if (0 != OBS_DEBUG_LOG)
+        {
+            /* The fixed servo pulse defines zero across both passes. */
+            tm_printf((UB *)"[OBS] Scan zero: %d usec, range %d mm\n",
+                      (INT)OBS_SERVO_FRONT_USEC, (INT)centre_mm);
         }
     }
 
@@ -292,9 +308,11 @@ static void run_scan (void)
     {
         /* The nearer reading: an echo seen on either pass is kept, so no
          * object is lost, and the two sweep-direction errors cancel. */
-        int32_t const range_mm = (second_mm[index] < first_mm[index])
-                                     ? second_mm[index]
-                                     : first_mm[index];
+        int32_t const sweep_mm = (second_mm[index] < first_mm[index])
+                                     ? second_mm[index] : first_mm[index];
+        int32_t const range_mm = ((0 == points[index].angle_deg) &&
+                                  (centre_mm < OBS_SCAN_RANGE_MM))
+                                     ? centre_mm : sweep_mm;
 
         /* Readings are 0..4000 mm and lone echoes below that, so the
          * 12-bit fields hold them. */
@@ -353,7 +371,7 @@ static void run_scan (void)
                       (0 != required_side)        ? (UB *)"side kept"
                       : (0 != OBS_PREFERRED_SIDE) ? (UB *)"preferred side"
                       : (0U != sides.b_tie)
-                          ? (UB *)"about centred: more room past it"
+                          ? (UB *)"close comparison"
                           : (UB *)"smaller move",
                       (SCAN_PLAN_ROUTE != scan_plan_result(&plan))
                           ? (UB *)"no route"
@@ -690,11 +708,22 @@ static void log_scan_detail (scan_plan_point_t const * p_points,
                   (INT)p_sides->low_deg, (INT)p_sides->high_deg,
                   (INT)p_sides->near_mm, (INT)p_sides->width_mm,
                   (INT)OBS_SCAN_RANGE_MM);
+        if (0U != p_sides->front_width_mm)
+        {
+            /* Each share is at most the projected width. */
+            tm_printf((UB *)"[OBS] Front split: width=%d mm left=%d mm "
+                            "right=%d mm%s\n",
+                      (INT)p_sides->front_width_mm,
+                      (INT)p_sides->front_left_mm,
+                      (INT)(p_sides->front_width_mm -
+                            p_sides->front_left_mm),
+                      (0U != p_sides->b_front_estimate)
+                          ? (UB *)" (echo estimate)" : (UB *)"");
+        }
         log_side((UB *)"Left ", p_sides->left_need_mm, &p_sides->left);
         log_side((UB *)"Right", p_sides->right_need_mm, &p_sides->right);
-        tm_printf((UB *)"[OBS] Measured need L-R = %d mm, from the face's "
-                        "normal (within %d: about centred, the side with "
-                        "more room past it wins)\n",
+        tm_printf((UB *)"[OBS] Measured need L-R = %d mm "
+                        "(tie band %d mm)\n",
                   (INT)p_sides->left.compare_mm -
                       (INT)p_sides->right.compare_mm,
                   (INT)OBS_SIDE_PREFERENCE_THRESHOLD_MM);
@@ -730,31 +759,19 @@ static void log_scan_detail (scan_plan_point_t const * p_points,
                  (0U != p_sides->right.b_seen))
         {
             /* UB preserves the string bytes. */
-            tm_printf((UB *)"[OBS] No corner echo: both edges inside the "
-                            "sensor's +-%d deg square-on zone (about "
-                            "centred)\n",
-                      (INT)OBS_SCAN_FINE_DEG);
+            tm_printf((UB *)"[OBS] No confirmed corner echo\n");
         }
 
         if ((0U != p_sides->left.b_seen) && (0U != p_sides->right.b_seen))
         {
-            /* Calibration aid: where the servo would point to centre this
-             * object. Only meaningful for a box placed centred on a
-             * straight line with the robot pointing along it. Bearings are
-             * multiples of 5, so the centre is in half degrees. */
+            /* The echo span midpoint is separate from fixed servo zero. */
             int32_t const centre_x10 =
                 (p_sides->low_deg + p_sides->high_deg) * 5;
-            int32_t const usec = OBS_SERVO_FRONT_USEC +
-                ((OBS_SERVO_LEFT_SIGN * centre_x10 * OBS_SERVO_USEC_PER_DEG) /
-                 10);
             int32_t const mag  = (centre_x10 < 0) ? -centre_x10 : centre_x10;
 
-            /* Values fit INT; UB preserves the string bytes. */
-            tm_printf((UB *)"[OBS] Object centre %s%d.%d deg (+ = left); if "
-                            "it is really centred, set "
-                            "OBS_SERVO_FRONT_USEC %d\n",
+            tm_printf((UB *)"[OBS] Echo span midpoint %s%d.%d deg (+ left)\n",
                       (centre_x10 < 0) ? (UB *)"-" : (UB *)"",
-                      (INT)(mag / 10), (INT)(mag % 10), (INT)usec);
+                      (INT)(mag / 10), (INT)(mag % 10));
         }
     }
 }

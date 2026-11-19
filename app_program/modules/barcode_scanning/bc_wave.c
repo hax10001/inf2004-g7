@@ -19,6 +19,13 @@ void bc_wave_request_cancel(void)
     g_cancel_requested = 1U;
 }
 
+/* Controller task: the capture now running is junction tape. */
+static volatile uint8_t g_drop_requested;
+void bc_wave_request_drop(void)
+{
+    g_drop_requested = 1U;
+}
+
 #if APP_BARCODE_ANALOG_ENABLED && APP_BARCODE_BUFFERED_ENABLED && \
     BC_CAL_READY && !BC_CAL_MEASURE
 #define BC_WAVE_CAPACITY 8192U
@@ -1492,8 +1499,23 @@ void bc_wave_poll (void)
         /* Only the worker touches phase/buffers. Every decoder call is
          * incremental and has returned before this point. */
         g_cancel_requested = 0U;
+        g_drop_requested = 0U;
         g_phase = BC_WAVE_DONE;
         g_rearm_requested = 1U;
+    }
+    if (0U != g_drop_requested)
+    {
+        /* Navigation identified this capture as the crossing tape at a
+         * junction: drop it like a too-short dark run and stay armed, so
+         * it never freezes into a junk letter. */
+        g_drop_requested = 0U;
+        if (BC_WAVE_CAPTURE == g_phase)
+        {
+            /* UB preserves the string bytes. */
+            tm_printf((UB *)"[BC WAVE] pass=%u is junction tape; dropped, "
+                            "still armed\n", (UINT)g_sequence);
+            wave_drop_capture();
+        }
     }
 #ifdef B1_LIVE_COMMANDS
     /* Buffer processing is complete before reset; never free raw sample

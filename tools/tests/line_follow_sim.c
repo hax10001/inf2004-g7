@@ -256,7 +256,7 @@ static void controller_period(void)
     switch (decision.drive)
     {
         case NAV_OUTPUT_FOLLOW:
-            if (reading.left && reading.right) motion_apply(LINE_UNCERTAIN);
+            if (reading.left && reading.right) motion_apply(LINE_FORWARD);
             else motion_apply(line_follow_decide(reading.left, reading.right));
             break;
         case NAV_OUTPUT_FORWARD: motion_apply(LINE_FORWARD); break;

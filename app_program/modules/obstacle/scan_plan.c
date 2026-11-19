@@ -12,8 +12,8 @@
  * always fits, so only another object beside the path makes a side unusable.
  * Both extreme bearings are included. The clear corridor needing the
  * smaller offset wins; exactly equal offsets go to the side of least
- * resistance (least_resistance()). The comparison uses the measured needs:
- * the OBS_MIN_LATERAL_MM floor only sets how far the chosen side drives.
+ * resistance (least_resistance()). Corner evidence can locate the box in
+ * the robot frame and support a tighter clearance target.
  * Two blocked corridors produce NO_ROUTE.
  * Integer maths is used because the RP2040 has no floating point unit.
  */
@@ -144,6 +144,19 @@ typedef struct
      *  sample crossing OBS_MIN_LATERAL_FROM_DEG must not decide the side. */
     int32_t  compare_mm;
 } side_option_t;
+
+typedef struct
+{
+    int32_t left_mm;  /**< Left edge in the robot frame, left positive. */
+    int32_t right_mm; /**< Right edge in the same frame. */
+} front_span_t;
+
+typedef struct
+{
+    int32_t stop_mm; /**< Earlier confirmed forward range, or 0. */
+    int32_t tie_side; /**< Earlier plan's side if the fresh scan ties. */
+    bool    b_measured; /**< The centre sample came from this sweep. */
+} scan_anchor_t;
 
 typedef struct
 {
@@ -278,6 +291,7 @@ static void report_side (scan_plan_point_t const * p_points,
  */
 static void build_plan (scan_plan_point_t const * p_points, int32_t count,
                         int32_t prefer, bool b_strict,
+                        scan_anchor_t anchor,
                         scan_plan_bypass_t * p_plan,
                         scan_plan_sides_t * p_sides);
 /** @brief Work out the offset and angle needed on one side.
@@ -302,8 +316,8 @@ static void choose_side (side_option_t const * p_left,
                          plan_fields_t * p_fields, bool * p_b_tie);
 /** @brief Side for an about-centred box: the first of these that differs:
  *  more room past the object (the nearest echo beyond each edge), more room
- *  on average beyond each edge, the smaller move measured from the face's
- *  normal. A perfectly mirror-symmetric scan, where none differ, goes by
+ *  on average beyond each edge, an off-centre terminal echo, then the
+ *  smaller estimated move. A mirror-symmetric scan goes by
  *  the parity of the summed ranges: a coin flip taken from the readings,
  *  not a fixed side. Nothing measured from straight ahead is used: a robot
  *  that stopped turned to one side would bias it.
@@ -313,11 +327,16 @@ static int32_t least_resistance (scan_plan_point_t const * p_points,
                                  int32_t count, int32_t low, int32_t high,
                                  bool b_left_seen, bool b_right_seen,
                                  side_option_t const * p_left,
-                                 side_option_t const * p_right);
+                                 side_option_t const * p_right,
+                                 int32_t edge_preference);
+/** @brief The tilt to compare sides in: the face normal, or 0 if unseen. */
+static int32_t compare_tilt_x2 (scan_plan_point_t const * p_points,
+                                int32_t low, int32_t high, int32_t tilt_x2);
 /** @brief Measure the object and plan a path round it. */
 static void plan_object (scan_plan_point_t const * p_points, int32_t count,
                          int32_t low, int32_t high, int32_t prefer,
-                         bool b_strict, plan_fields_t * p_fields,
+                         bool b_strict, scan_anchor_t anchor,
+                         plan_fields_t * p_fields,
                          scan_plan_sides_t * p_sides);
 /** @brief Pack the plan fields into two words. */
 static void pack_fields (plan_fields_t const * p_fields,
@@ -350,11 +369,14 @@ int32_t scan_plan_next_angle (int32_t angle_deg)
 void scan_plan_build (scan_plan_point_t const * p_points, int32_t count,
                       scan_plan_bypass_t * p_plan)
 {
-    build_plan(p_points, count, OBS_PREFERRED_SIDE, false, p_plan, NULL);
+    scan_anchor_t const anchor = {0, 0, true};
+    build_plan(p_points, count, OBS_PREFERRED_SIDE, false, anchor, p_plan,
+               NULL);
 }
 
 static void build_plan (scan_plan_point_t const * p_points, int32_t count,
                         int32_t prefer, bool b_strict,
+                        scan_anchor_t anchor,
                         scan_plan_bypass_t * p_plan,
                         scan_plan_sides_t * p_sides)
 {
@@ -369,8 +391,8 @@ static void build_plan (scan_plan_point_t const * p_points, int32_t count,
 
     if (find_cluster(p_points, count, &low, &high))
     {
-        plan_object(p_points, count, low, high, prefer, b_strict, &fields,
-                    p_sides);
+        plan_object(p_points, count, low, high, prefer, b_strict, anchor,
+                    &fields, p_sides);
     }
 
     pack_fields(&fields, p_plan);
@@ -410,29 +432,59 @@ void scan_plan_build_side_report (scan_plan_point_t * p_points, int32_t count,
         return;
     }
 
-    if ((confirmed_front_mm >= 20) &&
-        (confirmed_front_mm <= OBS_STOP_MM))
+    scan_anchor_t anchor = {0, 0, false};
+
+    if ((confirmed_front_mm >= 20) && (confirmed_front_mm <= OBS_STOP_MM))
     {
-        for (int32_t index = 0; index < count; index++)
+        anchor.stop_mm = confirmed_front_mm;
+    }
+
+    for (int32_t index = 0; index < count; index++)
+    {
+        if (0 == p_points[index].angle_deg)
         {
-            if ((0 == p_points[index].angle_deg) &&
-                (p_points[index].range_mm > confirmed_front_mm))
+            int32_t const fresh_mm = p_points[index].range_mm;
+            anchor.b_measured = is_near(&p_points[index]);
+
+            if ((anchor.stop_mm > 0) && (fresh_mm > anchor.stop_mm))
             {
-                p_points[index].range_mm = confirmed_front_mm;
+                if ((0 == OBS_FRESH_SCAN_CENTRE) || (!anchor.b_measured))
+                {
+                    /* The stop range still protects a missing centre echo. */
+                    p_points[index].range_mm = anchor.stop_mm;
+                    anchor.b_measured = false;
+                }
+                else if ((0 == required_side) && (0 == OBS_PREFERRED_SIDE) &&
+                         (fresh_mm - anchor.stop_mm >= OBS_EDGE_SPLIT_JUMP_MM))
+                {
+                    /* Keep the earlier side only as a tie-break when the
+                     * fresh scan finds two clear corridors. */
+                    scan_plan_bypass_t earlier = {0U, 0U};
+                    scan_anchor_t const previous = {anchor.stop_mm, 0, false};
+                    p_points[index].range_mm = anchor.stop_mm;
+                    build_plan(p_points, count, 0, false, previous, &earlier,
+                               NULL);
+                    p_points[index].range_mm = fresh_mm;
+                    if (SCAN_PLAN_ROUTE == scan_plan_result(&earlier))
+                    {
+                        anchor.tie_side = scan_plan_side_is_left(&earlier)
+                                              ? 1 : -1;
+                    }
+                }
+                else
+                {
+                    /* The fresh reading supplies the centre geometry. */
+                }
             }
+
+            break;
         }
     }
 
-    if (0 == required_side)
-    {
-        build_plan(p_points, count, OBS_PREFERRED_SIDE, false, p_plan,
-                   p_sides);
-    }
-    else
-    {
-        build_plan(p_points, count, (required_side > 0) ? 1 : -1, true,
-                   p_plan, p_sides);
-    }
+    int32_t const prefer = (0 == required_side) ? OBS_PREFERRED_SIDE
+                         : (required_side > 0) ? 1 : -1;
+    build_plan(p_points, count, prefer, 0 != required_side, anchor, p_plan,
+               p_sides);
 }
 
 uint32_t scan_plan_result (scan_plan_bypass_t const * p_plan)
@@ -684,6 +736,32 @@ static int32_t isqrt (int32_t value)
 
     /* The root of a non-negative int32_t fits int32_t. */
     return (int32_t)root;
+}
+
+/* The face normal only says where the line runs when the face's nearest
+ * echo lies inside the echo span, ranges rising towards both ends (logged
+ * 19 Nov 12:32: 250 mm at -15, 211 at 25, 227 at 40 deg: a face turned 20
+ * degrees, the robot stopped turned on the line). When the nearest echo is
+ * an end of the span (a box wholly to one side, square on) the normal is
+ * not seen, so measure from sonar zero instead. */
+static int32_t compare_tilt_x2 (scan_plan_point_t const * p_points,
+                                int32_t low, int32_t high, int32_t tilt_x2)
+{
+    int32_t nearest = (int32_t)p_points[low].range_mm;
+
+    for (int32_t index = low; index <= high; index++)
+    {
+        if ((int32_t)p_points[index].range_mm < nearest)
+        {
+            nearest = (int32_t)p_points[index].range_mm;
+        }
+    }
+
+    bool const b_bowl =
+        (((int32_t)p_points[low].range_mm - nearest) >= OBS_TILT_BOWL_MM) &&
+        (((int32_t)p_points[high].range_mm - nearest) >= OBS_TILT_BOWL_MM);
+
+    return b_bowl ? tilt_x2 : 0;
 }
 
 static int32_t face_tilt_x2 (scan_plan_point_t const * p_points, int32_t low,
@@ -1047,6 +1125,75 @@ static void evaluate_side (scan_plan_point_t const * p_points, int32_t count,
     p_option->angle_index = pick_angle(near_depth, need_mm);
 }
 
+/* Linear interpolation for the 2.5-degree grid of the face-normal fit. */
+static int32_t sine_half_milli (int32_t angle_x2)
+{
+    int32_t const step_x2 = HALF * TRIG_STEP_DEG;
+    int32_t const angle = (angle_x2 / step_x2) * TRIG_STEP_DEG;
+
+    if (0 == (angle_x2 % step_x2))
+    {
+        return sine_milli(angle);
+    }
+
+    int32_t const next = angle + ((angle_x2 < 0) ? -TRIG_STEP_DEG
+                                                : TRIG_STEP_DEG);
+    return (sine_milli(angle) + sine_milli(next)) / HALF;
+}
+
+static int32_t round_milli (int32_t value)
+{
+    int32_t const half = MILLI / HALF;
+    return (value + ((value >= 0) ? half : -half)) / MILLI;
+}
+
+/* Rotate a span along the box face into the robot frame. Sonar zero is
+ * still straight ahead. The face normal only rotates and translates it. */
+static front_span_t project_span (int32_t face_mm, int32_t tilt_x2,
+                                  int32_t left_corner, int32_t right_corner,
+                                  int32_t width_mm)
+{
+    int32_t const left = (left_corner >= 0) ? left_corner
+                                            : width_mm - right_corner;
+    int32_t const right = (right_corner >= 0) ? -right_corner
+                                              : left_corner - width_mm;
+    int32_t const sin_m = sine_half_milli(tilt_x2);
+    int32_t const cos_m = sine_half_milli(
+        (HALF * TRIG_RIGHT_ANGLE_DEG) - abs_int(tilt_x2));
+    front_span_t const span = {
+        round_milli((face_mm * sin_m) + (left * cos_m)),
+        round_milli((face_mm * sin_m) + (right * cos_m))};
+
+    return span;
+}
+
+/* Retain the original corridor check and also check the narrower path in
+ * the robot frame. Round the reduced target outward before packing it. */
+static int32_t tighten_clearance (scan_plan_point_t const * p_points,
+                                  int32_t count, int32_t low, int32_t high,
+                                  int32_t outward, int32_t near_depth,
+                                  int32_t sign, int32_t original_edge,
+                                  side_option_t * p_side)
+{
+    int32_t const half_mm = (OBS_ROBOT_WIDTH_MM / HALF) + OBS_SAFETY_MARGIN_MM;
+    int32_t const padded = outward + OBS_EDGE_PROJECTION_PAD_MM;
+    int32_t const edge = (padded > 0) ? padded : 0;
+    int32_t const need = (((edge + half_mm) + MM_PER_CM - 1) / MM_PER_CM) *
+                         MM_PER_CM;
+
+    if (p_side->b_ok && (need < p_side->need_mm) &&
+        (corridor_blocker(p_points, count, low, high, edge, need + half_mm,
+                          0, sign) < 0))
+    {
+        p_side->need_mm = need;
+        p_side->angle_index = pick_angle(near_depth, need);
+        p_side->reason = SCAN_PLAN_NEED_MEASURED;
+        return edge;
+    }
+
+    return original_edge;
+}
+
 static void choose_side (side_option_t const * p_left,
                          side_option_t const * p_right, int32_t width_mm,
                          int32_t prefer, bool b_strict, int32_t tie_side,
@@ -1123,7 +1270,8 @@ static void choose_side (side_option_t const * p_left,
 
 static void plan_object (scan_plan_point_t const * p_points, int32_t count,
                          int32_t low, int32_t high, int32_t prefer,
-                         bool b_strict, plan_fields_t * p_fields,
+                         bool b_strict, scan_anchor_t anchor,
+                         plan_fields_t * p_fields,
                          scan_plan_sides_t * p_sides)
 {
     int32_t near_depth = point_y(&p_points[low]);
@@ -1185,25 +1333,33 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
 
     /* Drive out far enough to clear a seen corner, as well as the edges.
      * The width (and so the default straight leg) is not changed. */
-    int32_t const left_out  = (left_corner > left_x) ? left_corner : left_x;
-    int32_t const right_out =
+    int32_t left_out  = (left_corner > left_x) ? left_corner : left_x;
+    int32_t right_out =
         (right_corner > -right_x) ? right_corner : -right_x;
 
+    int32_t const turn_depth = ((anchor.stop_mm > 0) &&
+                                (anchor.stop_mm < near_depth))
+                                   ? anchor.stop_mm : near_depth;
     evaluate_side(p_points, count, low, high, left_out, b_left_seen,
-                  near_depth, face_mm, 1, &left);
+                  turn_depth, face_mm, 1, &left);
     evaluate_side(p_points, count, low, high, right_out, b_right_seen,
-                  near_depth, face_mm, -1, &right);
+                  turn_depth, face_mm, -1, &right);
 
 #if OBS_SIDE_COMPARE_MEASURED
     if (b_left_seen && b_right_seen)
     {
         /* Choose the side on the beam-corrected edges, which do not depend
          * on the bearing spacing; the conservative edges above still set
-         * how far out the robot drives (need_mm). */
+         * how far out the robot drives (need_mm). Measured from the face
+         * normal, not sonar zero: the box sits square to the line, and a
+         * robot that stopped turned on the line (logged 19 Nov 12:32: face
+         * 20 degrees off, heading still swinging) would otherwise pick the
+         * side that is shorter only in its own skewed frame. */
         int32_t left_mm  = 0;
         int32_t right_mm = 0;
 
-        measured_edges(p_points, count, low, high, near_depth, tilt_x2,
+        measured_edges(p_points, count, low, high, near_depth,
+                       compare_tilt_x2(p_points, low, high, tilt_x2),
                        &left_mm, &right_mm);
         left.compare_mm  = left_mm + half_mm;
         right.compare_mm = -right_mm + half_mm;
@@ -1272,19 +1428,62 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         centre_mm = (left_edge - right_edge) / HALF;
     }
 
-    /* Equal moves: the side of least resistance by the next measure that
-     * differs. There is no fixed default side. */
-    int32_t const tie_side =
-        least_resistance(p_points, count, low, high, b_left_seen,
-                         b_right_seen, &left, &right);
-    bool          b_tie    = false;
-
-    /* Reported width only; sides and offsets use the conservative edges. */
     int32_t const reported =
         (b_left_seen && b_right_seen)
             ? measured_width(p_points, count, low, high, near_depth, tilt_x2,
                              width)
             : width;
+    front_span_t front = {0, 0};
+    int32_t edge_preference = 0;
+    bool b_front_estimate = true;
+
+    if ((0 != OBS_FORWARD_EDGE_SPLIT) && (face_mm > 0) && anchor.b_measured)
+    {
+        if (b_centre)
+        {
+            front = project_span(face_mm, tilt_x2, left_corner, right_corner,
+                                 reported);
+
+            b_front_estimate = (left_corner < 0) || (right_corner < 0);
+
+            if ((!b_strict) && (!b_front_estimate))
+            {
+                /* Real corners anchor both edges. The rear of a tilted
+                 * box can protrude farther than its front. */
+                int32_t const box_mm = (reported > OBS_OBJECT_MAX_MM)
+                                           ? reported : OBS_OBJECT_MAX_MM;
+                int32_t const rear =
+                    (box_mm * sine_half_milli(tilt_x2)) / MILLI;
+                int32_t const l = front.left_mm + ((rear > 0) ? rear : 0);
+                int32_t const r = -front.right_mm + ((rear < 0) ? -rear : 0);
+
+                left_out = tighten_clearance(p_points, count, low, high, l,
+                                             turn_depth, 1, left_out, &left);
+                right_out = tighten_clearance(p_points, count, low, high, r,
+                                               turn_depth, -1, right_out,
+                                               &right);
+                left.compare_mm = half_mm + ((l > 0) ? l : 0);
+                right.compare_mm = half_mm + ((r > 0) ? r : 0);
+            }
+        }
+        else
+        {
+            /* The scan did not resolve the split. */
+        }
+
+    }
+
+    int32_t tie_side =
+        least_resistance(p_points, count, low, high, b_left_seen,
+                         b_right_seen, &left, &right, edge_preference);
+    if ((0 != anchor.tie_side) && (!b_centre) && (0 == edge_preference) &&
+        b_left_seen && b_right_seen &&
+        (open_beyond(p_points, high + 1, count - 1) >= OBS_LOOKAHEAD_MM) &&
+        (open_beyond(p_points, 0, low - 1) >= OBS_LOOKAHEAD_MM))
+    {
+        tie_side = anchor.tie_side;
+    }
+    bool          b_tie    = false;
 
     p_fields->width_cm = to_cm(reported, WIDTH_LIMIT_CM);
     p_fields->near_cm  = to_cm(near_depth, DIST_LIMIT_CM);
@@ -1313,6 +1512,23 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         /* Within +-2 * OBS_FACE_TILT_MAX_DEG (60): fits the 7-bit field. */
         p_sides->tilt_x2         = tilt_x2;
         p_sides->centre_mm       = centre_mm;
+        /* Dashboard split: exactly the extents the side choice compared
+         * (beam-corrected, from the face normal, i.e. the line), so the
+         * reading and the decision always agree. A side the box does not
+         * reach shows 0. One-sided echo guesses are no longer reported:
+         * logged 19 Nov 12:33 one stray echo showed 173/12 mm for a box
+         * that was about centred. */
+        int32_t const split_left  = left.compare_mm - half_mm;
+        int32_t const split_right = right.compare_mm - half_mm;
+        int32_t const front_width = split_left + split_right;
+
+        (void)front;
+        if (b_left_seen && b_right_seen && (front_width > 0))
+        {
+            p_sides->front_width_mm   = need_field(front_width);
+            p_sides->front_left_mm    = need_field(split_left);
+            p_sides->b_front_estimate = b_front_estimate ? 1U : 0U;
+        }
         p_sides->left.b_corner   = (left_corner >= 0) ? 1U : 0U;
         p_sides->left.corner_mm  = (left_corner >= 0) ? left_corner : 0;
         p_sides->right.b_corner  = (right_corner >= 0) ? 1U : 0U;
@@ -1324,7 +1540,8 @@ static int32_t least_resistance (scan_plan_point_t const * p_points,
                                  int32_t count, int32_t low, int32_t high,
                                  bool b_left_seen, bool b_right_seen,
                                  side_option_t const * p_left,
-                                 side_option_t const * p_right)
+                                 side_option_t const * p_right,
+                                 int32_t edge_preference)
 {
     /* Room past the object: the nearest echo beyond each edge; with an
      * edge unseen there is no room known past it. */
@@ -1369,11 +1586,20 @@ static int32_t least_resistance (scan_plan_point_t const * p_points,
     {
         side = (left_mean > right_mean) ? 1 : -1;
     }
+    else if (0 != edge_preference)
+    {
+        side = edge_preference;
+    }
     else if (p_left->compare_mm != p_right->compare_mm)
     {
         /* Same room either way: the side the box sticks out less on, even
          * by a little (measured from the face's normal). */
         side = (p_left->compare_mm < p_right->compare_mm) ? 1 : -1;
+    }
+    else if (p_left->need_mm != p_right->need_mm)
+    {
+        /* Equal at the beam's resolution: the smaller drive-out. */
+        side = (p_left->need_mm < p_right->need_mm) ? 1 : -1;
     }
     else
     {

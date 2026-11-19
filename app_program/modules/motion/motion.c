@@ -128,9 +128,29 @@ static uint8_t g_brake_cycles = 0U;
  * within a few degrees. Uses the junction pivot (MOTION_PIVOT_*). */
 #define MOTION_SEARCH_AFTER_MM 100U
 #define MOTION_SEARCH_SWEEP_DEG 120U
+/* Rolling check before that pivot. On a straight the line is usually
+ * still between the sensors (26 mm apart over 18 mm tape, so only ~4 mm
+ * clear each side), and stopping to pivot made the robot halt and jitter
+ * for nothing: logged 19 Nov, 23 of 29 searches found the line within
+ * 5 degrees. After MOTION_SEARCH_ROLL_MM with no sensor on the line the
+ * robot keeps driving and steers gently towards where it last saw the
+ * line; a sensor touches the tape within a few mm and following simply
+ * continues. Only if it has still not seen the line by
+ * MOTION_SEARCH_AFTER_MM does it stop and pivot (a missed corner). */
+#ifndef MOTION_SEARCH_ROLL_MM
+#define MOTION_SEARCH_ROLL_MM 40U
+#endif
+#ifndef MOTION_SEARCH_ROLL_STEER
+#define MOTION_SEARCH_ROLL_STEER 0.25f
+#endif
+#if MOTION_SEARCH_ROLL_MM >= MOTION_SEARCH_AFTER_MM
+#error The rolling check must start before the pivot search
+#endif
 /* Both wheels' counts: 1056 per revolution over 219.8 mm (app_config.h). */
 #define MOTION_SEARCH_AFTER_COUNTS \
     ((MOTION_SEARCH_AFTER_MM * BOARD_ENC_COUNTS_PER_REV * 20U) / 2198U)
+#define MOTION_SEARCH_ROLL_COUNTS \
+    ((MOTION_SEARCH_ROLL_MM * BOARD_ENC_COUNTS_PER_REV * 20U) / 2198U)
 #define MOTION_SEARCH_SWEEP_COUNTS \
     ((APP_NAV_TURN90_COUNTS * MOTION_SEARCH_SWEEP_DEG) / 90U)
 #if (MOTION_SEARCH_AFTER_COUNTS > 65535U) || \
@@ -141,6 +161,7 @@ static uint8_t g_brake_cycles = 0U;
 #define SEARCH_FIRST_SWEEP 1U
 #define SEARCH_SWEEP_BACK 2U
 #define SEARCH_GAVE_UP 3U
+#define SEARCH_ROLLING 4U
 #define PIVOT_LEFT 1U
 #define PIVOT_RIGHT 2U
 
@@ -154,7 +175,7 @@ typedef struct
     signed int   seen_now:2;   /**< This period: one sensor's side, else 0. */
     unsigned int b_black:1;    /**< A sensor saw black this period. */
     unsigned int b_observed:1; /**< motion_line_seen() ran this period. */
-    unsigned int phase:2;      /**< SEARCH_*. */
+    unsigned int phase:3;      /**< SEARCH_*. */
     unsigned int b_counts:1;   /**< last_count holds a reading. */
 } line_search_t;
 
@@ -370,6 +391,13 @@ void motion_apply (line_follow_action_t action)
                 steering_update(&g_steering, action, MOTION_PERIOD_SEC,
                                 1.0f));
 #endif
+            if (SEARCH_ROLLING == g_search.phase)
+            {
+                /* Rolling check (search_step()): lean gently towards the
+                 * line's last side while still driving. */
+                g_steer = limit_steer(g_steer, (float)g_search.side *
+                                                   MOTION_SEARCH_ROLL_STEER);
+            }
             /* Barcodes are read at the driving speed: a capture neither
              * slows nor brakes the robot (the scanner measures distance
              * from the encoders, so it needs no particular speed). */
@@ -739,7 +767,8 @@ static bool search_step (line_follow_action_t action)
 
     if (b_turning || (0U != g_search.b_black))
     {
-        if ((SEARCH_FOLLOWING != g_search.phase) && b_turning)
+        if ((SEARCH_FOLLOWING != g_search.phase) &&
+            (SEARCH_ROLLING != g_search.phase) && b_turning)
         {
             /* Found it: drive on from rest, steering from scratch. */
             g_base_rpm = 0.0f;
@@ -762,12 +791,21 @@ static bool search_step (line_follow_action_t action)
         return false;
     }
 
-    if (SEARCH_FOLLOWING == g_search.phase)
+    if ((SEARCH_FOLLOWING == g_search.phase) ||
+        (SEARCH_ROLLING == g_search.phase))
     {
         g_search.white_counts = add_saturating(g_search.white_counts, moved);
 
+        if (g_search.white_counts < MOTION_SEARCH_ROLL_COUNTS)
+        {
+            return false;
+        }
+
         if (g_search.white_counts < MOTION_SEARCH_AFTER_COUNTS)
         {
+            /* Keep driving; motion_apply() leans the steer towards the
+             * line's last side (no stop, no pivot). */
+            g_search.phase = SEARCH_ROLLING;
             return false;
         }
 

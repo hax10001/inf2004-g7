@@ -4,6 +4,13 @@
 #include "nav_core.h"
 #include <stddef.h>
 
+/* A capture starting no more than this far before a both-black run (or
+ * after it) began is the crossing tape: 40 mm at 1056 counts per 219.8 mm.
+ * Real barcodes sit well before the junction (logged: ~300 mm). */
+#ifndef NAV_TAPE_LEAD_COUNTS
+#define NAV_TAPE_LEAD_COUNTS ((40U * 1056U * 10U) / 2198U)
+#endif
+
 void nav_init(nav_controller_t *nav, const nav_config_t *cfg)
 {
     if (nav == NULL || cfg == NULL) return;
@@ -261,8 +268,22 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
                 return result;
             }
             {
+                /* A capture that began within NAV_TAPE_LEAD_COUNTS of this
+                 * both-black run is the crossing tape under the barcode
+                 * sensor, not a barcode (barcodes come before the
+                 * junction). Waiting for it stopped the robot on the tape,
+                 * so the stripe never ended: the capture ran 15 s and
+                 * decoded junk, and the crossing timed out (logged 19 Nov
+                 * 12:34, "V", SAFE STOP). Ignore it; the caller drops it. */
+                uint8_t const b_tape = (uint8_t)(s->barcode_capturing &&
+                    s->capture_start_known &&
+                    ((int32_t)(s->capture_start_counts -
+                               nav->black_from_counts) >=
+                     -(int32_t)NAV_TAPE_LEAD_COUNTS));
+                if (b_tape) nav->tape_capture = 1U;
                 if ((!nav->pending || nav->cfg.repeat_action) &&
-                    s->barcode_decoding && nav->cfg.decode_wait_msec != 0U)
+                    s->barcode_decoding && !b_tape &&
+                    nav->cfg.decode_wait_msec != 0U)
                 {
                     /* Letter not ready yet: stop here and wait for it. In
                      * repeat mode too: the barcode just passed may replace

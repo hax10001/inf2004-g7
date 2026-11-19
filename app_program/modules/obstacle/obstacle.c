@@ -167,6 +167,10 @@ typedef struct
 #error "Need 0 < OBS_PASS_DEFAULT_MM < OBS_PASS_MAX_MM <= 32767 mm."
 #endif
 
+#if (OBS_WIDE_PASS_PIVOT_GAIN_PCT < 0) || (OBS_WIDE_PASS_PIVOT_GAIN_PCT > 100)
+#error "OBS_WIDE_PASS_PIVOT_GAIN_PCT must be 0..100."
+#endif
+
 static obstacle_seq_t g_seq;
 
 /** @brief Read the signed wheel counts; false until motion has data. */
@@ -500,10 +504,19 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                  * parallel pivots on the inner wheel, which carries the
                  * robot a further half track times (1 - cos) outwards.
                  */
+                int32_t gain_pct = OBS_PIVOT_GAIN_PCT;
+
+                if ((0U == p_seq->replans) &&
+                    (OBS_WIDE_PASS_PIVOT_GAIN_PCT > gain_pct) &&
+                    (p_seq->lateral_mm >= OBS_MIN_LATERAL_MM))
+                {
+                    gain_pct = OBS_WIDE_PASS_PIVOT_GAIN_PCT;
+                }
+
                 float const turn_gain =
                     (((float)OBS_TRACK_WIDTH_MM / (float)HALF) *
                      (1.0F - OBS_COSF((float)heading * OBS_RAD_PER_DDEG)) *
-                     (float)OBS_PIVOT_GAIN_PCT) / 100.0F;
+                     (float)gain_pct) / 100.0F;
 
                 aim_at_object(p_seq);
                 set_straight(p_out, heading, p_seq->side * p_seq->out_ddeg);
@@ -1406,15 +1419,7 @@ static void line_found (obstacle_seq_t * p_seq, uint32_t now_msec)
     tm_printf((UB *)"[OBS] Line found; axle %d mm from it\n",
               (INT)(((float)p_seq->search_side) * p_seq->pose.y_mm));
 
-    if ((0 != OBS_RETURN_LINE_FOLLOW) && (!p_seq->b_seeking))
-    {
-        /* Main return: line following steers onto the line from here. */
-        /* UB views the same bytes; tm_printf does not modify them. */
-        tm_printf((UB *)"[OBS] Line following takes over on the return\n");
-        p_seq->verify_cycles = 0U;
-        enter_phase(p_seq, OBS_PHASE_VERIFY, now_msec);
-    }
-    else if (OBS_PHASE_SEARCH_LINE != p_seq->phase)
+    if (OBS_PHASE_SEARCH_LINE != p_seq->phase)
     {
         enter_phase(p_seq, OBS_PHASE_SEARCH_LINE, now_msec);
     }

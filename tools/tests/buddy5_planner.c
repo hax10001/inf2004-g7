@@ -340,7 +340,8 @@ int main(void)
                 int32_t const diff=(int32_t)sides.left.compare_mm-
                                    (int32_t)sides.right.compare_mm;
                 int32_t const mag=diff<0?-diff:diff;
-                assert(sides.b_tie==(mag==0));
+                /* Within the centred band the room past it decides. */
+                assert(sides.b_tie==(mag<=OBS_SIDE_PREFERENCE_THRESHOLD_MM));
                 assert(mag<40); /* was 48 with the floor */
             }
             /* If chosen, the left still drives the full floored offset. */

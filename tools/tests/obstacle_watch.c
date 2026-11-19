@@ -40,6 +40,7 @@ static unsigned int left_moves, right_moves;
 /* First bearing a scan pings (set by the first ultrasonic_ping after
  * scan_order_armed). */
 static int32_t scan_order_first=999;
+static int32_t scan_order_first_sweep=999;
 static bool scan_order_armed;
 uint32_t servo_set_angle(int32_t angle)
 {
@@ -57,7 +58,15 @@ ultrasonic_result_t ultrasonic_ping(int32_t *range)
     if(have_trigger && clock_ms-last_trigger<min_trigger_gap)
         min_trigger_gap=clock_ms-last_trigger;
     last_trigger=clock_ms;have_trigger=true;++pings;
-    if(scan_order_armed){scan_order_first=current_angle;scan_order_armed=false;}
+    if(scan_order_armed)
+    {
+        if(scan_order_first==999)scan_order_first=current_angle;
+        if(current_angle!=0)
+        {
+            scan_order_first_sweep=current_angle;
+            scan_order_armed=false;
+        }
+    }
     clock_ms+=OBS_ECHO_TIMEOUT_MSEC;
     if(current_angle==lone_echo_angle)
     {
@@ -207,7 +216,8 @@ int main(void)
                  a=scan_plan_next_angle(a))
                 if (a>=-OBS_SCAN_RETURN_DEG && a<=OBS_SCAN_RETURN_DEG &&
                     a!=-OBS_SCAN_RIGHT_DEG) ++returning;
-        uint32_t const bearings=(uint32_t)OBS_SCAN_POINTS+returning;
+        uint32_t const anchor=OBS_FRESH_SCAN_CENTRE!=0?1U:0U;
+        uint32_t const bearings=(uint32_t)OBS_SCAN_POINTS+returning+anchor;
         uint32_t const took=clock_ms-scan_started;
         assert(min_trigger_gap>=OBS_PING_PERIOD_MSEC);
         assert(pings-pings_before==bearings*OBS_SCAN_PINGS);
@@ -224,7 +234,9 @@ int main(void)
         assert(took*100U < old_estimate*80U); /* at least 20% faster */
         /* Target: about 6 s with every bearing echoing (5.5 s before the
          * corner band went to 5 degree steps for off-centre boxes). */
-        assert(took <= 6200U);
+        uint32_t const anchor_delay=anchor*(OBS_SERVO_SETTLE_BASE_MSEC+
+            OBS_SCAN_PINGS*OBS_PING_PERIOD_MSEC);
+        assert(took <= 6200U+anchor_delay);
         printf("PASS scan %u bearings, %u pings in %u ms (pings >= %u ms "
                "apart; old timing at least %u ms)\n",(unsigned)bearings,
                (unsigned)(pings-pings_before),(unsigned)took,
@@ -242,7 +254,10 @@ int main(void)
         uint32_t const took=clock_ms-t0;
         printf("PASS silent scan (corner band pinged %u times per bearing) "
                "in %u ms\n",(unsigned)OBS_CORNER_PINGS,(unsigned)took);
-        assert(took <= 7500U && took < OBS_SCAN_TIMEOUT_MSEC);
+        uint32_t const anchor_delay=(OBS_FRESH_SCAN_CENTRE!=0)
+            ? OBS_SERVO_SETTLE_BASE_MSEC+OBS_SCAN_PINGS*OBS_PING_PERIOD_MSEC
+            : 0U;
+        assert(took <= 7500U+anchor_delay && took < OBS_SCAN_TIMEOUT_MSEC);
     }
 
     /* An edge that echoes every other ping: the third ping and median keep
@@ -277,13 +292,15 @@ int main(void)
     /* Both ways: the sweep runs left to right first, then back. */
     assert(left_moves>0U && right_moves>1U);
     {
-        /* Left first: the first ping of a scan is at the left end. */
+        /* Servo zero is measured before the left-to-right sweep. */
         (void)servo_set_angle(0);
         worker_flags=OBS_EVT_SCAN_REQ;
         scan_order_armed=true;
         run_scan();
-        assert(scan_order_first==OBS_SCAN_LEFT_DEG);
-        puts("PASS two-way scan starts at the left end, then sweeps right");
+        assert(scan_order_first==(OBS_FRESH_SCAN_CENTRE!=0
+                                      ?0:OBS_SCAN_LEFT_DEG));
+        assert(scan_order_first_sweep==OBS_SCAN_LEFT_DEG);
+        puts("PASS the fresh zero precedes the left-to-right sweep");
     }
     {
         /* Corner band: a weak corner echo that only every other ping

@@ -88,6 +88,10 @@ typedef struct {
     /** The 1 ms sampler saw both-black broken by white since the previous
      *  step, so a both-black run must restart its distance measurement. */
     unsigned char both_interrupted:1;
+    /** capture_start_counts holds where the current capture began. */
+    unsigned char capture_start_known:1;
+    /** travel_counts when the barcode capture now running began. */
+    uint32_t capture_start_counts;
     /** Both wheels' movement added together, either direction, never
      *  decreasing. A pivot's angle is its growth divided by the track. */
     uint32_t turn_counts;
@@ -113,6 +117,9 @@ typedef struct {
     /** Set when a too-close action was dropped (clearance_straight); the
      *  caller reports it and clears it. */
     unsigned int clearance_dropped:1;
+    /** Set when a capture that began at this junction (the crossing tape
+     *  under the barcode sensor) was ignored; the caller drops it. */
+    unsigned int tape_capture:1;
     uint32_t hold_since;
     uint32_t decode_idle_since; /* 0 while the scanner is still decoding */
     uint32_t state_since;

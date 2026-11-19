@@ -25,13 +25,17 @@ function readinessReasons(mask){
   return READINESS_REASONS.filter(([bit])=>mask&bit).map(([,name])=>name);
 }
 class RobotState {
-  constructor(trackWidthMm=120) {this.trackWidthMm=trackWidthMm;this.logs=[];this.logSequence=0;this.reset();}
+  constructor(trackWidthMm=120) {
+    this.trackWidthMm=trackWidthMm;this.logs=[];this.logSequence=0;
+    this.latestHumpMm=null;this.latestObstacleScan=null;this.reset();
+  }
   log(category,message,level='info') {
     const line={id:++this.logSequence,time:Date.now(),category,level,message:String(message).slice(0,280)};
     this.logs.unshift(line);if(this.logs.length>300)this.logs.length=300;
     return line;
   }
   reset(){this.session=null;this.lastSeq=null;this.ackSequences=new Set();this.lastMotionSeq=null;this.odomGaps=0;this.frames=0;this.badFrames=0;
+    this.obstacleScanSource=null;
     this.pose={x:0,y:0,theta:0,distanceMm:0};this.points=[{x:0,y:0,ms:0,uncertain:false}];this.events=[];
     this.snapshot=null;this.robotStatus=null;this.controllerFault=null;this.routeMapping=null;this.sensor=null;this.barcodeDiag=null;this.scanOutcomes=[];this.serialSensor=null;this.serialBarcode=null;this.dropped=0;this.lastSeen=0;this.lastRobotMs=0;this.lastRobotClockAt=null;this.acks=[];this.uncertain=false;this.mode='LIVE';}
   recordScanOutcome(status, detail, options={}){
@@ -58,9 +62,39 @@ class RobotState {
     this.log('barcode',detail,level); // continuous telemetry view
     this.log('scanner',detail,level); // important event in command monitor
   }
+  ingestMeasurementLine(line,source){
+    const hump=/^HUMP DONE: peak_x10mm=(\d{1,4}) count=\d{1,3}\s*$/.exec(line);
+    if(hump && Number(hump[1])>0){
+      this.latestHumpMm=Number(hump[1])/10;
+      return true;
+    }
+    // The object summary is logged once the planner has processed the scan.
+    const object=/\[OBS\] Object -?\d+\.\.-?\d+ deg, face \d+ mm ahead, width (\d{1,4}) mm\b/.exec(line);
+    if(object){
+      this.latestObstacleScan={widthMm:Number(object[1])||null,leftMm:null,rightMm:null};
+      this.obstacleScanSource=source;
+      return true;
+    }
+    if(this.obstacleScanSource===null || this.obstacleScanSource!==source)return false;
+    // The split follows the summary. Any other obstacle log closes this scan.
+    if(line.includes('[netlog] lost ')){
+      this.obstacleScanSource=null;
+      return false;
+    }
+    if(!line.includes('[OBS] '))return false;
+    this.obstacleScanSource=null;
+    const split=/\[OBS\] Front split: width=(\d{1,4}) mm left=(\d{1,4}) mm right=(\d{1,4}) mm\b(?: \((echo estimate)\))?(?!\s*\()/.exec(line);
+    if(!split)return false;
+    const [widthMm,leftMm,rightMm]=split.slice(1,4).map(Number);
+    if(widthMm===0 || leftMm+rightMm!==widthMm)return false;
+    this.latestObstacleScan={widthMm,leftMm,rightMm};
+    if(split[4])this.latestObstacleScan.echoEstimate=true;
+    return true;
+  }
   ingestSerial(text){
     const line=String(text||'').replace(/[\r\n]+/g,' ').trim().slice(0,280);
     if(!line)return false;
+    this.ingestMeasurementLine(line,'serial');
     const decoded=line.match(/\[BARCODE\]\s+Decoded:\s*([A-Z])\b/i)||
       line.match(/\[BC RESULT\]\s+([A-Z])\b/i);
     const matchSensor=line.match(/^\[SENS\] IR L=(\d+) R=(\d+) B=(\d+) roll_cd=(-?\d+) pitch_cd=(-?\d+) heading_cd=(\d+) hump=(\d+) sonar=(\d+) phase=(\d+) encL=(-?\d+) encR=(-?\d+) valid=(\d+)(?: lift=(\d+))?/);
@@ -294,6 +328,8 @@ class RobotState {
     lastSeen:this.lastSeen,lastRobotMs:this.lastRobotMs,
     lastRobotClockAt:this.lastRobotClockAt,acks:this.acks,uncertain:this.uncertain,mode:this.mode,
     logs:this.logs,robotStatus:this.robotStatus,controllerFault:this.controllerFault,routeMapping:this.routeMapping,serialBarcode:this.serialBarcode,sensor:this.sensor,barcodeDiag:this.barcodeDiag,scanOutcomes:this.scanOutcomes,
-    serialSensor:this.serialSensor};}
+    serialSensor:this.serialSensor,
+    latestHumpMm:this.mode==='LIVE'?this.latestHumpMm:null,
+    latestObstacleScan:this.mode==='LIVE'?this.latestObstacleScan:null};}
 }
 module.exports={RobotState,readinessReasons};

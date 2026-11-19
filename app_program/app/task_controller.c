@@ -145,6 +145,9 @@ static uint32_t g_nav_path_counts = 0U;
 static uint8_t g_nav_handoff_retry = 0U;
 /* Forward travel at the last period a barcode capture was active. */
 static uint32_t g_capture_end_travel = 0U;
+/* Forward travel when the running capture began (junction-tape check). */
+static uint32_t g_capture_start_travel = 0U;
+static uint8_t g_capture_was_active = 0U;
 static int32_t g_nav_last_left = 0;
 static int32_t g_nav_last_right = 0;
 static uint32_t nav_path_counts(void)
@@ -977,9 +980,20 @@ static robot_state_t handle_following (controller_history_t * p_history)
         sample.barcode_capturing = bc_wave_navigation_guard_active();
         if (bc_wave_capture_active())
         {
+            if (0U == g_capture_was_active)
+            {
+                g_capture_start_travel = sample.travel_counts;
+            }
+            g_capture_was_active = 1U;
+            sample.capture_start_known = 1U;
+            sample.capture_start_counts = g_capture_start_travel;
             /* Where the robot was when the barcode was last under it. */
             g_capture_end_travel = sample.travel_counts;
             g_control.capture_known = 1U;
+        }
+        else
+        {
+            g_capture_was_active = 0U;
         }
         received = g7_nav_take_scan(&letter, &mapped, &sequence,
                                      &captured_msec, &completed_msec,
@@ -1057,6 +1071,15 @@ static robot_state_t handle_following (controller_history_t * p_history)
 #endif
         }
         decision = nav_step(&g_navigation, &sample);
+        if (0U != g_navigation.tape_capture)
+        {
+            /* The capture is the crossing tape: drop it so it cannot
+             * freeze into a junk letter, and keep going. */
+            g_navigation.tape_capture = 0U;
+            bc_wave_request_drop();
+            tm_printf((UB *)"[NAV] Junction tape under the barcode sensor: "
+                            "capture ignored, not waiting for a letter\n");
+        }
         if (0U != g_navigation.clearance_dropped)
         {
             g_navigation.clearance_dropped = 0U;
@@ -1121,8 +1144,14 @@ static robot_state_t handle_following (controller_history_t * p_history)
         switch (decision.drive)
         {
             case NAV_OUTPUT_FOLLOW:
+                /* Both black is a crossing, a tape join or a bar: keep
+                 * driving on the current steer. Stopping here zeroed the
+                 * speed for a period and the robot then ramped up from
+                 * rest (a stop-and-jerk on a straight). nav_core confirms a
+                 * real junction over APP_NAV_JUNCTION_CONFIRM_MM of travel
+                 * and brakes through NAV_OUTPUT_STOP. */
                 if (reading.left && reading.right)
-                    motion_apply(LINE_UNCERTAIN);
+                    motion_apply(LINE_FORWARD);
                 else
                     motion_apply(line_follow_decide(reading.left,
                                                    reading.right));

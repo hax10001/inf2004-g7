@@ -32,7 +32,7 @@ then rebuild and reflash.
 Two digital IR sensors (left GP6, right GP2) are sampled every 1 ms
 (`APP_IR_PERIOD_MSEC`); the controller runs every 50 ms
 (`APP_CONTROLLER_PERIOD_MSEC`). A junction is both sensors black over
-`APP_NAV_JUNCTION_CONFIRM_MM` (5 mm) of travel, or
+`APP_NAV_JUNCTION_CONFIRM_MM` (7 mm) of travel, or
 `APP_NAV_JUNCTION_CONFIRM_MAX_MSEC` (1500 ms) if the robot barely moves.
 
 **Steering** (`modules/motion/steering.c`, `STEERING_OBSERVER 1`): a PID on

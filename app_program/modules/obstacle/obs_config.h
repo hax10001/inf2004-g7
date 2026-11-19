@@ -196,6 +196,11 @@
 #define OBS_EDGE_JUMP_MM 80
 #define OBS_FRONT_WINDOW_DEG 20
 #define OBS_LOOKAHEAD_MM 500
+/* Use a fresh reading at servo zero for the scan geometry. The earlier
+ * stop range can still bound turn clearance. */
+#ifndef OBS_FRESH_SCAN_CENTRE
+#define OBS_FRESH_SCAN_CENTRE 1
+#endif
 
 /* 0: choose the clear corridor needing the smaller sideways move (see
  * least resistance below). 1 or -1: always take left or
@@ -222,6 +227,15 @@
  * 100 counts all of it (the old behaviour, a shorter drive out).
  */
 #define OBS_PIVOT_GAIN_PCT 0
+/* Wide initial passes (either side) gained 44-74 mm in odometry while
+ * turning parallel (logged 19 Nov: +73 mm after a 90 degree exit, +44 mm
+ * after 60), on top of the planned offset, so the robot passed ~110 mm off
+ * the box instead of the 40 mm margin. Count half of the predicted pivot
+ * gain (about 27 mm at 90 degrees). Narrow passes and rescans use the
+ * regular gain above. 0 restores the full drive-out. */
+#ifndef OBS_WIDE_PASS_PIVOT_GAIN_PCT
+#define OBS_WIDE_PASS_PIVOT_GAIN_PCT 50
+#endif
 
 /* Robot geometry, measured from the axle midpoint. The front and rear add
  * up to 200 mm against a 190 mm overall length, so the larger is kept.
@@ -321,6 +335,18 @@
  * +-30, 10 outside), which tilted close calls. The drive offset still uses
  * the conservative edges. 0: compare the conservative edges (previous). */
 #define OBS_SIDE_COMPARE_MEASURED 1
+/* Project corner evidence onto the sonar's straight-ahead axis. A longer
+ * echo at the end of the face can break a tie. Reducing drive clearance
+ * requires both corners. 0 disables projected geometry. */
+#ifndef OBS_FORWARD_EDGE_SPLIT
+#define OBS_FORWARD_EDGE_SPLIT 1
+#endif
+/* Both ends of the echo span must be at least this much farther than its
+ * nearest echo before the face normal (not sonar zero) is trusted as the
+ * line's direction for the side comparison. */
+#define OBS_TILT_BOWL_MM 10
+#define OBS_EDGE_SPLIT_JUMP_MM 25
+#define OBS_EDGE_PROJECTION_PAD_MM 25
 /* OBS_PASS_DEFAULT_MM: fallback length of the straight leg, as sensor travel
  * past the object's front face. If the side watch has not confirmed the end
  * (OBS_SIDE_CLEAR_HITS absent pings in a row) and has not seen the object in
@@ -388,12 +414,6 @@
  * the robot zig-zags across the expected line at OBS_SEEK_DEG, reversing
  * OBS_SEEK_BAND_MM beyond it, for up to OBS_SEEK_LEGS legs, then stops.
  *
- * OBS_RETURN_LINE_FOLLOW: 1 = on the main return, as soon as the IR
- * sensors confirm the line, line following takes over and steers onto it
- * (VERIFY, then hand-back); no odometry straightening turn. 0 = carry on
- * to where odometry puts the line and straighten up there. Seek legs
- * always straighten up by odometry.
- *
  * Straightening up on the main return (a turn of at least
  * OBS_ALIGN_CHECK_DEG) sweeps the IR sensors back over the line. Only when
  * the leading sensor alone crossed it is the line between them. If both
@@ -405,9 +425,6 @@
  * 90 degrees to straighten up and needs more travel past the object first.
  */
 #define OBS_RETURN_DEG 60
-#ifndef OBS_RETURN_LINE_FOLLOW
-#define OBS_RETURN_LINE_FOLLOW 1
-#endif
 #define OBS_ALIGN_CHECK_DEG 30
 #define OBS_LINE_CONFIRM_CYCLES 2U
 #define OBS_VERIFY_CYCLES 10U

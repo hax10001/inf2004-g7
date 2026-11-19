@@ -133,11 +133,16 @@ function bridge(){
     onMessage(topic,bytes){
       const segments=topic.split('/');
       const ns=MQTT_NAMESPACE.split('/');
-      /* Serial console text: shown and saved, never parsed as telemetry. */
+      /* Save console text and extract completed measurements for Sensors. */
       if(segments.length===ns.length+2&&segments.slice(0,ns.length).every((s,i)=>s===ns[i])&&
          segments[ns.length]===ROBOT_ID&&segments[ns.length+1]==='log'){
         const lines=robotLog.add(bytes);
+        let measurementsChanged=false;
+        for(const {text} of lines){
+          if(state.ingestMeasurementLine(text,'mqtt'))measurementsChanged=true;
+        }
         if(lines.length)for(const r of subscribers)send(r,'log',{lines});
+        if(measurementsChanged)push();
         return;
       }
       if(segments.length!==ns.length+2||segments.slice(0,ns.length).some((s,i)=>s!==ns[i])||

@@ -61,21 +61,19 @@ each one; values below are the committed defaults.
    face at … deg`. About 6 s per scan, 7 s when the corner band is silent.
 3. **Choose a side (least resistance):** with `OBS_PREFERRED_SIDE=0`, the
    planner works out how far sideways each side needs the robot to move and
-   takes the clear side needing less, however small the difference. There
-   is no tie band and no fixed default side. The sides are compared on
-   beam-corrected edges (`OBS_SIDE_COMPARE_MEASURED`); the padded edges
-   still set how far out it drives. **Corner found**
-   (`OBS_SIDE_CORNER_ECHO`): the sides are compared on the object's real
-   extent instead: the seen corner(s), and for a side without one, the
-   face's own edge if it stopped echoing inside ±30°, else the far edge of
-   an `OBS_OBJECT_MAX_MM` (150 mm) box. The robot also drives out at least
-   far enough to clear a corner seen on its side. Exactly equal moves go to
-   the side with more open room past the object, then the smaller drive
-   out, then the more open half of the sweep; a perfectly mirror-symmetric
-   scan goes by the parity of its summed ranges (a coin flip from the
-   readings). The log prints `Corner echo L=… R=… mm: object centre … mm`
-   or `No corner echo`, and the object's centre bearing with the
-   `OBS_SERVO_FRONT_USEC` that would centre it. If both sides are blocked
+   takes the clear side needing less outside the comparison band. Within
+   the band it checks the nearest and average room past each edge.
+   `OBS_FRESH_SCAN_CENTRE=1` starts each scan with a new range at servo zero.
+   `OBS_FORWARD_EDGE_SPLIT=1` projects corner evidence into the robot's
+   straight-ahead frame (`OBS_SERVO_FRONT_USEC` marks 0°). A longer terminal
+   echo consistent with the face and the beam can break a tie. The log
+   reports `Front split` with an echo estimate when an edge is inferred.
+   Both corners must be confirmed to shorten the planned clearance.
+   The projected box includes its rear-edge shift and margin, and the
+   narrower path must pass the corridor check. Wide initial passes on
+   either side credit half the parallel pivot
+   (`OBS_WIDE_PASS_PIVOT_GAIN_PCT`).
+   If both sides are blocked
    the planner reports `NO_ROUTE`. A mid-bypass rescan keeps the side already
    taken, or stops. Each bearing takes 2 pings; if they differ by more than
    `OBS_SCAN_AGREE_MM` (50) a third decides (median), so a stray echo or an
@@ -103,8 +101,9 @@ each one; values below are the committed defaults.
 5. **Return:** the turn back (`OBS_RETURN_DEG`, 60°) starts once the measured gap
    and the swept body clear the obstacle's rear by `OBS_SAFETY_MARGIN_MM` (40),
    using the actual sensor position (`OBS_SENSOR_TO_AXLE_MM` 110,
-   `OBS_ROBOT_REAR_MM` 65). Odometry decides where the line should be. If no
-   black is seen within `OBS_VERIFY_CYCLES`, the robot zig-zags at
+   `OBS_ROBOT_REAR_MM` 65). IR detection corrects the odometry estimate. The
+   robot turns along the line before returning control to line following. If
+   no black is seen within `OBS_VERIFY_CYCLES`, the robot zig-zags at
    `OBS_SEEK_DEG` across ±`OBS_SEEK_BAND_MM` for up to `OBS_SEEK_LEGS` legs,
    then stops with `LINE_LOST`.
 

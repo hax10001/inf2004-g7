@@ -177,12 +177,13 @@
 /* Junction = both line sensors black over this much forward travel, with
  * no white gap seen by the IR sampler. The crossing bar is tape: logged
  * crossings were both-black for only ~15 mm (~73 counts), so this must
- * stay well below that. 5 mm needs at least two consecutive both-black
- * controller reads (~3 mm each at 15 RPM): a single diagonal brush on a
- * curve does not count. Raise only if curves still stop the robot.
+ * stay below that. Require 7 mm so a brief both-black reading on a curve
+ * is less likely to confirm at 35 RPM. Set to 5 for the previous threshold.
  * Counts: 1056 per rev over a 219.8 mm circumference (70 mm wheel), about
- * 4.8 counts per mm; 5 mm = 24 counts. */
-#define APP_NAV_JUNCTION_CONFIRM_MM 5U
+ * 4.8 counts per mm; 7 mm = 33 counts. */
+#ifndef APP_NAV_JUNCTION_CONFIRM_MM
+#define APP_NAV_JUNCTION_CONFIRM_MM 7U
+#endif
 #define APP_NAV_JUNCTION_CONFIRM_COUNTS \
     ((APP_NAV_JUNCTION_CONFIRM_MM * 1056U * 10U) / 2198U)
 /* If the robot barely moves (stall, lifted), this long continuously

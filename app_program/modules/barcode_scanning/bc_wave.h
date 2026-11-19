@@ -25,6 +25,9 @@ uint8_t bc_wave_navigation_guard_active(void);
 void bc_wave_request_rearm (void);
 /* Worker-owned cancellation; preserves the learned white reference. */
 void bc_wave_request_cancel(void);
+/** Drop the capture now running as not a barcode (junction tape); the
+ *  scanner stays armed. No effect unless a capture is running. */
+void bc_wave_request_drop(void);
 /** @brief While nonzero, no new capture starts (e.g. obstacle bypass). A
  *  capture already running finishes normally.
  */

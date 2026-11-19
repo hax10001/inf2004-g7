@@ -81,6 +81,9 @@ typedef struct
     unsigned int b_centre:1;   /**< centre_mm is from corner echoes. */
     signed int   centre_mm:12; /**< Object centre off the line, + = left. */
     signed int   tilt_x2:7;    /**< Face normal, half degrees, + = left. */
+    unsigned int front_width_mm:12; /**< Projected width, 0 if unresolved. */
+    unsigned int front_left_mm:12;  /**< Width on the left of sonar zero. */
+    unsigned int b_front_estimate:1; /**< At least one edge is inferred. */
     scan_plan_side_info_t left;
     scan_plan_side_info_t right;
 } scan_plan_sides_t;

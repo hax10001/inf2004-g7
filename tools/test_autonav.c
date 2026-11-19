@@ -1,6 +1,7 @@
 /** @file test_autonav.c
  * @brief Host-only deterministic robot navigation regression harness.
  */
+#include "app/app_config.h"
 #include "app/nav_core.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,8 @@ static int pass;
 static const nav_config_t cfg={150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U};
 static const nav_config_t cfg_wait={150U,250U,2500U,1800U,120U,96U,1500U,
                                     8000U,1500U,0U,0U,0U,0U,0U,0U};
+static const nav_config_t cfg_wait_straight={150U,250U,2500U,1800U,120U,96U,
+                                    1500U,8000U,1500U,0U,0U,0U,0U,1U,1U};
 static nav_controller_t n;
 static nav_sample_t s;
 static nav_result_t result;
@@ -161,6 +164,24 @@ int main(void)
     tick(3160U,800U,1U,1U);
     CHECK(n.decode_hold==0U && n.state==NAV_TURN);
     CHECK(result.event==NAV_EVENT_JUNCTION && result.drive==NAV_OUTPUT_LEFT);
+    /* Logged 19 Nov 12:34: the crossing tape started a capture as the line
+     * sensors reached the junction. Waiting for that "letter" stopped the
+     * robot on the tape, so the capture never ended (15 s, junk "V") and
+     * the crossing timed out. A capture that began at the junction is the
+     * tape: no wait, cross on, and ask the caller to drop it. */
+    nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
+    s.barcode_decoding=1U;s.barcode_capturing=1U;
+    s.capture_start_known=1U;s.capture_start_counts=805U;
+    tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
+    CHECK(n.decode_hold==0U && result.event!=NAV_EVENT_DECODE_WAIT);
+    CHECK(n.state==NAV_CROSS && n.tape_capture==1U);
+    /* A barcode whose capture began well before the junction still waits. */
+    nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
+    s.barcode_decoding=1U;s.barcode_capturing=1U;
+    s.capture_start_known=1U;s.capture_start_counts=100U;
+    tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
+    CHECK(n.decode_hold==1U && result.event==NAV_EVENT_DECODE_WAIT);
+    CHECK(n.tape_capture==0U);
     /* Decode ends with no letter: safety stop after the grace period. */
     nav_init(&n,&cfg_wait);nav_start(&n,1000U);s=(nav_sample_t){0};
     s.barcode_decoding=1U;
@@ -245,27 +266,28 @@ int main(void)
         CHECK(n.state==NAV_TURN && result.drive==NAV_OUTPUT_RIGHT);
         CHECK(result.event==NAV_EVENT_JUNCTION);
     }
-    /* Logged run (auto_run1, junction-debug build): the crossing bar is
-     * tape, both-black for only ~15 mm, read at run=0,15,29,45,59. With
-     * the 20 mm threshold (96) it was never confirmed; with 5 mm (24) it
-     * is confirmed on the third read, still on the tape. */
+    /* Keep a queued turn through a brief curve reading, then confirm the
+     * narrow tape crossing recorded by the junction-debug build. */
     {
-        static const nav_config_t tape={150U,250U,2500U,1800U,120U,24U,
+        static const nav_config_t tape={150U,250U,2500U,1800U,120U,
+                                        APP_NAV_JUNCTION_CONFIRM_COUNTS,
                                         1500U,0U,0U,0U,0U,0U,0U,0U,0U};
+        static const uint32_t tape_counts[]={0U,15U,29U,45U,59U};
         nav_init(&n,&tape);nav_start(&n,1000U);s=(nav_sample_t){0};
-        tick(1300U,1000U,0U,1U);
-        tick(1350U,1000U,1U,1U);
-        CHECK(result.drive==NAV_OUTPUT_FORWARD);
-        tick(1400U,1015U,1U,1U);
-        CHECK(result.drive==NAV_OUTPUT_FORWARD);
-        tick(1450U,1029U,1U,1U);
-        CHECK(n.state==NAV_FAULT && result.drive==NAV_OUTPUT_STOP);
-        /* One both-black read on a curve still does not stop it. */
-        nav_init(&n,&tape);nav_start(&n,1000U);s=(nav_sample_t){0};
-        tick(1300U,1000U,0U,1U);
-        tick(1350U,1015U,1U,1U);
-        tick(1400U,1030U,0U,1U);
-        CHECK(n.state==NAV_FOLLOW && result.drive==NAV_OUTPUT_FOLLOW);
+        CHECK(nav_barcode(&n,16U,NAV_LEFT,49U,1100U,600U)==1);
+        tick(1300U,1000U,1U,1U);
+        tick(1360U,1000U+APP_NAV_JUNCTION_CONFIRM_COUNTS-1U,1U,1U);
+        CHECK(n.state==NAV_APPROACH && result.event==NAV_EVENT_NONE);
+        tick(1420U,1045U,0U,1U);
+        CHECK(n.state==NAV_APPROACH && n.pending &&
+              result.drive==NAV_OUTPUT_FOLLOW);
+        for (uint32_t i=0U;i<sizeof tape_counts/sizeof tape_counts[0];i++)
+        {
+            tick(2000U+50U*i,2000U+tape_counts[i],1U,1U);
+            if (result.event==NAV_EVENT_JUNCTION) break;
+        }
+        CHECK(result.event==NAV_EVENT_JUNCTION && n.state==NAV_TURN &&
+              result.drive==NAV_OUTPUT_LEFT);
     }
     /* Pivot turns (firmware config): drive on 643 counts from the bar's
      * first both-black reading to the centre, then pivot by encoder angle,

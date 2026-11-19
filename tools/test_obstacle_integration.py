@@ -48,10 +48,6 @@ def main():
     build_run("autonav", ["app_program/app/nav_core.c", "tools/test_autonav.c"])
     build_run("obstacle_return", ["tools/tests/obstacle_return.c"],
               dead_code_flags(args.cc, whole_program=True))
-    # The odometry straightening path (and its rejoin check) as well.
-    build_run("obstacle_return_odometry", ["tools/tests/obstacle_return.c"],
-              ["-DOBS_RETURN_LINE_FOLLOW=0",
-               *dead_code_flags(args.cc, whole_program=True)])
     print("PASS: obstacle integration and existing navigation regressions.")
 
 

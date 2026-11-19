@@ -84,6 +84,7 @@ int g7_nav_take_decoded(uint8_t *l,uint8_t *a,uint16_t *s)
 {(void)l;(void)a;(void)s;return 0;}
 void encoder_read(encoder_wheel_t wheel,encoder_sample_t *out)
 {(void)wheel;*out=(encoder_sample_t){.count=g_encoder_count};}
+void bc_wave_request_drop(void) {}
 uint8_t bc_wave_navigation_guard_active(void) {return g_guard;}
 uint8_t bc_wave_capture_active(void) {return g_capture;}
 static uint8_t g_suppressed_flag;

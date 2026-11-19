@@ -717,6 +717,24 @@ body.consoleView .statusbar{margin:0 0 24px}
 #view-telemetry .unifiedPane .eyebrow{font-size:9px;letter-spacing:1.3px;color:#8e7850}
 #view-telemetry .unifiedPane .scanTimelineHeading>div>span{display:block}
 #view-telemetry .unifiedPane .consoleHead>.consoleBtns{width:auto;flex:0 0 auto}
+#view-telemetry #pane-sensors .consoleHead {
+  display:grid;grid-template-columns:minmax(0,1fr) auto auto;
+}
+#view-telemetry #pane-sensors .consoleHead>.consoleBtns {margin-left:0}
+.sensorReadouts {
+  display:grid;grid-template-columns:repeat(2,max-content);gap:6px 14px;
+  margin:0;padding:0 0 0 13px;border-left:1px solid var(--border);
+}
+.sensorReadouts dt {color:var(--muted);font-size:10px;line-height:1.3}
+.sensorReadouts dd {margin:2px 0 0;color:var(--navy);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}
+@media(max-width:620px){
+  #view-telemetry #pane-sensors .consoleHead {grid-template-columns:minmax(0,1fr) auto}
+  #view-telemetry #pane-sensors .consoleHead>.consoleBtns {grid-column:2;grid-row:1}
+  .sensorReadouts {
+    grid-column:1/-1;grid-row:2;grid-template-columns:repeat(2,minmax(0,1fr));
+    padding:9px 0 0;border-left:0;border-top:1px solid var(--border);
+  }
+}
 .scannerState{display:inline-flex!important;align-items:center;gap:6px;flex-shrink:0;align-self:center;margin:0!important;padding:6px 10px;border-radius:20px;border:1px solid #e3e5df;background:#f3f4f0;color:#717b78!important;font-size:11px!important;font-weight:700;white-space:nowrap}
 .scannerState:before{content:"";width:6px;height:6px;flex-shrink:0;border-radius:50%;background:currentColor}
 .scannerState[data-tone=ready]{color:#267459!important;background:#eaf5ee;border-color:#cde5d6}

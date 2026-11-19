@@ -60,6 +60,69 @@ test('MQTT sensor frame retains live origin and session',()=>{
  assert.equal(s.view().sensor.source,'LIVE');
 });
 
+test('latest hump peak comes from a finished hump, even when lower',()=>{
+ const s=new RobotState();
+ s.ingestMeasurementLine('HUMP STARTED: climbing','mqtt');
+ s.ingestMeasurementLine('HUMP: descending','mqtt');
+ assert.equal(s.view().latestHumpMm,null);
+ s.ingestMeasurementLine('HUMP DONE: peak_x10mm=216 count=12','mqtt');
+ assert.equal(s.view().latestHumpMm,21.6);
+ s.ingestMeasurementLine('HUMP DONE: peak_x10mm=182 count=13','mqtt');
+ s.ingestMeasurementLine('HUMP STARTED: climbing','mqtt');
+ s.ingestMeasurementLine('HUMP DONE: peak_x10mm=300 count=','mqtt');
+ assert.equal(s.view().latestHumpMm,18.2);
+});
+
+test('obstacle width and forward split use the matching scan summary',()=>{
+ const s=new RobotState();
+ s.ingestMeasurementLine('[OBS] Object -25..30 deg, face 194 mm ahead, width 141 mm (near < 600 mm)','mqtt');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:141,leftMm:null,rightMm:null});
+ s.ingestMeasurementLine('[OBS] Left : edge 30 deg, 135 mm out; need 251 mm; [BC ADC] raw=184','mqtt');
+ s.ingestMeasurementLine('[OBS] Right: edge -25 deg, 143 mm out; need 259 mm','mqtt');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:141,leftMm:null,rightMm:null});
+ s.ingestMeasurementLine('[OBS] Object -25..30 deg, face 194 mm ahead, width 146 mm','mqtt');
+ const split='[OBS] Front split: width=146 mm left=13 mm right=133 mm';
+ s.ingestSerial(split);
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:146,leftMm:null,rightMm:null});
+ s.ingestMeasurementLine('[BC ADC] raw=184','mqtt');
+ s.ingestMeasurementLine(split,'mqtt');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:146,leftMm:13,rightMm:133});
+ s.ingestMeasurementLine('[OBS] Object 0..0 deg, face 220 mm ahead, width 0 mm','mqtt');
+ s.ingestMeasurementLine('[OBS] Front split: width=0 mm left=0 mm right=0 mm','mqtt');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:null,leftMm:null,rightMm:null});
+});
+
+test('a lost, stale, or inconsistent split leaves the scan width only',()=>{
+ const s=new RobotState();
+ const summary='[OBS] Object -25..30 deg, face 194 mm ahead, width 141 mm';
+ const split='[OBS] Front split: width=141 mm left=0 mm right=141 mm';
+ for(const breakLine of ['[netlog] lost 217 bytes','[OBS] Phase 3 at x=0 y=0 heading=0 ddeg',
+  '[OBS] Front split: width=141 mm left=12 mm right=134 mm']){
+  s.ingestMeasurementLine(summary,'mqtt');
+  s.ingestMeasurementLine(breakLine,'mqtt');
+  s.ingestMeasurementLine(split,'mqtt');
+  assert.deepEqual(s.view().latestObstacleScan,{widthMm:141,leftMm:null,rightMm:null});
+ }
+ s.ingestSerial(summary);
+ s.ingestSerial('[OBS] Front split: width=140 mm left=0 mm right=140 mm');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:140,leftMm:0,rightMm:140});
+});
+
+test('coarse sonar split is marked only for the scan with an echo estimate',()=>{
+ const s=new RobotState();
+ const summary='[OBS] Object -20..35 deg, face 187 mm ahead, width 136 mm';
+ const split='[OBS] Front split: width=136 mm left=97 mm right=39 mm';
+ s.ingestMeasurementLine(summary,'mqtt');
+ s.ingestMeasurementLine(split+' (echo estimate)','mqtt');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:136,leftMm:97,rightMm:39,echoEstimate:true});
+ s.ingestMeasurementLine(summary,'mqtt');
+ s.ingestMeasurementLine(split+' (echo esti','mqtt');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:136,leftMm:null,rightMm:null});
+ s.ingestMeasurementLine(summary,'mqtt');
+ s.ingestMeasurementLine(split,'mqtt');
+ assert.deepEqual(s.view().latestObstacleScan,{widthMm:136,leftMm:97,rightMm:39});
+});
+
 test('priority ACK arriving ahead of queued telemetry does not drop them',()=>{
  const s=new RobotState();
  const enc=(type,p,seq)=>frame(type,p,{session:5,seq,ms:100+seq});
