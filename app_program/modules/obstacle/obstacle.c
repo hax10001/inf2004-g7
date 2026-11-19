@@ -966,6 +966,20 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
              * retaining the tightest bound and every confirmed hit. */
             p_seq->rear_x_mm = p_seq->clear_rear_mm > p_seq->hit_rear_mm ?
                 p_seq->clear_rear_mm : p_seq->hit_rear_mm;
+
+            /* A flat side face beside the path barely echoes at the side
+             * watch's angle: logged 19 Nov 14:0x, two hits off the front
+             * corner and then silence "confirmed" the end before the sensor
+             * had passed the face, and the robot turned back into the box.
+             * Never take the end nearer than the depth assumed when it
+             * cannot be confirmed (the scanned width, at least
+             * OBS_PASS_DEFAULT_MM). */
+            float const min_rear = p_seq->face_x_mm + default_depth_mm(p_seq);
+
+            if (p_seq->rear_x_mm < min_rear)
+            {
+                p_seq->rear_x_mm = min_rear;
+            }
         }
 
         p_seq->end_x_mm = p_seq->rear_x_mm + past_mm;

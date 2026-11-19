@@ -328,7 +328,10 @@
  * each edge, then the average). Logged 22:27: two centred boxes went right
  * on a few cm of difference while the left was open and the right had
  * something 0.75-0.95 m away. 0..255 mm. */
-#define OBS_SIDE_PREFERENCE_THRESHOLD_MM 45
+/* 19 Nov: narrowed from 45 to 15 mm (about the sonar's edge resolution):
+ * a box 91 mm left / 71 mm right of the line went left on "more room"
+ * though right was less work. Only truly centred boxes fall back to it. */
+#define OBS_SIDE_PREFERENCE_THRESHOLD_MM 15
 /* 1: compare the two sides using the beam-corrected edges (each edge
  * midway to the next empty bearing). The conservative edges, padded out to
  * the next empty bearing, depend on the bearing spacing (5 degrees within

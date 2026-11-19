@@ -1543,8 +1543,23 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
          * reach shows 0. One-sided echo guesses are no longer reported:
          * logged 19 Nov 12:33 one stray echo showed 173/12 mm for a box
          * that was about centred. */
-        int32_t const split_left  = left.compare_mm - half_mm;
-        int32_t const split_right = right.compare_mm - half_mm;
+        /* Measured edges about the line, not the compared values: a
+         * blocked side or a lone corner echo alters those (logged 19 Nov
+         * 14:0x: a box at 122/123 mm showed 106/26). Both corners seen:
+         * their real extents. */
+        int32_t edge_left  = 0;
+        int32_t edge_right = 0;
+
+        measured_edges(p_points, count, low, high, near_depth,
+                       compare_tilt_x2(p_points, low, high, tilt_x2),
+                       &edge_left, &edge_right);
+        if ((left_corner >= 0) && (right_corner >= 0))
+        {
+            edge_left  = left_corner;
+            edge_right = -right_corner;
+        }
+        int32_t const split_left  = (edge_left > 0) ? edge_left : 0;
+        int32_t const split_right = (edge_right < 0) ? -edge_right : 0;
         int32_t const front_width = split_left + split_right;
 
         (void)front;

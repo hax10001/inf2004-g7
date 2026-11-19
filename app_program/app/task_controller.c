@@ -165,7 +165,7 @@ static int32_t g_nav_fwd_right = 0;
 #define LINE_HEADING_MIN_MM 300.0f
 #define LINE_HEADING_MM_PER_COUNT (219.8f / 1056.0f)
 #define LINE_HEADING_TRACK_MM 110.0f
-#define LINE_HEADING_MAX_DDEG 150
+#define LINE_HEADING_MAX_DDEG 250
 static float g_line_heading_deg = 0.0f;
 static float g_line_average_deg = 0.0f;
 static float g_line_tracked_mm = 0.0f;
