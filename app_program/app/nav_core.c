@@ -15,6 +15,11 @@
 #ifndef NAV_CAPTURE_ROLL_COUNTS
 #define NAV_CAPTURE_ROLL_COUNTS ((100U * 1056U * 10U) / 2198U)
 #endif
+/* A straight crossing may drive on over a barcode being captured, at most
+ * this far (400 mm) past where the bar was first seen. */
+#ifndef NAV_CROSS_CAPTURE_COUNTS
+#define NAV_CROSS_CAPTURE_COUNTS ((400U * 1056U * 10U) / 2198U)
+#endif
 /* And never longer than this (a stalled robot does not travel). */
 #define NAV_CAPTURE_ROLL_MSEC 3000U
 #ifndef NAV_TAPE_LEAD_COUNTS
@@ -374,6 +379,19 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
     if (nav->state == NAV_CROSS)
     {
         result.drive = NAV_OUTPUT_FORWARD;
+        if (s->capture_active &&
+            (uint32_t)(s->travel_counts - nav->centre_from) <
+                NAV_CROSS_CAPTURE_COUNTS)
+        {
+            /* Crossing a barcode laid across the line: its bars keep both
+             * sensors black with gaps too short to read as the far side,
+             * so the cross timed out (logged 19 Nov 15:50, 250 mm of
+             * black). While the capture records, keep driving straight
+             * over it; the timeout counts from where it ends. */
+            nav->state_since = s->now_msec;
+            nav->edge_since = 0U;
+            return result;
+        }
         if ((uint32_t)(s->now_msec - nav->state_since) >
             nav->cfg.max_cross_msec)
         {

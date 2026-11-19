@@ -197,6 +197,26 @@ int main(void)
     tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
     tick(1700U,800U+((100U*1056U*10U)/2198U)+200U,1U,1U); /* 100 mm on */
     CHECK(n.tape_capture==1U && n.decode_hold==0U && n.state==NAV_CROSS);
+    /* Logged 19 Nov 15:50: a barcode across the line read as a junction;
+     * crossing it straight, its bars kept both sensors black for 250 mm
+     * and the cross timed out. While the capture records the cross keeps
+     * driving; the timeout counts from where the capture ends. */
+    nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
+    tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
+    CHECK(n.state==NAV_CROSS);
+    s.capture_active=1U;
+    for(uint32_t t=1500U;t<4500U;t+=50U) tick(t,900U+(t-1500U)/5U,1U,1U);
+    CHECK(n.state==NAV_CROSS && result.drive==NAV_OUTPUT_FORWARD);
+    s.capture_active=0U;
+    tick(4550U,1500U,1U,1U);tick(5000U,1600U,0U,0U);tick(5200U,1650U,0U,0U);
+    CHECK(n.state==NAV_FOLLOW);
+    /* Bounded: past 400 mm the normal timeout applies even if recording. */
+    nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
+    tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
+    s.capture_active=1U;
+    tick(1500U,800U+((400U*1056U*10U)/2198U)+10U,1U,1U);
+    tick(3400U,800U+((400U*1056U*10U)/2198U)+20U,1U,1U);
+    CHECK(n.state==NAV_FAULT && n.fault_reason==3U);
     /* A barcode whose capture began well before the junction still waits. */
     nav_init(&n,&cfg_wait_straight);nav_start(&n,1000U);s=(nav_sample_t){0};
     s.barcode_decoding=1U;s.barcode_capturing=1U;

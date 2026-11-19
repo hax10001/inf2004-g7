@@ -99,10 +99,16 @@ static float   g_climb_mm      = 0.0F;
 static float   g_climb_peak_mm = 0.0F;
 static float   g_climb_up      = 1.0F; /**< Sign of the tilt when climbing. */
 static int32_t g_climb_last[2] = {0, 0};
+/* Wheel travel during the current hump, mm (saturating at 255). A hump is
+ * only recorded if the robot drove over it: handling or putting it down
+ * tilts it the same way with the wheels still (logged 19 Nov 15:5x, a
+ * 9 mm "hump" 6 s after a lift, encoders unchanged). */
+#define HUMP_MIN_TRAVEL_MM 40U
+static uint8_t g_hump_travel_mm = 0U;
 static bool    g_climb_counts  = false;
 /* Lifting the robot tilts it like a hump: a hump that overlaps a lift, or
  * starts within HUMP_AFTER_LIFT_MSEC of being put down, is not recorded. */
-#define HUMP_AFTER_LIFT_MSEC 1500U
+#define HUMP_AFTER_LIFT_MSEC 3000U
 static uint32_t g_landed_msec   = 0U;
 /** @brief Add this sample's axle travel times sin(tilt) to the climb. */
 static void climb_update (float tilt_signed_deg);
@@ -610,6 +616,7 @@ static void update_hump (terrain_snapshot const * p_snapshot)
             g_climb_up      = (p_snapshot->roll_deg < 0.0F) ? -1.0F : 1.0F;
             g_climb_mm      = 0.0F;
             g_climb_peak_mm = 0.0F;
+            g_hump_travel_mm = 0U;
             /* UB views read-only string bytes. */
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP STARTED: climbing\n");
@@ -671,6 +678,18 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
     if (g_hump.level_count < HUMP_LEVEL_CONFIRM_SAMPLES)
     {
+        return;
+    }
+
+    if ((0U == g_hump.b_spoiled) && (g_hump_travel_mm < HUMP_MIN_TRAVEL_MM))
+    {
+        /* Tilted without driving: handled, not a hump. */
+        g_hump.b_on_hump   = false;
+        g_hump.phase       = TERRAIN_HUMP_LEVEL;
+        g_hump.level_count = 0U;
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
+        tm_printf((UB *)"HUMP DISCARDED: robot did not drive over it\n");
+#endif
         return;
     }
 
@@ -736,6 +755,9 @@ static void climb_update (float tilt_signed_deg)
          * the wheels spun, or a stale reading): ignore it. */
         if (ds < 50.0F)
         {
+            uint32_t const travel = (uint32_t)g_hump_travel_mm + (uint32_t)ds;
+
+            g_hump_travel_mm = (uint8_t)((travel > 255U) ? 255U : travel);
             g_climb_mm += ds * sinf(g_climb_up * tilt_signed_deg *
                                     CLIMB_DEG_TO_RAD);
             if (g_climb_mm > g_climb_peak_mm)
