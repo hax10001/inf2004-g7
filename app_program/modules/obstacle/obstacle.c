@@ -106,6 +106,8 @@ typedef struct
     unsigned int b_align_check:1; /**< Main-return ALIGN: check crossings. */
     /** Handed back next to the line: +1 it is on the left, -1 right. */
     signed int   rejoin_hint:2;
+    /** Scans in a row that found both sides blocked (0..15). */
+    unsigned int no_route_scans:4;
     uint32_t          enter_msec;
     int32_t           last_left;
     int32_t           last_right;
@@ -1603,6 +1605,7 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
 {
     p_seq->b_active         = true;
     p_seq->rejoin_hint      = 0;
+    p_seq->no_route_scans   = 0U;
     p_seq->last_left        = left_count;
     p_seq->last_right       = right_count;
     p_seq->pose.x_mm        = 0.0F;
@@ -1887,9 +1890,22 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             }
         }
     }
+    else if ((SCAN_PLAN_ROUTE != result) &&
+             (p_seq->no_route_scans + 1U < OBS_NO_ROUTE_RESCANS))
+    {
+        /* Both sides blocked: often a person or a bag half a metre away
+         * (logged 19 Nov 14:44: blockers at 0.49 and 0.57 m), which made
+         * a controller fault needing a reboot. Stay stopped and scan again
+         * until a side clears. */
+        p_seq->no_route_scans++;
+        tm_printf((UB *)"[OBS] No clear side (%d of %d): waiting, then "
+                        "scanning again\n",
+                  (INT)p_seq->no_route_scans, (INT)OBS_NO_ROUTE_RESCANS);
+        enter_phase(p_seq, OBS_PHASE_STOPPING, now_msec);
+    }
     else if (SCAN_PLAN_ROUTE != result)
     {
-        /* Both measured corridors blocked, or invalid scan data. */
+        /* Still blocked after every rescan, or invalid scan data. */
         raise_fault(p_seq, p_out, OBS_FAULT_NO_ROUTE);
     }
     else

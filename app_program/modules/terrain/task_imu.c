@@ -98,6 +98,12 @@ static float   g_climb_peak_mm = 0.0F;
 static float   g_climb_up      = 1.0F; /**< Sign of the tilt when climbing. */
 static int32_t g_climb_last[2] = {0, 0};
 static bool    g_climb_counts  = false;
+/* Lifting the robot tilts it like a hump: a hump that overlaps a lift, or
+ * starts within HUMP_AFTER_LIFT_MSEC of being put down, is not recorded. */
+#define HUMP_AFTER_LIFT_MSEC 1500U
+static bool     g_hump_spoiled  = false;
+static bool     g_was_lifted    = false;
+static uint32_t g_landed_msec   = 0U;
 /** @brief Add this sample's axle travel times sin(tilt) to the climb. */
 static void climb_update (float tilt_signed_deg);
 /* Owned by the IMU task alone. */
@@ -548,6 +554,23 @@ static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes)
 
 static void update_hump (terrain_snapshot const * p_snapshot)
 {
+    uint32_t const now_msec = p_snapshot->timestamp_msec;
+
+    if (0U != p_snapshot->b_lifted)
+    {
+        /* Handled, not a hump: spoil one in progress, start none. */
+        g_was_lifted   = true;
+        g_hump_spoiled = g_hump.b_on_hump;
+        g_hump.tilted_count = 0U;
+        return;
+    }
+
+    if (g_was_lifted)
+    {
+        g_was_lifted  = false;
+        g_landed_msec = (now_msec != 0U) ? now_msec : 1U;
+    }
+
     g_hump.tilt_deg = (p_snapshot->roll_deg < 0.0F) ? -p_snapshot->roll_deg
                                                      : p_snapshot->roll_deg;
     g_hump.height_mm = terrain_hump_height(p_snapshot->roll_deg);
@@ -570,8 +593,15 @@ static void update_hump (terrain_snapshot const * p_snapshot)
     if (!g_hump.b_on_hump)
     {
         climb_update(0.0F); /* keep the encoder reference current */
+        if (b_tilted && (g_landed_msec != 0U) &&
+            ((uint32_t)(now_msec - g_landed_msec) < HUMP_AFTER_LIFT_MSEC))
+        {
+            /* Still settling after being put down. */
+            return;
+        }
         if (b_tilted)
         {
+            g_hump_spoiled  = false;
             g_hump.b_on_hump   = true;
             g_hump.phase       = TERRAIN_HUMP_CLIMBING;
             g_hump.level_count = 0U;
@@ -641,6 +671,19 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
     if (g_hump.level_count < HUMP_LEVEL_CONFIRM_SAMPLES)
     {
+        return;
+    }
+
+    if (g_hump_spoiled)
+    {
+        /* The robot was lifted during it: not a hump height. */
+        g_hump_spoiled     = false;
+        g_hump.b_on_hump   = false;
+        g_hump.phase       = TERRAIN_HUMP_LEVEL;
+        g_hump.level_count = 0U;
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
+        tm_printf((UB *)"HUMP DISCARDED: robot was lifted\n");
+#endif
         return;
     }
 

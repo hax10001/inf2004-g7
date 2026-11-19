@@ -427,6 +427,9 @@
 #define OBS_ALIGN_CHECK_DEG 30
 #define OBS_LINE_CONFIRM_CYCLES 2U
 #define OBS_VERIFY_CYCLES 10U
+/* Scans in a row with both sides blocked before it is a fault (about 7 s
+ * each with the settle): the robot waits, stopped, for a side to clear. */
+#define OBS_NO_ROUTE_RESCANS 10U
 /* Odometry this close to the line after straightening up counts as on it:
  * the sensors straddle 18 mm tape only 4 mm clear each side, so crossing
  * it with both sensors on the way in is normal, and seeking from there
