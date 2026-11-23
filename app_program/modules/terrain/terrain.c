@@ -30,7 +30,7 @@ ER terrain_init(void)
         return E_OBJ;
     }
 
-    // Create calibration mutex
+    /* Create calibration mutex */
     ID h_calibration = tk_cre_mtx(&mutex_config);
 
     if (h_calibration <= E_OK)
@@ -40,7 +40,7 @@ ER terrain_init(void)
                    : h_calibration;
     }
 
-    // Create snapshot mutex
+    /* Create snapshot mutex */
     ID h_snapshot = tk_cre_mtx(&mutex_config);
 
     if (h_snapshot <= E_OK)
@@ -82,10 +82,10 @@ ER terrain_start (void)
 ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                  float *p_roll_deg, float *p_pitch_deg)
 {
-    // Remember that the x,y,z needs to be remap
-    // robotX = -Y
-    // robotY = X
-    // robotZ = Z
+    /* Remember that the x,y,z needs to be remap */
+    /* robotX = -Y */
+    /* robotY = X */
+    /* robotZ = Z */
     if (!tilt_math_angles(-(axis_y), axis_x, axis_z, p_roll_deg, p_pitch_deg))
     {
         return E_PAR;
@@ -97,7 +97,7 @@ ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
 ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z)
 {
     terrain_calibration reference = {0.0F, 0.0F, false};
-    // Uses pointers to avoid unnecessary copies of the struct.
+    /* Uses pointers to avoid unnecessary copies of the struct. */
     ER error = terrain_tilt(axis_x, axis_y, axis_z,
                             &reference.roll_zero_deg,
                             &reference.pitch_zero_deg);
@@ -324,7 +324,7 @@ ER terrain_get_snapshot(terrain_snapshot *p_snapshot)
         return error;
     }
 
-    // Critical section: copy shared snapshot
+    /* Critical section: copy shared snapshot */
     *p_snapshot = g_snapshot;
 
     return tk_unl_mtx(gh_snapshot_mutex);

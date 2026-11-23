@@ -8,7 +8,7 @@ by the dashboard. The commands to regenerate each table are at the end.
 | Deliverable | Result | Detail |
 | --- | --- | --- |
 | 1. Data representation table | 616 record fields and 265 static instances inventoried from the compiled ARM sources | [Section 1](#1-data-representation-table), [`application_fields.csv`](application_fields.csv), [`application_globals.csv`](application_globals.csv) |
-| 2. RAM usage comparison | **33,980 B less static RAM** (103,578 → 69,598 B across application instances); 613 B less per instance set of the 66 records | [Section 2](#2-ram-usage-comparison), [`record_sizes.csv`](record_sizes.csv) |
+| 2. RAM usage comparison | **33,996 B less static RAM** (103,594 → 69,598 B across application instances); 629 B less per instance set of the 66 records | [Section 2](#2-ram-usage-comparison), [`record_sizes.csv`](record_sizes.csv) |
 | 3. Message size comparison | MQTT binary frames are **12 %** of the same data as text (3.7 MB vs 31.9 MB over 128,592 real frames); queue records 9–10 B | [Section 3](#3-message-size-comparison), [`mqtt_message_sizes.csv`](mqtt_message_sizes.csv) |
 | 4. Correctness and performance | Full host suite passes (140 checks incl. bit-boundary tests), 96 dashboard tests, telemetry cadence unchanged | [Section 4](#4-correctness-and-performance), [`telemetry_timing.txt`](telemetry_timing.txt) |
 
@@ -40,7 +40,12 @@ tasks touch them without a lock.
 | **3. Obstacle** | Scan point (bearing, range, lone echo) | −70..70°, 0..4095 mm, 0..4095 mm | 8 / 12 / 12 | `scan_plan_point_t`: 4 bytes instead of 12, 39 per scan |
 | | Bypass plan (result, side, angle, distances in cm) | 0..2, 0..1, 0..3, 0..510 cm | 2 / 1 / 2 / 9 each | `scan_plan_bypass_t`: two 32-bit words, shifts and masks |
 | | Obstacle fault conditions | no echo, no route, line lost, servo, timeout | 1 each | `OBS_FAULT_*` bits in one 5-bit mask |
-| | Sequencer phase / side / hit and miss counts / seek legs | 0..13 / −1..1 / 0..5 / 0..4 | 4 / 2 / 2–3 / 3 | `obstacle_seq_t`: 27 flag and state fields in 49 bits (two 32-bit words) |
+| | Sequencer phase / side / hit and miss counts / seek legs | 0..13 / −1..1 / 0..5 / 0..4 | 4 / 2 / 2–3 / 3 | `obstacle_seq_t`: 31 flag and state fields in 57 bits (two 32-bit words) |
+| | Resume-when-clear check: active / clear pings in a row / pings taken | 0..1 / 0..3 / 0..7 | 1 / 2 / 3 | `obstacle_seq_t` bit-fields (same two words), controller task only; `#error` guards on `OBS_RESUME_HITS` ≤ 3 and `OBS_RESUME_PINGS` ≤ 7 |
+| | Edge vote per bearing: near / far ping counts | 0..15 each (`OBS_EDGE_VOTE_PINGS` ≤ 15 by `#error`) | 4 | `uint8_t` locals in the scanner task only (smallest C type), nothing shared; results go into the existing 4-byte `scan_plan_point_t` (no new fields) |
+| | Glancing-face fill (no-echo run next to the box counted as box) | in place on existing scan points | 0 new | Rewrites `range_mm` of the existing 12-bit `scan_plan_point_t` fields inside the planner (scanner task only); loop indices are locals, no stored state |
+| | Turn-out peek: stage (first side / second side / done) | 0..2 | 2 | `obstacle_seq_t.peek_state:2` (same two words, controller task only); its ping and echo counts reuse the idle 3-bit and 2-bit resume counters, `#error` guard on `OBS_PEEK_PINGS + OBS_PEEK_SKIP` ≤ 7 |
+| | Plan: other side clear / its drive-out | 0..1 / 0..510 cm | 1 / 9 | Spare bits 31 of word A and 18..26 of word B in `scan_plan_bypass_t` (still two 32-bit words) |
 | | Turn angles / servo angles / offset | ±1800 deci-deg / ±90° / < 5.1 m | 16 / 8 / 16 | `int16_t` / `int8_t` / `int16_t` with explicit clamps |
 | | Side-watch, guard, line, verify counters | compared to limits ≤ 10 | 8 | `uint8_t`, saturating increment |
 | | Front monitor index / fill / hits / no-echo | 0..2 / 0..3 / 0..3 / 0..5 | 2 / 2 / 2 / 3 | `monitor_t` bit-fields with `#error` range guards |
@@ -99,7 +104,7 @@ out without bit-fields (each field at its declared type, natural alignment).
 
 | Record | Unpacked (B) | Packed (B) | Saved (B) |
 | --- | ---: | ---: | ---: |
-| `obstacle_seq_t` (bypass sequencer) | 212 | 112 | 100 |
+| `obstacle_seq_t` (bypass sequencer) | 228 | 112 | 116 |
 | `nav_controller_t` (navigation) | 168 | 104 | 64 |
 | `scan_plan_sides_t` (scan report) | 88 | 40 | 48 |
 | `hump_state_t` | 72 | 36 | 36 |
@@ -110,12 +115,12 @@ out without bit-fields (each field at its declared type, natural alignment).
 | `scan_handoff_t` | 24 | 12 | 12 |
 | `bc_wave_row_t` (× 8,192) | 12 | 8 | 4 per row |
 | `scan_plan_point_t` (× 39 per scan) | 12 | 4 | 8 per point |
-| **All 66 application records** | **2,994** | **2,381** | **613** |
+| **All 66 application records** | **3,018** | **2,389** | **629** |
 
 ### Static RAM by instance
 
 Weighting each record by the static instances the firmware holds (arrays
-counted in full): **103,578 B unpacked → 69,598 B packed, 33,980 B saved**.
+counted in full): **103,594 B unpacked → 69,598 B packed, 33,996 B saved**.
 The barcode waveform buffer alone saves 32,768 B (8,192 rows × 4 B).
 
 ### Linked image

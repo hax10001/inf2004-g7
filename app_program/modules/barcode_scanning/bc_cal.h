@@ -81,7 +81,7 @@
  * Each wheel totals 1851 counts / 300 mm = 6.17 counts/mm.
  * Assumes each pass covered exactly 100 mm; verify drive-test bounds.
  */
-#define BC_CAL_LEFT_FORWARD_SIGN -1
+#define BC_CAL_LEFT_FORWARD_SIGN (-1)
 #define BC_CAL_RIGHT_FORWARD_SIGN 1
 /* Initial skew/jitter tolerances. At most 10 units travel per sample is
  * one quarter of the smallest nominal narrow feature (about 40.59 units).

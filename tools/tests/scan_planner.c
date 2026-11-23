@@ -144,7 +144,10 @@ int main(void)
         points[zero].range_mm=250;
         int32_t const extreme=side>0?UNIFORM_POINTS-1:0;
         points[extreme].range_mm=250;
-        assert(points[extreme].angle_deg==side*70);
+        /* The sweep ends on the last 10 degree step inside each limit. */
+        assert(points[extreme].angle_deg==
+               (side>0 ? (OBS_SCAN_LEFT_DEG/OBS_SCAN_STEP_DEG)*OBS_SCAN_STEP_DEG
+                       : -OBS_SCAN_RIGHT_DEG));
         scan_plan_build(points,UNIFORM_POINTS,&plan);
         assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
         assert(scan_plan_side_is_left(&plan)==(side<0));
@@ -154,6 +157,29 @@ int main(void)
     }
     assert(sizeof(scan_plan_point_t)==4U && sizeof(scan_plan_bypass_t)==8U);
     puts("PASS extreme-left/right blockages select the opposite clear side");
+
+    /* A box sticking out on one side: its flat face echoes -20..20 either
+     * way (mirror), and past that edge, on the side it sticks out on, the
+     * ping glances off the face and never returns (no echo, 4000) until
+     * the background answers. The other side hears the background at once.
+     * The room past the box favours the wrong side, so only the no-echo
+     * run can choose correctly (21 Nov logs, right-offset boxes). */
+    for(int32_t side=-1;side<=1;side+=2)
+    {
+        scan_plan_sides_t sides={0};
+        fill(points,1500);
+        for(int32_t k=-2;k<=2;k++) points[zero+k].range_mm=210;
+        /* Glancing off the face on the side the box sticks out on. */
+        points[zero+side*3].range_mm=OBS_FAR_MM;
+        points[zero+side*4].range_mm=OBS_FAR_MM;
+        /* Less room on the other side: the old tie-break went there. */
+        for(int32_t k=3;k<=5;k++) points[zero-side*k].range_mm=900;
+        scan_plan_build_side_report(points,UNIFORM_POINTS,0,0,&plan,&sides);
+        assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
+        assert(scan_plan_side_is_left(&plan)==(side<0));
+    }
+    puts("PASS no echo beside the face counts as the box: offset right goes "
+         "left, offset left goes right");
 
     /* Side choice by where the object sits, with the reported needs. */
     {

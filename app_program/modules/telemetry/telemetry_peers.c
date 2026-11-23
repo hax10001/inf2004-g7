@@ -17,10 +17,21 @@
 #include <limits.h>
 #include <stddef.h>
 
+/* 10-bit telemetry fields (hump mm, obstacle cm, lift mm): 1023 means
+ * "unavailable" to protocol.js, so real values stop at 1022. */
+#define PEERS_FIELD10_NONE 1023u
+#define PEERS_FIELD10_MAX  1022u
+
 static int16_t clamp16(float value)
 {
-    if(value > (float)INT16_MAX) return INT16_MAX;
-    if(value < (float)INT16_MIN) return INT16_MIN;
+    if(value > (float)INT16_MAX)
+    {
+        return INT16_MAX;
+    }
+    if(value < (float)INT16_MIN)
+    {
+        return INT16_MIN;
+    }
     return (int16_t)value;
 }
 
@@ -30,7 +41,10 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
     motion_status_t motion={0};
     ir_shared_snapshot_t ir={0};
     terrain_snapshot imu={0};
-    if(peers==NULL || store==NULL)return 0u;
+    if(peers==NULL || store==NULL)
+    {
+        return 0u;
+    }
 
     /* Read encoder owner's atomic count snapshots directly: the motion
      * controller stops updating its *status* while in remote HOLD. Wheel
@@ -69,8 +83,18 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                 peers->right_residual_mm-=(float)p.right_delta_mm;
                 if(p.left_delta_mm!=0 || p.right_delta_mm!=0) {
                     uint32_t dt=motion.timestamp_usec-peers->motion_last_us;
+                    uint32_t before=peers->odom_travel_x2;
+                    int32_t sum=(int32_t)p.left_delta_mm+
+                                (int32_t)p.right_delta_mm;
+                    uint32_t step=(uint32_t)(sum<0 ? -sum : sum);
                     p.seq=++peers->motion_seq;
                     p.ms=motion.timestamp_usec/1000u;
+                    /* Same distance the dashboard integrates, so a
+                     * checkpoint can bridge ODOM records lost in a gap. */
+                    peers->odom_travel_x2=before+step;
+                    p.cumulative_mm=peers->odom_travel_x2/2u;
+                    p.checkpoint=(before/(2u*B1_CHECKPOINT_MM))!=
+                        (peers->odom_travel_x2/(2u*B1_CHECKPOINT_MM));
                     if(dt>0u) {
                         p.left_speed_mm_s=clamp16((float)
                             p.left_delta_mm*1000000.0f/(float)dt);
@@ -78,7 +102,9 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                             p.right_delta_mm*1000000.0f/(float)dt);
                     }
                     if(b1_ingest_motion(store,&p)==0)
+                    {
                         updated|=B1_SRC_MOTION;
+                    }
                     peers->motion_last_us=motion.timestamp_usec;
                 }
             }
@@ -93,7 +119,10 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
         line.barcode=peers->barcode_valid ? peers->barcode_letter : 31u;
         peers->last_ir_bits=line.ir;
         line.line=0u; /* raw IR is not authoritative navigation state */
-        if(b1_ingest_line(store,&line)==0)updated|=B1_SRC_LINE;
+        if(b1_ingest_line(store,&line)==0)
+        {
+            updated|=B1_SRC_LINE;
+        }
         peers->ir_last_ms=ir.timestamp_msec;peers->have_ir=1u;
     }
     /* Copy validated Code 39 letters (A-Z encoded as 0..25) to telemetry
@@ -133,15 +162,38 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
        (!peers->have_imu || imu.timestamp_msec!=peers->imu_last_ms)) {
         B1_Terrain terrain={0};
         terrain.seq=++peers->imu_seq;terrain.ms=imu.timestamp_msec;
-        terrain.hump_mm=imu.height_valid ? imu.hump_height_mm : 1023u;
+        terrain.hump_mm=imu.height_valid ? imu.hump_height_mm :
+                                           PEERS_FIELD10_NONE;
         terrain.max_hump_mm=imu.max_hump_height_mm;
-        if(terrain.hump_mm>1022u)terrain.hump_mm=1023u;
-        if(terrain.max_hump_mm>1022u)terrain.max_hump_mm=1023u;
+        if(terrain.hump_mm>PEERS_FIELD10_MAX)
+        {
+            terrain.hump_mm=PEERS_FIELD10_NONE;
+        }
+        if(terrain.max_hump_mm>PEERS_FIELD10_MAX)
+        {
+            terrain.max_hump_mm=PEERS_FIELD10_NONE;
+        }
         terrain.quality=imu.height_valid?1u:0u;
         terrain.mode=(uint8_t)imu.hump_phase;
-        /* Event dedup requires a producer event ID; current published
-         * terrain snapshot has none, so do not invent one here. */
-        if(b1_ingest_terrain(store,&terrain)==0)updated|=B1_SRC_TERRAIN;
+        /* One EVENT per hump the terrain task recorded (HUMP DONE): it
+         * flips hump_done_toggle then, and never for a discarded one (no
+         * travel, lifted, no climb). Terrain outputs are read only. */
+        if(peers->have_imu &&
+           imu.hump_done_toggle!=peers->hump_toggle) {
+            ++peers->hump_event_seq;
+            if(peers->hump_event_seq==0u)
+            {
+                peers->hump_event_seq=1u;
+            }
+            terrain.event_kind=B1_EVT_HUMP_CROSSED;
+            terrain.event_value=imu.last_hump_height_mm;
+        }
+        peers->hump_toggle=imu.hump_done_toggle;
+        terrain.event_id=peers->hump_event_seq;
+        if(b1_ingest_terrain(store,&terrain)==0)
+        {
+            updated|=B1_SRC_TERRAIN;
+        }
         peers->imu_last_ms=imu.timestamp_msec;peers->have_imu=1u;
     }
     /* Observe the uploaded obstacle owner's packed state without hardware. */
@@ -156,7 +208,9 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
         obstacle.faults=(uint8_t)obs_state_status_faults(word);
         if(obstacle.distance_cm==OBS_DIST_INVALID_CM ||
            (obstacle.faults & OBS_FAULT_NO_ECHO)!=0u)
-            obstacle.distance_cm=1023u;
+        {
+            obstacle.distance_cm=PEERS_FIELD10_NONE;
+        }
         obstacle.side=(uint8_t)obs_state_status_route(word);
         obstacle.bypass_count=(uint8_t)obs_state_status_count(word);
         if(obs_state_status_faults(word)!=0u &&
@@ -175,7 +229,10 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                   obs_state_status_count(previous)!=obstacle.bypass_count) {
             obstacle.event_kind=6u;
         }
-        if(obstacle.event_kind)++peers->obstacle_event_seq;
+        if(obstacle.event_kind)
+        {
+            ++peers->obstacle_event_seq;
+        }
         obstacle.event_id=peers->obstacle_event_seq;
         if(now!=0u && b1_ingest_obstacle(store,&obstacle)==0) {
             updated|=B1_SRC_OBSTACLE;
@@ -204,15 +261,29 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
             if(obstacle_cm!=OBS_DIST_INVALID_CM &&
                (obs_state_status_faults(obstacle_word) &
                 OBS_FAULT_NO_ECHO)==0u)
+            {
                 distance=(uint16_t)obstacle_cm;
+            }
 #endif
             f.type=B1_TYPE_SENSOR;
             f.time_ms=now;
             f.payload_len=B1_SENSOR_LIFT;
-            if(ir.b_valid)valid|=1u;
-            if(imu.b_valid)valid|=2u;
-            if(motion.b_valid)valid|=8u;
-            if(imu.heading_valid)valid|=16u;
+            if(ir.b_valid)
+            {
+                valid|=1u;
+            }
+            if(imu.b_valid)
+            {
+                valid|=2u;
+            }
+            if(motion.b_valid)
+            {
+                valid|=8u;
+            }
+            if(imu.heading_valid)
+            {
+                valid|=16u;
+            }
             f.payload[0]=valid;
             f.payload[1]=peers->last_ir_bits;
             b1_put16(&f.payload[2],(uint16_t)
@@ -233,9 +304,13 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
             /* Lifted height 0..1022 mm in ten bits (1023 unavailable),
              * then the lifted flag; the top five bits stay zero. */
             b1_put16(&f.payload[24],(uint16_t)
-                ((imu.b_valid ? (uint16_t)imu.lift_height_mm : 1023u) |
+                ((imu.b_valid ? (uint16_t)imu.lift_height_mm :
+                                PEERS_FIELD10_NONE) |
                  ((imu.b_valid && imu.b_lifted) ? 0x0400u : 0u)));
-            if(b1_sensor_frame(store,&f)==0) {
+            /* A detail frame is a moment's reading: when it cannot be
+             * sent now, skip it rather than reserve a sequence number
+             * that never arrives (the host would see a gap). */
+            if(b1_mqtt_can_send() && b1_sensor_frame(store,&f)==0) {
                 (void)b1_mqtt_submit(&f);
             }
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
@@ -303,7 +378,7 @@ uint8_t g7_telemetry_poll(G7_TelemetryPeers *peers,B1_Store *store)
                     f.payload[39]=0u;
                     b1_put16(&f.payload[40],w.last_process_ms);
                 }
-                if(b1_sensor_frame(store,&f)==0) {
+                if(b1_mqtt_can_send() && b1_sensor_frame(store,&f)==0) {
                     (void)b1_mqtt_submit(&f);
                 }
             }

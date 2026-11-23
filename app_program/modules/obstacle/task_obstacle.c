@@ -118,6 +118,33 @@ static void log_side (UB const * p_name, unsigned int need_mm,
                       scan_plan_side_info_t const * p_info);
 /** @brief Re-centre the servo if it is not at FRONT; old pings are dropped. */
 static void face_front (monitor_t * p_monitor);
+/** @brief Slow majority vote on the edge bearings (OBS_EDGE_VOTE_*).
+ *  @param[in,out] p_points Merged scan; edge bearings are re-read.
+ *  @param count Points in the scan.
+ *  @param face_mm Face range straight ahead; >= OBS_SCAN_RANGE_MM skips.
+ *  @return false if aborted part way.
+ */
+static bool edge_vote (scan_plan_point_t * p_points, int32_t count,
+                       int32_t face_mm);
+/** @brief Move the servo to a scan bearing so that it always arrives
+ *  moving right: a move left first swings to the left limit and settles.
+ *  Ramped in OBS_SERVO_RAMP_DEG steps; waits until settled. */
+static void servo_aim (int32_t angle_deg);
+
+#if (OBS_SERVO_RAMP_DEG < 1) || (OBS_SERVO_RAMP_MSEC < 1U)
+#error "Servo ramp step >= 1 deg and >= 1 msec."
+#endif
+#if (0 != OBS_EDGE_VOTE) && \
+    ((OBS_EDGE_VOTE_PINGS < 3U) || (OBS_EDGE_VOTE_PINGS > 15U) || \
+     ((OBS_EDGE_VOTE_PINGS % 2U) == 0U) || \
+     ((OBS_EDGE_VOTE_MIN_DEG % 5) != 0) || \
+     ((OBS_EDGE_VOTE_MAX_DEG % 5) != 0) || \
+     (OBS_EDGE_VOTE_MIN_DEG < 5) || \
+     (OBS_EDGE_VOTE_MAX_DEG < OBS_EDGE_VOTE_MIN_DEG) || \
+     (OBS_EDGE_VOTE_MAX_DEG > OBS_SCAN_LEFT_DEG) || \
+     (OBS_EDGE_VOTE_MAX_DEG > OBS_SCAN_RIGHT_DEG))
+#error "Edge vote: odd PINGS 3..15, bearings multiples of 5 within sweep."
+#endif
 
 void task_obstacle_task (INT start_code, void * p_context)
 {
@@ -283,7 +310,7 @@ static void run_scan (void)
         (0U == (obs_state_flags_read() & OBS_EVT_ABORT)))
     {
         int32_t lone = 0;
-        tk_dly_tsk((RELTIM)servo_set_angle(0));
+        servo_aim(0);
         centre_mm = scan_range(0, &lone);
 
         if (0 != OBS_DEBUG_LOG)
@@ -331,6 +358,64 @@ static void run_scan (void)
         points[index].lone_mm  = (unsigned int)lone_mm[index];
     }
 
+    if (b_ok && (0 != OBS_RESUME_CLEAR_MM) &&
+        (OBS_ROUTE_NONE == obs_state_status_route(obs_state_status_get())))
+    {
+        /* First scan of an obstacle: if the sweep shows nothing in the
+         * front window within OBS_RESUME_CLEAR_MM, whatever stopped the
+         * robot has gone (a hand, someone walking past). Skip the edge
+         * vote and the plan and report clear at once. */
+        int32_t nearest_mm = centre_mm;
+
+        for (int32_t index = 0; index < count; index++)
+        {
+            int32_t const angle = points[index].angle_deg;
+
+            if ((angle >= -OBS_FRONT_WINDOW_DEG) &&
+                (angle <= OBS_FRONT_WINDOW_DEG) &&
+                ((int32_t)points[index].range_mm < nearest_mm))
+            {
+                nearest_mm = (int32_t)points[index].range_mm;
+            }
+        }
+
+        if (nearest_mm > OBS_RESUME_CLEAR_MM)
+        {
+            scan_plan_bypass_t clear = {SCAN_PLAN_CLEAR, 0U};
+
+            servo_aim(0);
+            obs_state_plan_store(&clear);
+            /* Values fit INT on the target; UB keeps the string bytes. */
+            tm_printf((UB *)"[OBS] Nothing in front after the sweep "
+                            "(nearest %d mm): back to line following\n",
+                      (INT)nearest_mm);
+            obs_state_flags_set(OBS_EVT_SCAN_DONE);
+            obs_state_flags_clear(OBS_EVT_SCAN_REQ);
+            return;
+        }
+    }
+
+    if (b_ok && (0 != OBS_EDGE_VOTE))
+    {
+        /* The face straight ahead: the fresh centre reading, else the
+         * nearest echo inside the vote band. */
+        int32_t face_mm = centre_mm;
+
+        for (int32_t index = 0; index < count; index++)
+        {
+            int32_t const angle = points[index].angle_deg;
+
+            if ((angle > -OBS_EDGE_VOTE_MIN_DEG) &&
+                (angle < OBS_EDGE_VOTE_MIN_DEG) &&
+                ((int32_t)points[index].range_mm < face_mm))
+            {
+                face_mm = (int32_t)points[index].range_mm;
+            }
+        }
+
+        b_ok = edge_vote(points, count, face_mm);
+    }
+
     if (b_ok && (0 == OBS_SCAN_DIRECTION) && (0 != OBS_DEBUG_LOG))
     {
         for (int32_t index = 0; index < count; index++)
@@ -347,7 +432,7 @@ static void run_scan (void)
     {
         scan_plan_bypass_t plan = {0U, 0U};
 
-        tk_dly_tsk((RELTIM)servo_set_angle(0));
+        servo_aim(0);
 
         /* An uncertain centre echo does not clear a previously
          * confirmed obstacle in front of the car.
@@ -411,7 +496,7 @@ static void run_side_watch (side_watch_t * p_watch, UINT pattern)
         /* Look ahead once, then re-aim at the side on the next pass. */
         p_watch->pings   = 0U;
         p_watch->b_aimed = false;
-        tk_dly_tsk((RELTIM)servo_set_angle(0));
+        servo_aim(0);
         run_front_watch();
     }
     else
@@ -498,7 +583,7 @@ static bool scan_pass (scan_plan_point_t const * p_points,
         {
             int32_t lone = 0;
 
-            tk_dly_tsk((RELTIM)servo_set_angle(angle));
+            servo_aim(angle);
             p_ranges_mm[index] = scan_range(angle, &lone);
 
             if ((0 != lone) &&
@@ -828,9 +913,151 @@ static void face_front (monitor_t * p_monitor)
 {
     if (0 != servo_angle_get())
     {
-        tk_dly_tsk((RELTIM)servo_set_angle(0));
+        servo_aim(0);
         p_monitor->hits   = 0U;
         p_monitor->filled = 0U;
+    }
+}
+
+static bool edge_vote (scan_plan_point_t * p_points, int32_t count,
+                       int32_t face_mm)
+{
+    if ((face_mm <= 0) || (face_mm >= OBS_SCAN_RANGE_MM))
+    {
+        /* Nothing near ahead: no edges to sharpen. */
+        return true;
+    }
+
+    int32_t const near_limit = face_mm + OBS_CORNER_DEPTH_MM;
+
+    /* One run from the left end of the band to the right end, so the
+     * servo only moves right: +MAX..+MIN, then -MIN..-MAX. */
+    for (int32_t angle = OBS_EDGE_VOTE_MAX_DEG;
+         angle >= -OBS_EDGE_VOTE_MAX_DEG; angle -= 5)
+    {
+        if ((angle >= OBS_EDGE_VOTE_MIN_DEG) ||
+            (angle <= -OBS_EDGE_VOTE_MIN_DEG))
+        {
+            int32_t       index = -1;
+
+            for (int32_t i = 0; i < count; i++)
+            {
+                if (p_points[i].angle_deg == angle)
+                {
+                    index = i;
+                }
+            }
+
+            if (0U != (obs_state_flags_read() & OBS_EVT_ABORT))
+            {
+                return false;
+            }
+
+            if (index >= 0) /* Else not a scan bearing or beyond the servo. */
+            {
+                int32_t near_mm[OBS_EDGE_VOTE_PINGS];
+                int32_t far_mm[OBS_EDGE_VOTE_PINGS];
+                /* Counts 0..15 (OBS_EDGE_VOTE_PINGS <= 15 by #error). */
+                uint8_t n_near = 0U;
+                uint8_t n_far  = 0U;
+
+                servo_aim(angle);
+                tk_dly_tsk((RELTIM)OBS_EDGE_VOTE_SETTLE_MSEC);
+
+                for (uint32_t ping = 0U; ping < OBS_EDGE_VOTE_PINGS; ping++)
+                {
+                    int32_t range_mm = 0;
+
+                    if (0U == ping)
+                    {
+                        scan_ping_gap();
+                    }
+                    else
+                    {
+                        tk_dly_tsk((RELTIM)OBS_EDGE_VOTE_GAP_MSEC);
+                    }
+
+                    bool const b_echo =
+                        (ULTRASONIC_OK == ultrasonic_ping(&range_mm));
+
+                    if (b_echo && (range_mm > 0) && (range_mm <= near_limit))
+                    {
+                        near_mm[n_near] = range_mm;
+                        n_near++;
+                    }
+                    else
+                    {
+                        far_mm[n_far] = b_echo ? range_mm : OBS_FAR_MM;
+                        n_far++;
+                    }
+                }
+
+                sort_pings(near_mm, n_near);
+                sort_pings(far_mm, n_far);
+
+                bool const    b_object = (2U * n_near) > OBS_EDGE_VOTE_PINGS;
+                int32_t const range_mm = b_object ? near_mm[n_near / 2U]
+                                                  : far_mm[n_far / 2U];
+
+                /* 0..4000 mm fits the 12-bit field. */
+                p_points[index].range_mm = (unsigned int)range_mm;
+
+                if ((!b_object) && (n_near > 0U) &&
+                    ((0U == p_points[index].lone_mm) ||
+                     ((unsigned int)near_mm[0] < p_points[index].lone_mm)))
+                {
+                    /* A minority still heard it: keep as a corner hint. */
+                    p_points[index].lone_mm = (unsigned int)near_mm[0];
+                }
+
+                if (0 != OBS_DEBUG_LOG)
+                {
+                    /* Values fit INT on the target; UB keeps the bytes. */
+                    tm_printf((UB *)"[OBS] Edge vote %d deg: %d of %d near "
+                                    "-> %d mm %s\n",
+                              (INT)angle, (INT)n_near,
+                              (INT)OBS_EDGE_VOTE_PINGS,
+                              (INT)range_mm,
+                              b_object ? (UB *)"object" : (UB *)"open");
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+static void servo_aim (int32_t angle_deg)
+{
+    int32_t const left_deg = servo_left_limit_deg();
+    int32_t       at_deg   = servo_angle_get();
+
+    if (angle_deg > at_deg)
+    {
+        /* To the left: all the way first, and let the spring-back die. */
+        while ((left_deg - at_deg) > OBS_SERVO_RAMP_DEG)
+        {
+            at_deg += OBS_SERVO_RAMP_DEG;
+            (void)servo_set_angle(at_deg);
+            tk_dly_tsk((RELTIM)OBS_SERVO_RAMP_MSEC);
+        }
+
+        tk_dly_tsk((RELTIM)(servo_set_angle(left_deg) +
+                            OBS_SERVO_SWING_SETTLE_MSEC));
+        at_deg = left_deg;
+    }
+
+    /* Now only ever moving right, ramped, onto the bearing. */
+    while ((at_deg - angle_deg) > OBS_SERVO_RAMP_DEG)
+    {
+        at_deg -= OBS_SERVO_RAMP_DEG;
+        (void)servo_set_angle(at_deg);
+        tk_dly_tsk((RELTIM)OBS_SERVO_RAMP_MSEC);
+    }
+
+    if (at_deg != angle_deg)
+    {
+        tk_dly_tsk((RELTIM)servo_set_angle(angle_deg));
     }
 }
 

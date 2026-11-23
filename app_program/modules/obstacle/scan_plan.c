@@ -123,6 +123,12 @@
 #define DIAG_MASK 0x1FFU
 #define FALLBACK_SHIFT 9U
 #define FALLBACK_MASK 0x1FFU
+/* The side not chosen: its drive-out, and whether its corridor is clear
+ * (for the turn-out peek, obstacle.c). Spare bits of the same words. */
+#define OTHER_CM_SHIFT 18U
+#define OTHER_CM_MASK 0x1FFU
+#define OTHER_OK_SHIFT 31U
+#define OTHER_OK_MASK 0x1U
 
 /** @brief Sine times 1000 for 0 to 90 degrees in steps of 5 degrees. */
 static int32_t const g_sine_milli[TRIG_TABLE_SIZE] = {
@@ -168,6 +174,8 @@ typedef struct
     uint32_t lateral_cm;
     uint32_t diag_cm;
     uint32_t fallback_cm;
+    uint32_t other_cm;   /**< Drive-out of the side not chosen. */
+    bool     b_other_ok:1; /**< That side's corridor is clear too. */
 } plan_fields_t;
 
 /** @brief Sine times 1000 of a multiple of 5 degrees from -90 to 90. */
@@ -339,6 +347,9 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
                          plan_fields_t * p_fields,
                          scan_plan_sides_t * p_sides);
 /** @brief Pack the plan fields into two words. */
+/** @brief Count no-echo bearings next to the object as its face seen
+ *  glancingly (OBS_GLANCE_AS_FACE); see obs_config.h. */
+static void glance_fill (scan_plan_point_t * p_points, int32_t count);
 static void pack_fields (plan_fields_t const * p_fields,
                          scan_plan_bypass_t *  p_plan);
 
@@ -380,7 +391,8 @@ static void build_plan (scan_plan_point_t const * p_points, int32_t count,
                         scan_plan_bypass_t * p_plan,
                         scan_plan_sides_t * p_sides)
 {
-    plan_fields_t fields = {SCAN_PLAN_CLEAR, false, 0U, 0U, 0U, 0U, 0U, 0U};
+    plan_fields_t fields = {SCAN_PLAN_CLEAR, false, 0U, 0U, 0U, 0U, 0U, 0U,
+                            0U, false};
     int32_t       low    = 0;
     int32_t       high   = 0;
 
@@ -433,6 +445,8 @@ void scan_plan_build_side_report (scan_plan_point_t * p_points, int32_t count,
     }
 
     scan_anchor_t anchor = {0, 0, false};
+
+    glance_fill(p_points, count);
 
     if ((confirmed_front_mm >= 20) && (confirmed_front_mm <= OBS_STOP_MM))
     {
@@ -530,6 +544,17 @@ int32_t scan_plan_fallback_cm (scan_plan_bypass_t const * p_plan)
 {
     /* The field is at most 9 bits wide, so the cast is exact. */
     return (int32_t)((p_plan->word_b >> FALLBACK_SHIFT) & FALLBACK_MASK);
+}
+
+bool scan_plan_other_side_ok (scan_plan_bypass_t const * p_plan)
+{
+    return 0U != ((p_plan->word_a >> OTHER_OK_SHIFT) & OTHER_OK_MASK);
+}
+
+int32_t scan_plan_other_lateral_cm (scan_plan_bypass_t const * p_plan)
+{
+    /* Nine bits always fit int32_t. */
+    return (int32_t)((p_plan->word_b >> OTHER_CM_SHIFT) & OTHER_CM_MASK);
 }
 
 static int32_t sine_milli (int32_t angle_deg)
@@ -1291,6 +1316,13 @@ static void choose_side (side_option_t const * p_left,
                                       OBS_ROBOT_REAR_MM +
                                       (HALF * OBS_SAFETY_MARGIN_MM),
                                   DIST_LIMIT_CM);
+
+    /* A free choice with both corridors clear may still be changed by the
+     * turn-out peek; a fixed or kept side may not. */
+    side_option_t const * const p_rest = b_pick_left ? p_right : p_left;
+
+    p_fields->b_other_ok = (0 == prefer) && p_rest->b_ok;
+    p_fields->other_cm   = to_cm(p_rest->need_mm, DIST_LIMIT_CM);
 }
 
 static void plan_object (scan_plan_point_t const * p_points, int32_t count,
@@ -1700,7 +1732,10 @@ static void pack_fields (plan_fields_t const * p_fields,
 {
     uint32_t const side_bit = p_fields->b_left ? 1U : 0U;
 
-    p_plan->word_a = ((p_fields->result & RESULT_MASK) << RESULT_SHIFT) |
+    uint32_t const other_bit = p_fields->b_other_ok ? 1U : 0U;
+
+    p_plan->word_a = ((other_bit & OTHER_OK_MASK) << OTHER_OK_SHIFT) |
+                     ((p_fields->result & RESULT_MASK) << RESULT_SHIFT) |
                      ((side_bit & SIDE_MASK) << SIDE_SHIFT) |
                      ((p_fields->angle_index & ANGLE_MASK) << ANGLE_SHIFT) |
                      ((p_fields->width_cm & WIDTH_MASK) << WIDTH_SHIFT) |
@@ -1708,7 +1743,67 @@ static void pack_fields (plan_fields_t const * p_fields,
                      ((p_fields->lateral_cm & LATERAL_MASK) << LATERAL_SHIFT);
     p_plan->word_b =
         ((p_fields->diag_cm & DIAG_MASK) << DIAG_SHIFT) |
-        ((p_fields->fallback_cm & FALLBACK_MASK) << FALLBACK_SHIFT);
+        ((p_fields->fallback_cm & FALLBACK_MASK) << FALLBACK_SHIFT) |
+        ((p_fields->other_cm & OTHER_CM_MASK) << OTHER_CM_SHIFT);
+}
+
+static void glance_fill (scan_plan_point_t * p_points, int32_t count)
+{
+    int32_t centre = -1;
+
+    for (int32_t index = 0; index < count; index++)
+    {
+        if (0 == p_points[index].angle_deg)
+        {
+            centre = index;
+        }
+    }
+
+    if ((0 == OBS_GLANCE_AS_FACE) || (centre < 0) ||
+        ((int32_t)p_points[centre].range_mm >= OBS_SCAN_RANGE_MM))
+    {
+        return; /* Off, or nothing near straight ahead. */
+    }
+
+    int32_t const near_mm =
+        (int32_t)p_points[centre].range_mm + OBS_CORNER_DEPTH_MM;
+
+    /* Each side: out along the face's own echoes, then on through the
+     * unbroken run of no-echo bearings, up to OBS_CORNER_MAX_DEG. */
+    for (int32_t dir = -1; dir <= 1; dir += 2)
+    {
+        int32_t edge = centre;
+
+        while (((edge + dir) >= 0) && ((edge + dir) < count) &&
+               ((int32_t)p_points[edge + dir].range_mm <= near_mm))
+        {
+            edge += dir;
+        }
+
+        unsigned int const face_mm = p_points[edge].range_mm;
+        int32_t            end     = edge + dir;
+
+        while ((end >= 0) && (end < count) &&
+               ((int32_t)p_points[end].range_mm >= OBS_FAR_MM) &&
+               (abs_int(p_points[end].angle_deg) <= OBS_CORNER_MAX_DEG))
+        {
+            end += dir;
+        }
+
+        /* Only when the background answers right after the run, still
+         * inside the corner band: silence with nothing beyond it, or
+         * reaching past where a box corner can be, may be open space. */
+        if ((abs_int(end - edge) > OBS_GLANCE_MIN_RUN) && (end >= 0) &&
+            (end < count) &&
+            ((int32_t)p_points[end].range_mm < OBS_FAR_MM) &&
+            (abs_int(p_points[end].angle_deg) <= OBS_CORNER_MAX_DEG))
+        {
+            for (int32_t index = edge + dir; index != end; index += dir)
+            {
+                p_points[index].range_mm = face_mm;
+            }
+        }
+    }
 }
 
 /*** end of file ***/

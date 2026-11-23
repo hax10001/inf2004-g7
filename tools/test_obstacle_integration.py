@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--cc", default="gcc")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, str(ROOT / "tools/tests/run_buddy5_clearance.py"),
+    subprocess.run([sys.executable, str(ROOT / "tools/tests/run_planner_side_tracking.py"),
                     "--cc", args.cc], cwd=ROOT, check=True)
 
     def build_run(name, sources, flags=()):
@@ -48,6 +48,8 @@ def main():
               "app_program/modules/telemetry/host/test_tel.c"], ["-pthread"])
     build_run("autonav", ["app_program/app/nav_core.c", "tools/test_autonav.c"])
     build_run("obstacle_return", ["tools/tests/obstacle_return.c"],
+              dead_code_flags(args.cc, whole_program=True))
+    build_run("obstacle_rejoin_sim", ["tools/tests/obstacle_rejoin_sim.c"],
               dead_code_flags(args.cc, whole_program=True))
     print("PASS: obstacle integration and existing navigation regressions.")
 

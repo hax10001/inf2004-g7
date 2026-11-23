@@ -41,7 +41,7 @@ typedef struct
     unsigned int b_lifted:1;
     uint32_t timestamp_msec;
     uint16_t heading_centideg;    /**< 0..36000 when heading_valid. */
-    /* Three phases and five flags in seven bits. The terrain task
+    /* Three phases and six flags in eight bits. The terrain task
      * publishes and the consumers read copies under the terrain mutex. */
     unsigned char hump_phase:2;
     unsigned char onHump:1;
@@ -50,6 +50,9 @@ typedef struct
     unsigned char heading_valid:1;
     /** A fresh IR sample has at least one white line sensor. */
     unsigned char b_floor_contact:1;
+    /** Flips each time a hump is recorded (HUMP DONE); discarded humps
+     *  leave it unchanged. */
+    unsigned char hump_done_toggle:1;
 } terrain_snapshot;
 
 /** @brief Initialise subsystem resources; device open remains task-owned. */

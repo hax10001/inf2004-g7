@@ -1,5 +1,6 @@
 'use strict';
 const {decodeFrame,interpret}=require('./protocol');
+const {RouteTracker}=require('./route');
 const sourceNames=['motion','line','terrain','obstacle','mission'];
 const controllerFaults={2:'stale IR',3:'IR read failure',
  4:'controller clock failure',5:'obstacle sensor fault',6:'decode timeout',
@@ -7,7 +8,7 @@ const controllerFaults={2:'stale IR',3:'IR read failure',
  9:'downhill overspeed',10:'IMU unavailable',11:'stale downhill IMU',
  12:'scan handoff overflow',13:'unmapped barcode',
  14:'robot lifted off the floor'};
-const eventNames={1:'Barcode decoded',2:'Junction detected',3:'Hump detected',4:'Obstacle detected',5:'Bypass chosen',6:'Line reacquired',7:'Safety fault',8:'Line lost',9:'Hump finished',10:'Mission state',11:'IMU calibration requested (simulation)',12:'Navigation action queued',13:'Junction confirmed',14:'Turn started',15:'Turn completed',16:'Line reacquired',17:'Line following resumed',18:'Navigation safety stop',19:'Scan not queued',20:'Stopped at junction: waiting for barcode decode'};
+const eventNames={1:'Barcode decoded',2:'Junction detected',3:'Hump detected',4:'Obstacle detected',5:'Bypass chosen',6:'Obstacle bypassed',7:'Safety fault',8:'Line lost',9:'Hump crossed',10:'Mission state',11:'IMU calibration requested (simulation)',12:'Navigation action queued',13:'Junction confirmed',14:'Turn started',15:'Turn completed',16:'Line reacquired',17:'Line following resumed',18:'Navigation safety stop',19:'Scan not queued',20:'Stopped at junction: waiting for barcode decode'};
 const scanFailureReasons=['Reason unavailable (firmware reported 0)',
   'Invalid sensor input','Barcode element width mismatch','Capture buffer overflow',
   'Capture timed out','Invalid encoder travel','Scan interrupted',
@@ -25,7 +26,8 @@ function readinessReasons(mask){
   return READINESS_REASONS.filter(([bit])=>mask&bit).map(([,name])=>name);
 }
 class RobotState {
-  constructor(trackWidthMm=120) {
+  /* 130 mm = APP_NAV_TRACK_MM, the firmware's wheel track. */
+  constructor(trackWidthMm=130) {
     this.trackWidthMm=trackWidthMm;this.logs=[];this.logSequence=0;
     this.latestHumpMm=null;this.latestObstacleScan=null;this.reset();
   }
@@ -34,10 +36,17 @@ class RobotState {
     this.logs.unshift(line);if(this.logs.length>300)this.logs.length=300;
     return line;
   }
-  reset(){this.session=null;this.lastSeq=null;this.ackSequences=new Set();this.lastMotionSeq=null;this.odomGaps=0;this.frames=0;this.badFrames=0;
+  /* Route state lives in the tracker; these keep the old field names. */
+  get pose(){return this.route.pose;}
+  get points(){return this.route.points;}
+  get lastMotionSeq(){return this.route.lastMotionSeq;}
+  get odomGaps(){return this.route.odomGaps;}
+  get uncertain(){return this.route.uncertain;}
+  reset(){this.session=null;this.lastSeq=null;this.ackSequences=new Set();this.wireGaps=0;this.frames=0;this.badFrames=0;
+    this.route=new RouteTracker(this.trackWidthMm);
     this.obstacleScanSource=null;
-    this.pose={x:0,y:0,theta:0,distanceMm:0};this.points=[{x:0,y:0,ms:0,uncertain:false}];this.events=[];
-    this.snapshot=null;this.robotStatus=null;this.controllerFault=null;this.routeMapping=null;this.sensor=null;this.barcodeDiag=null;this.scanOutcomes=[];this.serialSensor=null;this.serialBarcode=null;this.dropped=0;this.lastSeen=0;this.lastRobotMs=0;this.lastRobotClockAt=null;this.acks=[];this.uncertain=false;this.mode='LIVE';}
+    this.events=[];
+    this.snapshot=null;this.robotStatus=null;this.controllerFault=null;this.routeMapping=null;this.sensor=null;this.barcodeDiag=null;this.scanOutcomes=[];this.serialSensor=null;this.serialBarcode=null;this.dropped=0;this.lastSeen=0;this.lastRobotMs=0;this.lastRobotClockAt=null;this.acks=[];this.mode='LIVE';}
   recordScanOutcome(status, detail, options={}){
     const now=Date.now();
     const item={id:++this.logSequence,at:now,status,detail,letter:options.letter||null,
@@ -70,7 +79,18 @@ class RobotState {
     }
     // The object summary is logged once the planner has processed the scan.
     const object=/\[OBS\] Object -?\d+\.\.-?\d+ deg, face \d+ mm ahead, width (\d{1,4}) mm\b/.exec(line);
+    // The scan was of something that then moved away (a hand): the robot
+    // carries on, so the last real obstacle's width stays on show.
+    if(line.includes('[OBS] Way ahead clear again')){
+      if(this.previousObstacleScan!==undefined){
+        this.latestObstacleScan=this.previousObstacleScan;
+        this.previousObstacleScan=undefined;
+      }
+      this.obstacleScanSource=null;
+      return true;
+    }
     if(object){
+      this.previousObstacleScan=this.latestObstacleScan;
       this.latestObstacleScan={widthMm:Number(object[1])||null,leftMm:null,rightMm:null};
       this.obstacleScanSource=source;
       return true;
@@ -134,7 +154,9 @@ class RobotState {
         const gap=(seq-this.lastSeq)&65535;
         if(gap>0 && gap<delta){skippedAcks++;this.ackSequences.delete(seq);}
       }
-      if(delta-skippedAcks!==1){this.odomGaps++;this.uncertain=true;
+      /* A lost frame of another type does not move the route; only an
+       * ODOM source-sequence gap does (see RouteTracker). */
+      if(delta-skippedAcks!==1){this.wireGaps++;
         this.log('network',`Wire sequence gap: ${this.lastSeq} → ${f.seq}`,'warn');}
     }
     if(!ackFrame)this.lastSeq=f.seq;
@@ -148,7 +170,9 @@ class RobotState {
       this.lastRobotMs=f.ms;
       this.lastRobotClockAt=this.lastSeen;
     }
-    if(f.flags&1)this.uncertain=true;
+    /* flags bit 0: the robot dropped a record at some point this boot.
+     * Shown as dropped frames; the route uses ODOM sequence numbers. */
+    this.robotDropFlag=!!(f.flags&1);
     if(msg.kind==='status'){
       if(msg.ready && msg.remoteHold)this.controllerFault=null;
       /* A lift pause that resumed by itself is over. */
@@ -250,14 +274,7 @@ class RobotState {
       if(this.snapshot && this.snapshot.faults!==msg.faults && msg.faults)this.log('mission',`Fault mask 0x${msg.faults.toString(16)}`,'error');
       this.snapshot=msg;
     } else if(msg.kind==='odometry'){
-      if(this.lastMotionSeq!==null && ((msg.sourceSeq-this.lastMotionSeq)&65535)!==1){this.odomGaps++;this.uncertain=true;this.log('movement','Missing incremental wheel update','warn');}
-      this.lastMotionSeq=msg.sourceSeq;
-      const mm=(msg.leftMm+msg.rightMm)/2,dth=(msg.rightMm-msg.leftMm)/this.trackWidthMm;
-      this.pose.x+=mm*Math.cos(this.pose.theta+dth/2);
-      this.pose.y+=mm*Math.sin(this.pose.theta+dth/2);
-      this.pose.theta+=dth;this.pose.distanceMm+=Math.abs(mm);
-      this.points.push({x:this.pose.x,y:this.pose.y,ms:f.ms,uncertain:this.uncertain});
-      if(this.points.length>2000)this.points.shift();
+      if(this.route.odometry(msg,f.ms).gap)this.log('movement','Missing incremental wheel update; route segment approximate until the next distance checkpoint','warn');
     } else if(msg.kind==='event') {
       if(msg.eventKind===21){
         this.controllerFault={code:msg.value,
@@ -267,11 +284,13 @@ class RobotState {
           '(robot lifted off the floor)','warn');
         else this.log('mission',`SAFE STOP: ${this.controllerFault.reason}`,'error');
       }
-      const sample=this.points.slice().reverse().find(p=>p.ms<=f.ms)||this.points[0];
       const name=eventNames[msg.eventKind]||`Event ${msg.eventKind}`;
       const source=sourceNames[msg.source-1]||'unknown';
-      this.events.unshift({id:msg.eventId,source,name,kind:msg.eventKind,value:msg.value,ms:f.ms,x:sample.x,y:sample.y,
-        locationMeaning:'robot detection position',positionValid:this.lastMotionSeq!==null&&!this.uncertain});
+      if(source==='mission')this.route.navEvent(msg.eventKind,msg.value,f.ms);
+      const event={id:msg.eventId,source,name,kind:msg.eventKind,value:msg.value,ms:f.ms,x:0,y:0,
+        locationMeaning:'robot pose at the event time (dead-reckoned)',positionValid:false};
+      this.route.place(event);
+      this.events.unshift(event);
       if(this.events.length>200)this.events.pop();
       const navNames=['Straight','Left','Right','U-turn'];
       const detail=msg.eventKind===1 && msg.value<=25?`letter=${String.fromCharCode(65+msg.value)}`:
@@ -290,7 +309,8 @@ class RobotState {
           msg.eventKind===7?'error':msg.eventKind===19?'warn':'info');
       }
     } else if(msg.kind==='checkpoint') {
-      if(Math.abs(msg.cumulativeMm-this.pose.distanceMm)>100){this.uncertain=true;this.log('movement','Distance checkpoint differs from reconstructed route','warn');}
+      const r=this.route.checkpoint(msg.cumulativeMm,f.ms);
+      if(r.missingMm>=20)this.log('movement',`Distance checkpoint: bridged ${Math.round(r.missingMm)} mm of lost wheel updates`,'warn');
     } else if(msg.kind==='heartbeat'){
       if(msg.dropped>this.dropped)this.log('network',`Firmware dropped ${msg.dropped-this.dropped} telemetry records`,'warn');
       this.dropped=msg.dropped;
@@ -323,7 +343,8 @@ class RobotState {
     this.routeMapping={...this.routeMapping,state:'TIMED_OUT',
       at:Date.now(),note:'No robot ACK received; mapping not confirmed'};
   }
-  view(){return {session:this.session,frames:this.frames,badFrames:this.badFrames,odomGaps:this.odomGaps,
+  view(){this.route.refreshWaiting();return {session:this.session,frames:this.frames,badFrames:this.badFrames,odomGaps:this.odomGaps,
+    wireGaps:this.wireGaps,turnCorrections:this.route.turnCorrections,bridgedMm:this.route.bridgedMm,trackWidthMm:this.trackWidthMm,
     pose:this.pose,points:this.points,events:this.events,lastMotionSeq:this.lastMotionSeq,snapshot:this.snapshot,dropped:this.dropped,
     lastSeen:this.lastSeen,lastRobotMs:this.lastRobotMs,
     lastRobotClockAt:this.lastRobotClockAt,acks:this.acks,uncertain:this.uncertain,mode:this.mode,

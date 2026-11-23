@@ -38,7 +38,19 @@
  * startup, adjust FRONT: each 10 usec turns it about 1 degree, and a longer
  * pulse turns it left.
  */
-#define OBS_SERVO_FRONT_USEC 1500
+/* 21 Nov: 1500 aimed the sonar a few degrees right of the robot's
+ * forward, so boxes read left of where they were. The face normal ("Square
+ * to the face") read left of sonar zero in 42 of 48 logged scans over three
+ * sessions (4 at 0, 2 at -2.5). With no line heading known (robot put down
+ * near the box) the sides are compared from sonar zero, and in session
+ * 11:27 a box moved right still went right (4 of 4). There the echo span
+ * centre was +5..+12.5 deg for boxes left of the line and +2.5..+5 for
+ * boxes right of it, so the split sits near +4. Replaying those 14 scans
+ * through this planner (box left / box right going the correct way, two
+ * right-box runs forced right by a blocker): 0 deg 8/8, 0/2; 5 deg 6/8,
+ * 2/2; 10 deg 4/8, 2/2. 40 usec turns the zero 4 degrees left. Check: a
+ * box centred on the line should log "Square to the face" near 0. */
+#define OBS_SERVO_FRONT_USEC 1540
 #define OBS_SERVO_USEC_PER_DEG 10
 /* A value of 1 means that a longer pulse turns the sensor left. Keep 1:
  * with -1 every bearing is mirrored, so the scan reads the box on the wrong
@@ -53,10 +65,30 @@
  * side watch needs about 70; if the mount stops it sooner, set the real
  * reach here so the side-watch geometry stays right.
  */
-#define OBS_SERVO_LEFT_LIMIT_DEG 70
+/* 21 Nov: 60, not 70. Moving FRONT to 1540 usec put the 70 degree left
+ * end at 2240 usec, 40 past the 2200 it had always used, and the servo was
+ * seen straining to turn left. 60 is 2140 usec, inside the old range, and
+ * a multiple of OBS_SCAN_STEP_DEG so the sweep still ends on the limit.
+ * The side watch clamps to it (looks 60 degrees left, not 70). */
+#define OBS_SERVO_LEFT_LIMIT_DEG 60
 #define OBS_SERVO_RIGHT_LIMIT_DEG 70
 #define OBS_SERVO_SETTLE_BASE_MSEC 40
 #define OBS_SERVO_SETTLE_PER_DEG_MSEC 3
+/* Scan moves only ever arrive moving right. This SG90 turns right
+ * smoothly but struggles turning left and springs back a little when it
+ * stops, which left the centre and the left bearings off (seen on the
+ * robot, 21 Nov; a 5 or 10 degree hop back did not cure it). So a scan
+ * move to the right goes straight there, ramped in OBS_SERVO_RAMP_DEG
+ * steps OBS_SERVO_RAMP_MSEC apart; a move to the left first swings to the
+ * left limit, waits OBS_SERVO_SWING_SETTLE_MSEC for the spring-back to
+ * die, then comes right to the bearing. The scan is one left-to-right
+ * sweep (OBS_SCAN_DIRECTION -1) and the edge vote runs the same way, so a
+ * scan swings left three times: to start the sweep, to start the vote and
+ * to park at centre. The side watch while passing keeps its direct
+ * moves. */
+#define OBS_SERVO_SWING_SETTLE_MSEC 250U
+#define OBS_SERVO_RAMP_DEG 10
+#define OBS_SERVO_RAMP_MSEC 20U
 /* Wait at startup: the power-on position is unknown, so allow a full turn. */
 #define OBS_SERVO_HOME_MSEC 600U
 
@@ -90,8 +122,9 @@
  *   1 = right to left only; -1 = left to right only. Comparing the two in
  *       the log shows how much the servo shifts the bearings.
  */
+/* 21 Nov: -1 (one smooth left-to-right sweep); see the servo note above. */
 #ifndef OBS_SCAN_DIRECTION
-#define OBS_SCAN_DIRECTION 0
+#define OBS_SCAN_DIRECTION -1
 #endif
 /* Pings per bearing per pass: two, and a third only when those two differ
  * by more than OBS_SCAN_AGREE_MM (an edge that echoes only some of the
@@ -158,6 +191,51 @@
  * late, so the profile is a bowl centred on it; matches a full fit to the
  * logged scans within 1.7 degrees rms), at most OBS_FACE_TILT_MAX_DEG
  * either way. */
+/* Slow edge vote after the two passes. The box's edges echo only some of
+ * the time, and a pass took two or three quick pings 55 ms after the
+ * servo stepped, so the same box gave different edges run to run (21 Nov
+ * 11:5x, box not moved, 3 runs: -30 deg read 4000/4000 on one pass and
+ * 243/260 on the other; +30 heard once of three and dropped; spans
+ * -30..25, -35..30, -30..30; widths 153/199/174 mm; sides R/L/R). So
+ * each bearing OBS_EDGE_VOTE_MIN_DEG..MAX_DEG either side is visited once
+ * more, from the centre outwards on both sides (servo overshoot is then
+ * mirror-symmetric), settled OBS_EDGE_VOTE_SETTLE_MSEC longer, and pinged
+ * OBS_EDGE_VOTE_PINGS times OBS_EDGE_VOTE_GAP_MSEC apart. A ping is "near"
+ * when it echoes within OBS_CORNER_DEPTH_MM beyond the face. The bearing
+ * is the object when most pings are near (their median), else open (the
+ * median of the rest); a minority of near pings is kept as a lone corner
+ * echo. About 0.6 s per bearing, ~8 s for 20..45 both sides; the scan
+ * was ~8 s. 21 Nov 12:3x: the votes came back 7/7 or 0/7 on almost every
+ * bearing, so the settle went 150 -> 100 ms and the gap 90 -> 70 ms.
+ * 0 turns it off. PINGS: odd, 3..15. Bearings: multiples of 5.
+ */
+#define OBS_EDGE_VOTE 1
+#define OBS_EDGE_VOTE_MIN_DEG 20
+#define OBS_EDGE_VOTE_MAX_DEG 45
+#define OBS_EDGE_VOTE_PINGS 5U
+#define OBS_EDGE_VOTE_SETTLE_MSEC 60U
+#define OBS_EDGE_VOTE_GAP_MSEC 70U
+/* 1: a bearing that hears no echo at all, next to the object (beyond its
+ * echoing face, in an unbroken run that a real echo ends, still within
+ * OBS_CORNER_MAX_DEG), counts as the object's face seen at a slant, at the
+ * edge's range. The flat face is a mirror: aimed past its square-on zone
+ * the ping bounces off it and never returns, so "no echo" there means
+ * the box is still in the beam; past its corner the background answers.
+ * A silent run that nothing ends may be open space and stays open.
+ * 21 Nov logs: right-offset boxes went silent at -25..-40 with the room
+ * answering at -40 (1.5 m), the left heard the room at once; the planner
+ * read the silence as open, the box looked centred, and the tie-break
+ * ("more room past it": the open right of this room) chose. Replaying
+ * the 10 labelled scans taken at the current trim: 6/10 -> 8/10 correct.
+ * Still wrong: one symmetric scan (nothing to go on) and one left-offset
+ * box whose silence ran into open room (no echo out to +60). 0: off. */
+#ifndef OBS_GLANCE_AS_FACE
+#define OBS_GLANCE_AS_FACE 1
+#endif
+/* Silent bearings in a row needed (one alone may be a dropped ping). */
+#ifndef OBS_GLANCE_MIN_RUN
+#define OBS_GLANCE_MIN_RUN 2
+#endif
 #define OBS_CORNER_FROM_DEG 35
 #define OBS_FACE_BOWL_MM 10
 /* 25: the robot was logged up to ~20 degrees off square (22:27); 10 was
@@ -260,7 +338,7 @@
 #define OBS_HEADING_TRIM_MAX 5
 #define OBS_STOP_SETTLE_MSEC 250U
 /* A one-way scan takes about 8-10 s, both ways about 16-20 s. */
-#define OBS_SCAN_TIMEOUT_MSEC ((0 == OBS_SCAN_DIRECTION) ? 30000U : 15000U)
+#define OBS_SCAN_TIMEOUT_MSEC 30000U
 #define OBS_STATE_TIMEOUT_MSEC 30000U
 
 /* Sideways offset from the line while passing. The scan sets it; an object
@@ -425,8 +503,72 @@
  */
 #define OBS_RETURN_DEG 60
 #define OBS_ALIGN_CHECK_DEG 30
+/* 23 Nov: return to the line by the IR sensors, not by odometry. When the
+ * robot stopped at an angle to the line (on a curve, mid-correction), the
+ * line is not along the stop heading, so the odometry line above is wrong:
+ * black away from it was ignored, the robot straightened up beside the
+ * line and the seek legs zig-zagged away from it. With this on:
+ *  - on the way back any black under a line sensor (seen
+ *    OBS_LINE_CONFIRM_CYCLES periods in a row) is the line;
+ *  - the robot keeps heading in until it sees it, then drives on until
+ *    the axle is over it (OBS_IR_TO_AXLE_MM), as before;
+ *  - if it has not seen the line OBS_RETURN_SEARCH_MM beyond where the
+ *    odometry line should be, the seek legs take over as before;
+ *  - straightening up stops as soon as the leading sensor has crossed
+ *    the line and both are off it (the line between them), and if neither
+ *    crossed by the straight-ahead heading it keeps turning up to
+ *    OBS_ALIGN_MORE_DEG further for it. Line following then takes over.
+ * 0: the previous odometry return. */
+#ifndef OBS_RETURN_TO_BLACK
+#define OBS_RETURN_TO_BLACK 1
+#endif
+#define OBS_RETURN_SEARCH_MM 400
+#define OBS_ALIGN_MORE_DEG 40
 #define OBS_LINE_CONFIRM_CYCLES 2U
 #define OBS_VERIFY_CYCLES 10U
+/* Resume when the way clears. After the first scan of an obstacle (and
+ * after each "both sides blocked" rescan), before turning out, the robot
+ * pings straight ahead again: OBS_RESUME_HITS valid echoes in a row
+ * beyond OBS_RESUME_CLEAR_MM mean the object was taken away during the
+ * scan, so it goes back to line following instead of bypassing nothing.
+ * One echo at or inside it, or OBS_RESUME_PINGS pings without the clear
+ * run, keeps the plan. Missing echoes never count as clear (see
+ * OBS_FAILSAFE_NO_ECHO). Hits 1..3 (2-bit counter), pings hits..7 (3-bit
+ * counter). OBS_RESUME_CLEAR_MM 0 turns it off; above OBS_STOP_MM so the
+ * front monitor does not stop again at once. */
+#define OBS_RESUME_CLEAR_MM 400
+#define OBS_RESUME_HITS 3U
+#define OBS_RESUME_PINGS 6U
+/* Turn-out peek. A stopped, rotating sonar cannot tell where a flat box
+ * sits: its face is a mirror, so it echoes about +-25 degrees whatever its
+ * offset (21 Nov, five sessions of labelled runs: box-left and box-right
+ * scans read the same edges, and every scan rule tried chose by the room
+ * or by noise). The sensor has to move sideways, and the turn out does
+ * that: pivoting on one wheel, at OBS_PEEK_DEG of turn the sensor is about
+ * 100 mm out on the chosen side. There the robot stops, aims the sonar
+ * square at the face (servo at minus the heading) and pings: skip two,
+ * then OBS_PEEK_PINGS; three or more echoes within OBS_PEEK_SLACK_MM of
+ * the face's distance mean the box still sticks out past the sensor on
+ * this side, so (first choice only, other corridor clear, face at least
+ * OBS_PEEK_MIN_NEAR_MM away so the swing back clears it) it turns out the
+ * other way instead, peeks there too for the log, and goes. No face: the
+ * box ends within ~100 mm on this side; carry on. About 1 s; 0 turns it
+ * off. DEG: multiple of 5, 30..60 (servo reach). PINGS 3..5 (3-bit count
+ * with the two skipped). */
+/* 21 Nov 14:3x, on the robot: OFF. At 111-116 mm out the sensor still
+ * heard the face on 7 of 10 first peeks, either side (pings 187-191 mm
+ * against 202 expected): the beam still reaches a box ending ~70 mm
+ * short of it, and the pivot cannot carry the sensor further (123 mm at
+ * the servo's reach). So it changed sides on no evidence, and after the
+ * second pivot the odometry was off enough to miss the line on the way
+ * back (seek legs, then a NO_ROUTE fault at x=1336). Kept for a sensor
+ * that can be carried further out; do not enable as it is. */
+#define OBS_PEEK 0
+#define OBS_PEEK_DEG 50
+#define OBS_PEEK_PINGS 5U
+#define OBS_PEEK_SKIP 2U
+#define OBS_PEEK_SLACK_MM 60
+#define OBS_PEEK_MIN_NEAR_MM 160
 /* Scans in a row with both sides blocked before it is a fault (about 7 s
  * each with the settle): the robot waits, stopped, for a side to clear. */
 #define OBS_NO_ROUTE_RESCANS 10U

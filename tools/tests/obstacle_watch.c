@@ -36,6 +36,8 @@ bool ultrasonic_last_trigger(uint32_t *msec)
 /* Simulated servo lag: it stops lag_deg short of each target, so the
  * real bearing depends on the direction it arrived from. */
 static int32_t lag_deg, move_dir, lag_lo=-10, lag_hi=10;
+/* Pings taken right after a move to the left (off the left limit). */
+static uint32_t left_approach_pings;
 static unsigned int left_moves, right_moves;
 /* First bearing a scan pings (set by the first ultrasonic_ping after
  * scan_order_armed). */
@@ -52,12 +54,15 @@ uint32_t servo_set_angle(int32_t angle)
     if(angle>max_angle) max_angle=angle;
     return OBS_SERVO_SETTLE_BASE_MSEC + movement*OBS_SERVO_SETTLE_PER_DEG_MSEC;
 }
+int32_t servo_angle_get(void) {return current_angle;}
 int32_t obs_state_watch_angle_get(void) {return watch_angle;}
 ultrasonic_result_t ultrasonic_ping(int32_t *range)
 {
     if(have_trigger && clock_ms-last_trigger<min_trigger_gap)
         min_trigger_gap=clock_ms-last_trigger;
     last_trigger=clock_ms;have_trigger=true;++pings;
+    if(move_dir==1 && current_angle<OBS_SERVO_LEFT_LIMIT_DEG)
+        ++left_approach_pings;
     if(scan_order_armed)
     {
         if(scan_order_first==999)scan_order_first=current_angle;
@@ -199,7 +204,8 @@ int main(void)
     min_trigger_gap=UINT32_MAX;
     run_scan();
     assert(plan_count==1U && scan_plan_result(&stored_plan)==SCAN_PLAN_ROUTE);
-    assert(min_angle==-70 && max_angle==70 && current_angle==0);
+    assert(min_angle==-OBS_SCAN_RIGHT_DEG && max_angle==OBS_SCAN_LEFT_DEG &&
+           current_angle==0);
     assert((worker_flags&OBS_EVT_SCAN_DONE) &&
            !(worker_flags&OBS_EVT_SCAN_REQ));
     assert(clock_ms-scan_started<OBS_SCAN_TIMEOUT_MSEC);
@@ -218,9 +224,31 @@ int main(void)
                     a!=-OBS_SCAN_RIGHT_DEG) ++returning;
         uint32_t const anchor=OBS_FRESH_SCAN_CENTRE!=0?1U:0U;
         uint32_t const bearings=(uint32_t)OBS_SCAN_POINTS+returning+anchor;
-        uint32_t const took=clock_ms-scan_started;
+        /* Slow edge vote (object ahead): OBS_EDGE_VOTE_PINGS more pings at
+         * each scan bearing OBS_EDGE_VOTE_MIN..MAX_DEG either side. Its
+         * guaranteed waits are taken off before the sweep speed checks. */
+        uint32_t voted=0U;
+        if (0!=OBS_EDGE_VOTE)
+            for (int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG;
+                 a=scan_plan_next_angle(a))
+                if (abs(a)>=OBS_EDGE_VOTE_MIN_DEG &&
+                    abs(a)<=OBS_EDGE_VOTE_MAX_DEG) ++voted;
+        /* At least: out along the left band, across to the right band's
+         * start and out along it (servo travel), then per voted bearing a
+         * settle, the extra settle, each ping's echo wait and the gaps. */
+        uint32_t const vote_travel=(0U==voted)?0U:(uint32_t)(
+            2*(OBS_EDGE_VOTE_MAX_DEG-OBS_EDGE_VOTE_MIN_DEG)+
+            (OBS_EDGE_VOTE_MAX_DEG+OBS_EDGE_VOTE_MIN_DEG));
+        uint32_t const vote_wait=vote_travel*OBS_SERVO_SETTLE_PER_DEG_MSEC+
+            voted*(OBS_SERVO_SETTLE_BASE_MSEC+OBS_EDGE_VOTE_SETTLE_MSEC+
+            OBS_EDGE_VOTE_PINGS*OBS_ECHO_TIMEOUT_MSEC+
+            (OBS_EDGE_VOTE_PINGS-1U)*OBS_EDGE_VOTE_GAP_MSEC);
+        uint32_t const took_all=clock_ms-scan_started;
+        assert(took_all>=vote_wait);
+        uint32_t const took=took_all-vote_wait;
         assert(min_trigger_gap>=OBS_PING_PERIOD_MSEC);
-        assert(pings-pings_before==bearings*OBS_SCAN_PINGS);
+        assert(pings-pings_before==bearings*OBS_SCAN_PINGS+
+               voted*OBS_EDGE_VOTE_PINGS);
         /* Previous timing, as a lower bound: the smallest servo settle at
          * every bearing, then each ping's echo plus a full period after it
          * (and it pinged the turnaround bearing twice, not counted here). */
@@ -236,10 +264,15 @@ int main(void)
          * corner band went to 5 degree steps for off-centre boxes). */
         uint32_t const anchor_delay=anchor*(OBS_SERVO_SETTLE_BASE_MSEC+
             OBS_SCAN_PINGS*OBS_PING_PERIOD_MSEC);
-        assert(took <= 6200U+anchor_delay);
-        printf("PASS scan %u bearings, %u pings in %u ms (pings >= %u ms "
-               "apart; old timing at least %u ms)\n",(unsigned)bearings,
-               (unsigned)(pings-pings_before),(unsigned)took,
+        /* +1.8 s (21 Nov): every bearing is now reached the same way
+         * (always arriving moving right, ramped big moves),
+         * measured 7.85 s here. */
+        assert(took <= 8000U+anchor_delay);
+        printf("PASS scan %u bearings + %u voted, %u pings in %u ms "
+               "(sweep %u ms; pings >= %u ms apart; old timing at least %u "
+               "ms)\n",(unsigned)bearings,(unsigned)voted,
+               (unsigned)(pings-pings_before),(unsigned)took_all,
+               (unsigned)took,
                (unsigned)min_trigger_gap,(unsigned)old_estimate);
     }
 
@@ -249,15 +282,26 @@ int main(void)
         uint32_t const t0=clock_ms;
         echo_result=ULTRASONIC_NO_ECHO;
         worker_flags=OBS_EVT_SCAN_REQ;
+        uint32_t const p0=pings;
         run_scan();
         echo_result=ULTRASONIC_OK;
         uint32_t const took=clock_ms-t0;
+        /* Nothing in front after the one sweep: clear at once, parked at
+         * centre, with no edge vote (no more pings than the sweep's). */
+        assert(scan_plan_result(&stored_plan)==SCAN_PLAN_CLEAR);
+        assert((worker_flags&OBS_EVT_SCAN_DONE) &&
+               !(worker_flags&OBS_EVT_SCAN_REQ) && current_angle==0);
+        assert(pings-p0<=(uint32_t)OBS_SCAN_POINTS*OBS_CORNER_PINGS+
+               OBS_CORNER_PINGS);
+        puts("PASS nothing in front after the sweep: clear at once, no "
+             "edge vote");
         printf("PASS silent scan (corner band pinged %u times per bearing) "
                "in %u ms\n",(unsigned)OBS_CORNER_PINGS,(unsigned)took);
         uint32_t const anchor_delay=(OBS_FRESH_SCAN_CENTRE!=0)
             ? OBS_SERVO_SETTLE_BASE_MSEC+OBS_SCAN_PINGS*OBS_PING_PERIOD_MSEC
             : 0U;
-        assert(took <= 7500U+anchor_delay && took < OBS_SCAN_TIMEOUT_MSEC);
+        /* Same-way servo approach adds ~0.8 s (measured 8.27 s). */
+        assert(took <= 8500U+anchor_delay && took < OBS_SCAN_TIMEOUT_MSEC);
     }
 
     /* An edge that echoes every other ping: the third ping and median keep
@@ -332,22 +376,31 @@ int main(void)
         echo_result=ULTRASONIC_OK;
         puts("PASS corner band pings until two agree; a lone echo is kept out");
     }
-    /* A centred object and a servo that lags 5 degrees: one-way it would
-     * lean (edges -5..15 or -15..5); both ways keep -15..15, so the sides
-     * stay equal whichever way the servo lags. */
-    bool b_first_left=false;
+#endif
+    /* A servo that stops 5 degrees short of its target, either way. Every
+     * scan bearing is reached moving right (a move left first swings to
+     * the left limit), so the lag is one constant offset for the whole
+     * scan, which the FRONT trim absorbs, not a direction-dependent error
+     * that tilts the edges (logged 21 Nov: after looking left the servo
+     * came back to centre 5-10 degrees off). Same plan on a repeat scan. */
     for(int32_t sign=-1;sign<=1;sign+=2)
     {
         lag_deg=5*sign;
+        left_approach_pings=0U;
         worker_flags=OBS_EVT_SCAN_REQ;
         run_scan();
         assert(scan_plan_result(&stored_plan)==SCAN_PLAN_ROUTE);
-        /* The same side whichever way the servo lags. */
-        if(sign<0) b_first_left=scan_plan_side_is_left(&stored_plan);
-        else assert(scan_plan_side_is_left(&stored_plan)==b_first_left);
+        assert(left_approach_pings==0U);
+        bool const b_left=scan_plan_side_is_left(&stored_plan);
+        uint32_t const lateral=(uint32_t)scan_plan_lateral_cm(&stored_plan);
+        worker_flags=OBS_EVT_SCAN_REQ;
+        run_scan();
+        assert(scan_plan_side_is_left(&stored_plan)==b_left &&
+               (uint32_t)scan_plan_lateral_cm(&stored_plan)==lateral);
     }
     lag_deg=0;
-    puts("PASS two-way scan cancels a servo lag in either direction");
-#endif
+    puts("PASS every scan bearing is reached moving right; a servo lag is "
+         "one constant offset and repeat scans agree");
+
     return 0;
 }

@@ -20,7 +20,15 @@ typedef struct {
      * owns the entire snapshot; no ISR updates these packed words. */
     unsigned int barcode_letter:5;
     unsigned int last_ir_bits:3;
+    /* Terrain's hump-recorded toggle at the last sample (a change is one
+     * recorded hump; discarded humps do not flip it). */
+    unsigned int hump_toggle:1;
     uint16_t obstacle_seq,obstacle_event_seq;
+    /* Wire EVENT ID for crossed humps; 16 bits as on the wire. */
+    uint16_t hump_event_seq;
+    /* Distance driven in half-millimetres, |L+R| summed (wraps after
+     * about 2,100 km): the ODOM checkpoint's cumulative distance. */
+    uint32_t odom_travel_x2;
     uint32_t obstacle_last_status;
     uint32_t barcode_last_seq;
     uint32_t last_sensor_report_ms;

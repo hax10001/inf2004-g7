@@ -169,7 +169,10 @@ static void obstacle_telemetry(void) {
  assert(snapshot.bypass_count==3 && snapshot.faults==1);
  for(int i=0;i<5;i++) {
   assert(b1_next_frame(&s,2000,&f)==1);
-  if(f.type==B1_TYPE_SNAPSHOT)break;
+  if(f.type==B1_TYPE_SNAPSHOT)
+  {
+      break;
+  }
  }
  assert(f.type==B1_TYPE_SNAPSHOT);
  assert(b1_decode_snapshot(f.payload,f.payload_len,&snapshot)==0);

@@ -17,8 +17,14 @@ static bool g_b_stopped = false;
 
 void motor_last_command (uint16_t * left, uint16_t * right)
 {
-    if (left != NULL) *left = (uint16_t)g_last_left_pwm;
-    if (right != NULL) *right = (uint16_t)g_last_right_pwm;
+    if (left != NULL)
+    {
+        *left = (uint16_t)g_last_left_pwm;
+    }
+    if (right != NULL)
+    {
+        *right = (uint16_t)g_last_right_pwm;
+    }
 }
 
 void motor_init (void)
@@ -112,8 +118,14 @@ void motor_set_directional (int32_t left_pwm, int32_t right_pwm)
 {
     uint32_t left = (uint32_t)((left_pwm < 0) ? -left_pwm : left_pwm);
     uint32_t right = (uint32_t)((right_pwm < 0) ? -right_pwm : right_pwm);
-    if (left > MOTOR_PWM_WRAP) left = MOTOR_PWM_WRAP;
-    if (right > MOTOR_PWM_WRAP) right = MOTOR_PWM_WRAP;
+    if (left > MOTOR_PWM_WRAP)
+    {
+        left = MOTOR_PWM_WRAP;
+    }
+    if (right > MOTOR_PWM_WRAP)
+    {
+        right = MOTOR_PWM_WRAP;
+    }
     g_b_stopped = false;
     g_last_left_pwm = left;
     g_last_right_pwm = right;
@@ -132,8 +144,14 @@ void motor_set_regulated(int32_t left_pwm, int32_t right_pwm)
                                (uint32_t)left_pwm;
     uint32_t r = right_pwm < 0 ? (uint32_t)(-(int64_t)right_pwm) :
                                 (uint32_t)right_pwm;
-    if (l > MOTOR_PWM_WRAP) l = MOTOR_PWM_WRAP;
-    if (r > MOTOR_PWM_WRAP) r = MOTOR_PWM_WRAP;
+    if (l > MOTOR_PWM_WRAP)
+    {
+        l = MOTOR_PWM_WRAP;
+    }
+    if (r > MOTOR_PWM_WRAP)
+    {
+        r = MOTOR_PWM_WRAP;
+    }
     /* Each motor's two pins share a PWM slice and aligned counter.
      * Both PWM pins equal => brake while high, coast while low. */
     pwm_set_cc(BOARD_MOTOR_LEFT_A_PIN, left_pwm < 0 ? l : 0U);

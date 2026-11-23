@@ -45,32 +45,53 @@ static scan_handoff_t g_navigation_slot;
 
 ER bc_port_nav_enable(uint8_t enable)
 {
-    if (gh_port_lock <= E_OK) return E_OBJ;
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
     ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
-    if (error < E_OK) return error;
+    if (error < E_OK)
+    {
+        return error;
+    }
     scan_handoff_enable(&g_navigation_slot, enable);
     return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_nav_begin(uint32_t captured_msec)
 {
-    if (gh_port_lock <= E_OK) return E_OBJ;
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
     ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
-    if (error < E_OK) return error;
+    if (error < E_OK)
+    {
+        return error;
+    }
     scan_handoff_begin(&g_navigation_slot, captured_msec);
     return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_nav_finish(void)
 {
-    if (gh_port_lock <= E_OK) return E_OBJ;
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
     ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
-    if (error < E_OK) return error;
+    if (error < E_OK)
+    {
+        return error;
+    }
     /* Ignored/non-barcode captures also terminate the transaction. */
     if (g_navigation_slot.owned)
     {
         SYSTIM now = {0};
-        if (tk_get_otm(&now) < E_OK) g_navigation_slot.overflow = 1U;
+        if (tk_get_otm(&now) < E_OK)
+        {
+            g_navigation_slot.overflow = 1U;
+        }
         scan_handoff_finish(&g_navigation_slot, 31U, ++g_event_sequence,
                             now.lo);
     }
@@ -79,29 +100,52 @@ ER bc_port_nav_finish(void)
 
 ER bc_port_nav_abort(void)
 {
-    if (gh_port_lock <= E_OK) return E_OBJ;
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
     ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
-    if (error < E_OK) return error;
+    if (error < E_OK)
+    {
+        return error;
+    }
     scan_handoff_abort(&g_navigation_slot);
     return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_nav_captured(uint32_t captured_msec)
 {
-    if (gh_port_lock <= E_OK) return E_OBJ;
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
     ER error = tk_wai_sem(gh_port_lock, 1, TMO_FEVR);
-    if (error < E_OK) return error;
+    if (error < E_OK)
+    {
+        return error;
+    }
     if (g_navigation_slot.owned)
+    {
         g_navigation_slot.captured_msec = captured_msec;
+    }
     return tk_sig_sem(gh_port_lock, 1);
 }
 
 ER bc_port_nav_take(scan_handoff_t *out)
 {
-    if (!out) return E_PAR;
-    if (gh_port_lock <= E_OK) return E_OBJ;
+    if (!out)
+    {
+        return E_PAR;
+    }
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
     ER error = tk_wai_sem(gh_port_lock, 1, TMO_POL);
-    if (error < E_OK) return error;
+    if (error < E_OK)
+    {
+        return error;
+    }
     *out = g_navigation_slot;
     g_navigation_slot.ready = 0U;
     return tk_sig_sem(gh_port_lock, 1);
@@ -476,7 +520,9 @@ static ER bc_port_store (bc_code_result_t decoded, uint32_t timestamp,
     /* Publish navigation independently of the telemetry slot/ACK. */
     SYSTIM navigation_now = {0};
     if (g_navigation_slot.owned && tk_get_otm(&navigation_now) < E_OK)
+    {
         g_navigation_slot.overflow = 1U;
+    }
     scan_handoff_finish(&g_navigation_slot,
         decoded.valid ? decoded.letter : 31U, result.sequence,
         navigation_now.lo);
@@ -529,7 +575,10 @@ ER bc_port_publish_buffered_rejection(uint8_t error_code,
 {
     bc_code_result_t rejected = {0};
     rejected.letter = BC_CODE_LETTER_INVALID;
-    if (gh_port_lock <= E_OK) return E_OBJ;
+    if (gh_port_lock <= E_OK)
+    {
+        return E_OBJ;
+    }
     return bc_port_store(rejected, timestamp_msec, error_code,
                          BC_SCAN_EVENT_REJECTED);
 }

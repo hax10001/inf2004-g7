@@ -11,8 +11,8 @@
 bool tilt_math_angles (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                        float * p_roll_deg, float * p_pitch_deg)
 {
-    // Checks for null pointers and invalid axis values to
-    // prevent division by zero or undefined behavior.
+    /* Checks for null pointers and invalid axis values to */
+    /* prevent division by zero or undefined behavior. */
     if ((NULL == p_roll_deg) || (NULL == p_pitch_deg) ||
         ((0 == axis_y) && (0 == axis_z)))
     {
@@ -47,7 +47,7 @@ bool tilt_math_heading_level (int16_t mag_x, int16_t mag_y,
     {
         return false;
     }
-    // Remap magnetometer axes into physical robot coordinates
+    /* Remap magnetometer axes into physical robot coordinates */
     float mag_forward = -(float)mag_y;
     float mag_left = (float)mag_x;
 
@@ -56,9 +56,9 @@ bool tilt_math_heading_level (int16_t mag_x, int16_t mag_y,
         return false;
     }
 
-    // Calculate heading in degrees
+    /* Calculate heading in degrees */
     float heading = atan2f(mag_left, mag_forward) * TILT_MATH_RAD_TO_DEG;
-    // Normalize heading into 0 to 360 degrees
+    /* Normalize heading into 0 to 360 degrees */
     if (heading < 0.0F)
     {
         heading += 360.0F;

@@ -32,12 +32,12 @@ def main():
     run([args.cc, "-std=c99", "-O2", "-Wall", "-Wextra", "-Werror",
          "-I", str(APP),
          str(APP / "modules/obstacle/scan_plan.c"),
-         str(TESTS / "buddy5_planner.c"),
+         str(TESTS / "scan_planner.c"),
          "-o", str(OUT / "buddy5_planner")])
     run([args.cc, "-std=c99", "-O2", "-Wall", "-Wextra", "-Werror",
          *dead_code_flags(args.cc, whole_program=True),
          "-I", str(TESTS / "stubs"), "-I", str(APP),
-         str(TESTS / "buddy5_side_clearance.c"), "-lm",
+         str(TESTS / "side_tracking.c"), "-lm",
          "-o", str(OUT / "buddy5_side_clearance")])
     print("PASS: reviewed planner and side-tracking regressions.")
 

@@ -4,14 +4,33 @@
 #include "buddy1.h"
 #include <string.h>
 
+/* Frame periods (FR12). STATUS also carries readiness and mapping. */
+#define B1_STATUS_PERIOD_MS    1000u
+#define B1_HEARTBEAT_PERIOD_MS 2000u
+#define B1_SNAPSHOT_PERIOD_MS  250u
+/* A source not updated for this long is flagged stale in SNAPSHOT. */
+#define B1_SOURCE_STALE_MS     1500u
+/* A STATUS time token answers a command challenge for this long. */
+#define B1_CHALLENGE_MS        8000u
+/* 10-bit snapshot fields: 1023 means unavailable on the wire. */
+#define B1_RANGE10_NONE        1023u
+/* Signed 12-bit speed: -2048 is reserved on the wire. */
+#define B1_SPEED12_MAX         2047
+
 /* Narrow in-memory snapshot fields must not wrap before the wire codec
  * sees them. Saturate each producer value before storing it in a bit-field. */
 static uint16_t snap_range10(uint16_t value) {
-    return value > 1023u ? 1023u : value;
+    return (value > B1_RANGE10_NONE) ? B1_RANGE10_NONE : value;
 }
 static int16_t snap_speed12(int16_t value) {
-    if(value < -2047) return -2047;
-    if(value > 2047) return 2047;
+    if(value < -B1_SPEED12_MAX)
+    {
+        return -B1_SPEED12_MAX;
+    }
+    if(value > B1_SPEED12_MAX)
+    {
+        return B1_SPEED12_MAX;
+    }
     return value;
 }
 
@@ -21,7 +40,10 @@ static int fresh(uint16_t prev,uint16_t curr) {
 static void put_event(B1_Store *s,uint8_t src,uint8_t kind,uint16_t id,
     uint16_t val,uint32_t ms) {
     uint8_t idx;
-    if(kind == 0u) return;
+    if(kind == 0u)
+    {
+        return;
+    }
     if(s->event_count == B1_EVENT_DEPTH) {
         /* Oldest event overwritten, never pretend event history is complete. */
         s->event_head=(uint8_t)((s->event_head+1u)%B1_EVENT_DEPTH);
@@ -39,26 +61,37 @@ static void put_event(B1_Store *s,uint8_t src,uint8_t kind,uint16_t id,
 }
 int b1_store_init(B1_Store *s,B1_Lock lock,B1_Lock unlock,void *ctx,
     uint16_t session) {
-    if(s==NULL || lock==NULL || unlock==NULL) return -1;
+    if(s==NULL || lock==NULL || unlock==NULL)
+    {
+        return -1;
+    }
     memset(s,0,sizeof(*s)); s->lock=lock; s->unlock=unlock;
     s->lock_context=ctx; s->session=session==0u?1u:session;
     s->line.barcode=31u;
     return 0;
 }
 void b1_set_coordinator(B1_Store *s,B1_Coordinator fn,void *ctx) {
-    if(s==NULL)return;
+    if(s==NULL)
+    {
+        return;
+    }
     s->lock(s->lock_context); s->coordinator=fn; s->coordinator_context=ctx;
     s->unlock(s->lock_context);
 }
 int b1_ingest_motion(B1_Store *s,const B1_Motion *v) {
     uint8_t idx;
-    if(s==NULL || v==NULL) return -1;
+    if(s==NULL || v==NULL)
+    {
+        return -1;
+    }
     s->lock(s->lock_context);
     if((s->seen&B1_SRC_MOTION)!=0u && !fresh(s->motion.seq,v->seq)) {
         s->dup++;s->unlock(s->lock_context);return -1;
     }
-    if((s->seen&B1_SRC_MOTION)!=0u && (uint16_t)(v->seq-s->motion.seq)>1u) s
-        ->uncertain=1u;
+    if((s->seen&B1_SRC_MOTION)!=0u && (uint16_t)(v->seq-s->motion.seq)>1u)
+    {
+        s->uncertain=1u;
+    }
     s->motion=*v;s->seen|=B1_SRC_MOTION;
     if(s->motion_count==B1_MOTION_DEPTH) {
         s->motion_head=(uint8_t)((s->motion_head+1u)%B1_MOTION_DEPTH);
@@ -93,52 +126,78 @@ int b1_ingest_##NAME(B1_Store *s,const TYPE *v) { \
     s->unlock(s->lock_context);return 0; \
 }
 B1_SOURCE_INGEST(line,B1_Line,line,B1_SRC_LINE,2u,v->barcode)
-B1_SOURCE_INGEST(terrain,B1_Terrain,terrain,B1_SRC_TERRAIN,3u,v->hump_mm)
+B1_SOURCE_INGEST(terrain,B1_Terrain,terrain,B1_SRC_TERRAIN,3u,
+                 v->event_value)
 B1_SOURCE_INGEST(obstacle,B1_Obstacle,obstacle,B1_SRC_OBSTACLE,4u,
                  v->event_value)
 /* Unlike the other sources, a confirmed controller hold ends a previous
  * START commitment. Merely ACKing STOP is NOT proof motors have stopped. */
 int b1_ingest_mission(B1_Store *s,const B1_Mission *v) {
-    if(s==NULL||v==NULL)return -1;
+    if(s==NULL||v==NULL)
+    {
+        return -1;
+    }
     s->lock(s->lock_context);
     if((s->seen&B1_SRC_MISSION)!=0u &&
        !fresh(s->mission.seq,v->seq)){
         s->dup++;s->unlock(s->lock_context);return -1;
     }
     if((s->seen&B1_SRC_MISSION)!=0u &&
-       (uint16_t)(v->seq-s->mission.seq)>1u)s->uncertain=1u;
+       (uint16_t)(v->seq-s->mission.seq)>1u)
+    {
+        s->uncertain=1u;
+    }
     if(v->event_kind!=0u &&
        ((s->seen&B1_SRC_MISSION)==0u ||
         v->event_id!=s->mission.event_id))
+    {
         put_event(s,5u,v->event_kind,v->event_id,
                   v->event_value,v->ms);
+    }
     s->mission=*v;s->seen|=B1_SRC_MISSION;
-    if(v->remote_hold!=0u)s->committed=0u;
+    if(v->remote_hold!=0u)
+    {
+        s->committed=0u;
+    }
     s->unlock(s->lock_context);return 0;
 }
 
 static uint8_t stale(const B1_Store *s,uint32_t now) {
     uint8_t mask=0u;
-    if((s->seen&B1_SRC_MOTION)!=0u && now-s->motion.ms>1500u)
+    if((s->seen&B1_SRC_MOTION)!=0u && now-s->motion.ms>B1_SOURCE_STALE_MS)
+    {
         mask|=B1_SRC_MOTION;
-    if((s->seen&B1_SRC_LINE)!=0u && now-s->line.ms>1500u)mask|=B1_SRC_LINE;
-    if((s->seen&B1_SRC_TERRAIN)!=0u && now-s->terrain.ms>1500u)
+    }
+    if((s->seen&B1_SRC_LINE)!=0u && now-s->line.ms>B1_SOURCE_STALE_MS)
+    {
+        mask|=B1_SRC_LINE;
+    }
+    if((s->seen&B1_SRC_TERRAIN)!=0u && now-s->terrain.ms>B1_SOURCE_STALE_MS)
+    {
         mask|=B1_SRC_TERRAIN;
-    if((s->seen&B1_SRC_MISSION)!=0u && now-s->mission.ms>1500u)
+    }
+    if((s->seen&B1_SRC_MISSION)!=0u && now-s->mission.ms>B1_SOURCE_STALE_MS)
+    {
         mask|=B1_SRC_MISSION;
-    if((s->seen&B1_SRC_OBSTACLE)!=0u && now-s->obstacle.ms>1500u)
+    }
+    if((s->seen&B1_SRC_OBSTACLE)!=0u && now-s->obstacle.ms>B1_SOURCE_STALE_MS)
+    {
         mask|=B1_SRC_OBSTACLE;
+    }
     return mask;
 }
 int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
     B1_SnapshotPayload x;
     uint8_t pending=0u;
-    if(s==NULL||out==NULL)return 0;
+    if(s==NULL||out==NULL)
+    {
+        return 0;
+    }
     s->lock(s->lock_context);
     memset(out,0,sizeof(*out));
     out->session=s->session;out->seq=++s->wire_seq;out->time_ms=now_ms;
     out->flags=s->uncertain ? 1u : 0u;
-    if(now_ms-s->last_status_ms>=1000u) {
+    if(now_ms-s->last_status_ms>=B1_STATUS_PERIOD_MS) {
         /* Actual robot readiness and mapping, not a dashboard guess. */
         s->last_status_ms=now_ms;
         s->status_challenges[s->status_challenge_head]=now_ms;
@@ -182,10 +241,10 @@ int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
         s->checkpoint_pending=0u;out->type=B1_TYPE_CHECKPOINT;
         out->time_ms=s->checkpoint_ms;out->payload_len=4u;
         b1_put32(out->payload,s->checkpoint_mm);pending=1u;
-    } else if(now_ms-s->last_heartbeat_ms>=2000u) {
+    } else if(now_ms-s->last_heartbeat_ms>=B1_HEARTBEAT_PERIOD_MS) {
         s->last_heartbeat_ms=now_ms;out->type=B1_TYPE_HEARTBEAT;
         out->payload_len=4u;b1_put32(out->payload,s->dropped);pending=1u;
-    } else if(now_ms-s->last_snapshot_ms>=250u) {
+    } else if(now_ms-s->last_snapshot_ms>=B1_SNAPSHOT_PERIOD_MS) {
         s->last_snapshot_ms=now_ms;
         memset(&x,0,sizeof(x));x.source_mask=s->seen;
             x.stale_mask=stale(s,now_ms);
@@ -194,11 +253,11 @@ int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
         x.barcode=(s->seen&B1_SRC_LINE)?s->line.barcode:31u;
         x.action=s->line.action&3u;x.action_valid=s->line.action_valid;
         x.hump_mm=(s->seen&B1_SRC_TERRAIN) ?
-            snap_range10(s->terrain.hump_mm) : 1023u;
+            snap_range10(s->terrain.hump_mm) : B1_RANGE10_NONE;
         x.max_hump_mm=(s->seen&B1_SRC_TERRAIN) ?
-            snap_range10(s->terrain.max_hump_mm) : 1023u;
+            snap_range10(s->terrain.max_hump_mm) : B1_RANGE10_NONE;
         x.obstacle_cm=(s->seen&B1_SRC_OBSTACLE) ?
-            snap_range10(s->obstacle.distance_cm) : 1023u;
+            snap_range10(s->obstacle.distance_cm) : B1_RANGE10_NONE;
         x.side=s->obstacle.side;x.bypass_count=s->obstacle.bypass_count;
         x.faults=(uint8_t)(s->mission.faults | s->obstacle.faults);
         x.speed_left_mm_s=snap_speed12(s->motion.left_speed_mm_s);
@@ -207,7 +266,10 @@ int b1_next_frame(B1_Store *s,uint32_t now_ms,B1_Frame *out) {
         out->payload_len=(uint8_t)b1_encode_snapshot(&x,out->payload);
         pending=out->payload_len!=0u;
     }
-    if(!pending)s->wire_seq--;
+    if(!pending)
+    {
+        s->wire_seq--;
+    }
     s->unlock(s->lock_context);
     return pending ? 1 : 0;
 }
@@ -222,7 +284,10 @@ int b1_sensor_frame(B1_Store *s,B1_Frame *frame) {
         frame->payload_len!=B1_BARCODE_DIAG_V1 &&
         frame->payload_len!=B1_BARCODE_DIAG_V2) ||
        (frame->type!=B1_TYPE_SENSOR &&
-        frame->type!=B1_TYPE_BARCODE_DIAG))return -1;
+        frame->type!=B1_TYPE_BARCODE_DIAG))
+    {
+        return -1;
+    }
     s->lock(s->lock_context);
     frame->session=s->session;
     frame->seq=++s->wire_seq;
@@ -232,11 +297,14 @@ int b1_sensor_frame(B1_Store *s,B1_Frame *frame) {
 int b1_recent_status_challenge(B1_Store *s,uint32_t token,
     uint32_t now_ms) {
     int found=0;
-    if(s==NULL || token==0u)return 0;
+    if(s==NULL || token==0u)
+    {
+        return 0;
+    }
     s->lock(s->lock_context);
     for(uint8_t i=0u;i<8u;i++){
         if(s->status_challenges[i]==token &&
-           (uint32_t)(now_ms-token)<=8000u){found=1;break;}
+           (uint32_t)(now_ms-token)<=B1_CHALLENGE_MS){found=1;break;}
     }
     s->unlock(s->lock_context);
     return found;
@@ -246,28 +314,51 @@ int b1_handle_command(B1_Store *s,const B1_Frame *request,B1_Frame *ack) {
     uint8_t result=B1_BAD_COMMAND,need_callback=0u;
     B1_Coordinator callback=NULL;void *context=NULL;
     if(s==NULL||request==NULL||ack==NULL||request->type!=B1_TYPE_COMMAND)
+    {
         return -1;
+    }
     if(b1_decode_command(request->payload,request->payload_len,
-        &command)!=0)return -1;
+        &command)!=0)
+    {
+        return -1;
+    }
     s->lock(s->lock_context);
     /* STOP remains idempotent and bypasses the duplicate/replay filter.
        Network STOP is advisory;
            the local mission fault path is authoritative. */
-    if(request->session!=s->session)result=B1_DUPLICATE;
+    if(request->session!=s->session)
+    {
+        result=B1_DUPLICATE;
+    }
     else if(command.command!=B1_CMD_STOP && s->cmd_seen &&
             !fresh(s->last_cmd_transaction,
-            command.transaction))result=B1_DUPLICATE;
+            command.transaction))
+    {
+        result=B1_DUPLICATE;
+    }
     else if(command.command==B1_CMD_MAPPING) {
-        if(s->mission.running || s->committed)result=B1_BAD_STATE;
+        if(s->mission.running || s->committed)
+        {
+            result=B1_BAD_STATE;
+        }
         else {memcpy(s->mapping,command.mapping,4u);s->mapping_valid=1u;
             result=B1_OK;}
     } else if(command.command==B1_CMD_START) {
-        if(!s->mapping_valid || s->mission.running)result=B1_BAD_STATE;
-        else if(!s->mission.ready || s->coordinator==NULL)result=B1_NOT_READY;
+        if(!s->mapping_valid || s->mission.running)
+        {
+            result=B1_BAD_STATE;
+        }
+        else if(!s->mission.ready || s->coordinator==NULL)
+        {
+            result=B1_NOT_READY;
+        }
         else {need_callback=1u;callback=s->coordinator;
             context=s->coordinator_context;}
     } else if(command.command==B1_CMD_STOP) {
-        if(s->coordinator==NULL)result=B1_NOT_READY;
+        if(s->coordinator==NULL)
+        {
+            result=B1_NOT_READY;
+        }
         else {need_callback=1u;callback=s->coordinator;
             context=s->coordinator_context;}
     } else if(command.command==B1_CMD_SNAPSHOT) {
@@ -276,15 +367,27 @@ int b1_handle_command(B1_Store *s,const B1_Frame *request,B1_Frame *ack) {
         /* The IMU task owns calibration and its I2C device.  Never call
          * terrain_calibrate() here with imaginary axes or while moving. */
         if(s->mission.running || (s->mission.mission!=0u &&
-                                   s->mission.mission!=6u)) result=B1_BAD_STATE;
-        else if(s->coordinator==NULL)result=B1_NOT_READY;
+                                   s->mission.mission!=6u))
+        {
+            result=B1_BAD_STATE;
+        }
+        else if(s->coordinator==NULL)
+        {
+            result=B1_NOT_READY;
+        }
         else {need_callback=1u;callback=s->coordinator;
             context=s->coordinator_context;}
     } else if(command.command==B1_CMD_RECAL_BARCODE) {
         /* Learning white needs the sensor still over white: stopped only.
          * The coordinator forwards it to the barcode task. */
-        if(s->mission.running)result=B1_BAD_STATE;
-        else if(s->coordinator==NULL)result=B1_NOT_READY;
+        if(s->mission.running)
+        {
+            result=B1_BAD_STATE;
+        }
+        else if(s->coordinator==NULL)
+        {
+            result=B1_NOT_READY;
+        }
         else {need_callback=1u;callback=s->coordinator;
             context=s->coordinator_context;}
     }
@@ -294,9 +397,15 @@ int b1_handle_command(B1_Store *s,const B1_Frame *request,B1_Frame *ack) {
     }
     s->unlock(s->lock_context);
     /* IMPORTANT: no user/coordinator callback under our snapshot mutex. */
-    if(need_callback!=0u)result=callback(command.command,context);
+    if(need_callback!=0u)
+    {
+        result=callback(command.command,context);
+    }
     s->lock(s->lock_context);
-    if(command.command==B1_CMD_START && result==B1_OK) s->committed=1u;
+    if(command.command==B1_CMD_START && result==B1_OK)
+    {
+        s->committed=1u;
+    }
     memset(ack,0,sizeof(*ack));ack->type=B1_TYPE_ACK;ack->session=s->session;
     ack->seq=++s->wire_seq;ack->time_ms=request->time_ms;ack->payload_len=4u;
     ack->payload[0]=command.command;

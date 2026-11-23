@@ -51,6 +51,14 @@
 #define HUMP_LEVEL_CONFIRM_SAMPLES 15U
 /* Drop below the peak that counts as descending, ignoring jitter. */
 #define HUMP_DESCENT_MM 1.5F
+/* A real hump lifts the axle: the climb (ds * sin(tilt) summed over the
+ * hump) must reach HUMP_MIN_CLIMB_MM or the "hump" is discarded, and the
+ * hump only counts as descending (which slows the robot downhill) once
+ * the climb reaches HUMP_DESCENT_CLIMB_MM. 23 Nov recordings: real humps
+ * climbed 8.4-16.4 mm; false ones from pivots, START and restarts (the
+ * accelerometer reads a sideways jolt as roll) climbed 0.4-2.1 mm. */
+#define HUMP_MIN_CLIMB_MM 5.0F
+#define HUMP_DESCENT_CLIMB_MM 3.0F
 #if (HUMP_LEVEL_CONFIRM_SAMPLES > 15U) || (HUMP_TILT_CONFIRM_SAMPLES > 3U)
 #error Hump confirmation counts exceed their bit-field widths
 #endif
@@ -86,6 +94,8 @@ typedef struct
     /** Wheel travel during this hump, mm, saturating at 63 (only compared
      *  with HUMP_MIN_TRAVEL_MM). */
     unsigned int travel_mm:6;
+    /** Flips on every hump recorded (HUMP DONE), so a reader sees each. */
+    unsigned int b_done_toggle:1;
 } hump_state_t;
 
 static hump_state_t g_hump = {0};
@@ -249,7 +259,7 @@ void task_imu_task (INT start_code, void * p_context)
 
 static bool calibrate_sensor (ID h_device)
 {
-    // This is 3 for x,y,z axes sumof
+    /* This is 3 for x,y,z axes sumof */
     int32_t sums[3] = {0};
     int16_t first_axes[3] = {0};
 
@@ -263,9 +273,9 @@ static bool calibrate_sensor (ID h_device)
                       sample + 1);
             return false;
         }
-        // This is a for loop of 3 iterations, one for each axis (X, Y, Z).
-        // It accumulates the sum of the axis readings
-        // and stores the first sample's values for later comparison.
+        /* This is a for loop of 3 iterations, one for each axis (X, Y, Z). */
+        /* It accumulates the sum of the axis readings */
+        /* and stores the first sample's values for later comparison. */
         for (INT axis = 0; axis < 3; ++axis)
         {
             if (0 == sample)
@@ -314,9 +324,9 @@ static bool calibrate_sensor (ID h_device)
     float roll_zero = 0.0F;
     float pitch_zero = 0.0F;
 
-    // Terrain_tilt is called again to compute once for the printf readings.
-    // Note that terrain_calibrate already calls terrain_tilt
-    // internally to save the reference angles.
+    /* Terrain_tilt is called again to compute once for the printf readings. */
+    /* Note that terrain_calibrate already calls terrain_tilt */
+    /* internally to save the reference angles. */
     error = terrain_tilt(
         avg_x,
         avg_y,
@@ -394,7 +404,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         return;
     }
 
-    // This is reading the raw readings of accelerometer and magnetometer
+    /* This is reading the raw readings of accelerometer and magnetometer */
     imu_sample_t sample = {0};
     bool b_accel_ok = lsm303_read_accel(
         h_device,
@@ -410,7 +420,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         &sample.mag_z
     );
 
-    // This is for writing the processed readings into the terrain snapshot
+    /* This is for writing the processed readings into the terrain snapshot */
     terrain_snapshot snapshot = {0};
     snapshot.timestamp_msec = now_msec;
     snapshot.b_valid = false;
@@ -442,8 +452,8 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         );
 
         update_lift(&sample, p_history, &snapshot);
-        // Compute the tilt from smoothed readings: raw ones swing by
-        // several degrees with motor vibration.
+        /* Compute the tilt from smoothed readings: raw ones swing by */
+        /* several degrees with motor vibration. */
         int16_t smoothed[3] = {0};
         smooth_axes(&sample, smoothed);
 
@@ -464,11 +474,11 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         }
         else
         {
-            // Invalid measurements cannot confirm completion
+            /* Invalid measurements cannot confirm completion */
             g_hump.level_count = 0U;
         }
 
-        // Assign the values to the snapshot for publishing
+        /* Assign the values to the snapshot for publishing */
         snapshot.onHump = g_hump.b_on_hump;
         snapshot.hump_phase = g_hump.phase;
         snapshot.height_valid = snapshot.b_valid;
@@ -476,8 +486,10 @@ static void process_sample (ID h_device, imu_history_t * p_history)
             snapshot.b_valid ? round_mm(g_hump.height_mm) : 0U;
         snapshot.last_hump_height_mm = g_hump.last_peak_mm;
         snapshot.max_hump_height_mm = g_hump.max_peak_mm;
+        snapshot.hump_done_toggle = g_hump.b_done_toggle;
 
-        // This is for logging (printfs) the readings to the console every 100ms
+        /* This is for logging (printfs) the readings to the console every 100ms
+         */
         if ((0 != APP_IMU_DEBUG_LOG) &&
             ((now_msec - p_history->last_log_msec) >= IMU_LOG_PERIOD_MSEC))
         {
@@ -649,8 +661,11 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
         g_hump.phase = TERRAIN_HUMP_CLIMBING;
     }
-    else if (g_hump.height_mm < (g_hump.peak_mm - HUMP_DESCENT_MM))
+    else if ((g_hump.height_mm < (g_hump.peak_mm - HUMP_DESCENT_MM)) &&
+             (g_climb_peak_mm >= HUMP_DESCENT_CLIMB_MM))
     {
+        /* Not descending before the axle has really climbed: a jolt
+         * that only tips the body must not slow the robot. */
         /* Clearly below the top: past it and on the way down. */
         if (TERRAIN_HUMP_DESCENDING != g_hump.phase)
         {
@@ -712,6 +727,19 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         return;
     }
 
+    if (g_climb_peak_mm < HUMP_MIN_CLIMB_MM)
+    {
+        /* Tipped but never lifted: a jolt, not a hump. */
+        g_hump.b_on_hump   = false;
+        g_hump.phase       = TERRAIN_HUMP_LEVEL;
+        g_hump.level_count = 0U;
+#ifndef B1_BARCODE_TEST /* quiet barcode test log */
+        tm_printf((UB *)"HUMP DISCARDED: no climb (climb_x10mm=%d)\n",
+                  (INT)(g_climb_peak_mm * 10.0F));
+#endif
+        return;
+    }
+
     /* The climb, unless the body tilt says more (a short bump). */
     if (g_climb_peak_mm > g_hump.peak_mm)
     {
@@ -725,6 +753,7 @@ static void update_hump (terrain_snapshot const * p_snapshot)
     g_hump.level_count  = 0U;
     g_hump.last_peak_mm = peak_mm;
     g_hump.hump_count++;
+    g_hump.b_done_toggle = (0U != g_hump.b_done_toggle) ? 0U : 1U;
 
     if (peak_mm > g_hump.max_peak_mm)
     {

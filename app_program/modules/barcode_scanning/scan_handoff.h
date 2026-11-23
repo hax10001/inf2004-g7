@@ -32,9 +32,15 @@ static inline void scan_handoff_enable(scan_handoff_t *s, uint8_t enable)
 static inline void scan_handoff_begin(scan_handoff_t *s, uint32_t captured)
 {
     s->owned = s->enabled;
-    if (!s->owned) return;
+    if (!s->owned)
+    {
+        return;
+    }
     s->begin_overflow = (uint16_t)(s->ready && !s->overflow);
-    if (s->ready) s->overflow = 1U;
+    if (s->ready)
+    {
+        s->overflow = 1U;
+    }
     s->captured_msec = captured;
     s->busy = 1U;
 }
@@ -43,8 +49,14 @@ static inline void scan_handoff_begin(scan_handoff_t *s, uint32_t captured)
  * counted as overwritten. */
 static inline void scan_handoff_abort(scan_handoff_t *s)
 {
-    if (!s->owned) return;
-    if (s->begin_overflow) s->overflow = 0U;
+    if (!s->owned)
+    {
+        return;
+    }
+    if (s->begin_overflow)
+    {
+        s->overflow = 0U;
+    }
     s->begin_overflow = 0U;
     s->busy = 0U;
     s->owned = 0U;
@@ -52,7 +64,10 @@ static inline void scan_handoff_abort(scan_handoff_t *s)
 static inline void scan_handoff_finish(scan_handoff_t *s, uint8_t letter,
                                         uint16_t sequence, uint32_t completed)
 {
-    if (!s->owned) return;
+    if (!s->owned)
+    {
+        return;
+    }
     s->sequence = sequence;
     s->completed_msec = completed;
     s->letter = (letter < 26U && !s->overflow) ? letter : 31U;

@@ -11,10 +11,10 @@ with tempfile.TemporaryDirectory(prefix='g7-v10-') as temp:
     exe=Path(temp)/'v10_packing'
     cmd=[CC,'-std=c11','-O2','-Wall','-Wextra','-Werror',
          '-I',str(ROOT/'app_program'),'-I',str(ROOT),
-         'tools/tests/test_v10_minbits.c',
+         'tools/tests/test_minbits_records_queue.c',
          'app_program/modules/barcode_scanning/bc_scan.c',
          'app_program/modules/barcode_scanning/bc_fastq.c',
          '-o',str(exe)]
     subprocess.run(cmd,cwd=ROOT,check=True)
     subprocess.run([str(exe)],cwd=ROOT,check=True)
-subprocess.run([sys.executable,'tools/test_v9_minbits.py'],cwd=ROOT,check=True)
+subprocess.run([sys.executable,'tools/test_minbits_wire_format.py'],cwd=ROOT,check=True)

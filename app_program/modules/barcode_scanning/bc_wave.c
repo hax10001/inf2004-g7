@@ -478,7 +478,10 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
         {
             ++g_clear_white_samples;
         }
-        else g_clear_white_samples = 0U;
+        else
+        {
+            g_clear_white_samples = 0U;
+        }
         if (p_sample->valid && p_sample->adc_valid)
         {
             ++g_clear_total_samples;
@@ -1398,9 +1401,18 @@ static void wave_report (void)
                       (UINT)g_ignored, (UINT)like_bars, (UINT)like_widest);
         }
         uint8_t error_code = BC_SCAN_ERROR_PATTERN;
-        if (g_freeze_reason == 3U) error_code = BC_SCAN_ERROR_TIMEOUT;
-        else if (g_adc_errors || g_invalid) error_code = BC_SCAN_ERROR_INPUT;
-        else if (g_run_overflow) error_code = BC_SCAN_ERROR_OVERFLOW;
+        if (g_freeze_reason == 3U)
+        {
+            error_code = BC_SCAN_ERROR_TIMEOUT;
+        }
+        else if (g_adc_errors || g_invalid)
+        {
+            error_code = BC_SCAN_ERROR_INPUT;
+        }
+        else if (g_run_overflow)
+        {
+            error_code = BC_SCAN_ERROR_OVERFLOW;
+        }
         (void)bc_port_publish_buffered_rejection(error_code,
                                                  g_trigger_msec);
         tm_printf((UB *)"[BARCODE] Buffered pass unconfirmed; "
@@ -1520,7 +1532,10 @@ void bc_wave_poll (void)
 #ifdef B1_LIVE_COMMANDS
     /* Buffer processing is complete before reset; never free raw sample
      * storage while a matcher is using it. */
-    if (g_phase == BC_WAVE_DONE) g_rearm_requested = 1U;
+    if (g_phase == BC_WAVE_DONE)
+    {
+        g_rearm_requested = 1U;
+    }
 #endif
     if ((0U != g_relearn_requested) &&
         ((g_phase <= BC_WAVE_CAPTURE) || (BC_WAVE_CLEAR == g_phase) ||

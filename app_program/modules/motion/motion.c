@@ -41,7 +41,8 @@
  * scales with it (STEERING_REF_RPM), so it can be raised: the closed-loop
  * model follows curves and 90 degree corners at 35-65 RPM. */
 #ifndef MOTION_TARGET_RPM
-#define MOTION_TARGET_RPM 35.0f
+/* 21 Nov: 30, from 35: the last barcode on the course was missed at 35. */
+#define MOTION_TARGET_RPM 30.0f
 #endif
 /* Largest change in the base speed per period, when starting or stopping. */
 #define MOTION_RAMP_RPM 8.0f
@@ -94,6 +95,14 @@
 #define MOTION_PIVOT_PWM_STEP 125U
 #define MOTION_PIVOT_PWM_MIN 750U
 #define MOTION_PIVOT_PWM_MAX 3750U   /* 30 % */
+/* Ramp (downhill) wheel effort limits, percent of full PWM: negative
+ * effort is bounded short-brake, never reverse. The integral is clamped
+ * so it cannot wind up beyond what the limits can use. */
+#define MOTION_RAMP_EFFORT_MIN (-25.0f)
+#define MOTION_RAMP_EFFORT_MAX 100.0f
+#define MOTION_RAMP_INTEGRAL_MAX 40.0f
+/* An IMU snapshot older than this does not drive the downhill governor. */
+#define MOTION_IMU_FRESH_MSEC 200U
 /* Nonzero while pivoting: the larger wheel duty (motion_brake reads it).
  * Pivot duties stay within MOTION_PIVOT_PWM_MIN..MAX, so 16 bits hold
  * them. */
@@ -345,7 +354,7 @@ void motion_apply (line_follow_action_t action)
 #endif
 
     bool const b_searching = search_step(action);
-    int const  seen_now    = g_search.seen_now;
+    int32_t const seen_now = g_search.seen_now;
     bool const b_observed  = 0U != g_search.b_observed;
     bool const b_both      = (0U != g_search.b_black) && (0 == seen_now);
 
@@ -367,7 +376,8 @@ void motion_apply (line_follow_action_t action)
  * safety fault, or controller navigation state may inhibit movement. */
     g_turn_pwm = 0U;
     /* UB views the same string bytes; tm_printf does not modify them. */
-    //tm_printf((UB *)"[MOTOR REQUEST] Action=%s\n", line_follow_text(action));
+    /* tm_printf((UB *)"[MOTOR REQUEST] Action=%s\n", line_follow_text(action));
+     */
 
     /* Drive at MOTION_TARGET_RPM. Barcode capture and diagnostics never
      * change it: sensor sampling uses encoder distance, not velocity. */
@@ -501,9 +511,18 @@ void motion_drive (float left_rpm, float right_rpm)
     downhill_scale_pair(&g_downhill, left_rpm, right_rpm,
                         &left_rpm, &right_rpm);
     /* Obstacle arcs use forward motion. Braking is never ramped. */
-    if (left_rpm < 0.0f) left_rpm = 0.0f;
-    if (right_rpm < 0.0f) right_rpm = 0.0f;
-    if ((left_rpm > 0.0f) || (right_rpm > 0.0f)) g_brake_cycles = 0U;
+    if (left_rpm < 0.0f)
+    {
+        left_rpm = 0.0f;
+    }
+    if (right_rpm < 0.0f)
+    {
+        right_rpm = 0.0f;
+    }
+    if ((left_rpm > 0.0f) || (right_rpm > 0.0f))
+    {
+        g_brake_cycles = 0U;
+    }
     p_left->target_rpm = (left_rpm > p_left->target_rpm) ?
         step_towards(p_left->target_rpm, left_rpm, MOTION_RAMP_RPM) : left_rpm;
     p_right->target_rpm = (right_rpm > p_right->target_rpm) ?
@@ -593,9 +612,15 @@ static void drive_wheels (line_follow_action_t action)
                                 p_right->target_rpm, status.right_rpm);
         /* Preserve the existing gross-runaway inhibit before its latch. */
         if (downhill_wheel_over_target(&g_downhill,
-                    p_left->target_rpm, status.left_rpm)) lp = -25.0f;
+                    p_left->target_rpm, status.left_rpm))
+        {
+            lp = MOTION_RAMP_EFFORT_MIN;
+        }
         if (downhill_wheel_over_target(&g_downhill,
-                    p_right->target_rpm, status.right_rpm)) rp = -25.0f;
+                    p_right->target_rpm, status.right_rpm))
+        {
+            rp = MOTION_RAMP_EFFORT_MIN;
+        }
         status.left_pwm = speed_to_pwm(lp < 0.0f ? -lp : lp);
         status.right_pwm = speed_to_pwm(rp < 0.0f ? -rp : rp);
         p_left->effort_pwm = lp < 0.0f ? -(int)status.left_pwm :
@@ -705,15 +730,23 @@ static void pivot_step (uint8_t mapped_action)
         {
             int32_t const m = (moved[w] < 0) ? -moved[w] : moved[w];
             if (m < MOTION_PIVOT_COUNTS)
+            {
                 g_pivot_pwm[w] =
                     (uint16_t)(g_pivot_pwm[w] + MOTION_PIVOT_PWM_STEP);
+            }
             else if (m > MOTION_PIVOT_COUNTS + (MOTION_PIVOT_COUNTS / 4))
+            {
                 g_pivot_pwm[w] =
                     (uint16_t)(g_pivot_pwm[w] - MOTION_PIVOT_PWM_STEP);
+            }
             if (g_pivot_pwm[w] > MOTION_PIVOT_PWM_MAX)
+            {
                 g_pivot_pwm[w] = MOTION_PIVOT_PWM_MAX;
+            }
             if (g_pivot_pwm[w] < MOTION_PIVOT_PWM_MIN)
+            {
                 g_pivot_pwm[w] = MOTION_PIVOT_PWM_MIN;
+            }
         }
     }
     g_pivot_last[ENCODER_LEFT] = left.count;
@@ -724,8 +757,14 @@ static void pivot_step (uint8_t mapped_action)
                                            (uint16_t)right_pwm;
     /* Left and U-turn spin anticlockwise (left wheel back), right turns
      * clockwise (right wheel back). */
-    if (mapped_action == 2U) right_pwm = -right_pwm;
-    else left_pwm = -left_pwm;
+    if (mapped_action == 2U)
+    {
+        right_pwm = -right_pwm;
+    }
+    else
+    {
+        left_pwm = -left_pwm;
+    }
     motor_set_directional(left_pwm, right_pwm);
     status.left_count = left.count;
     status.right_count = right.count;
@@ -930,8 +969,8 @@ static uint16_t add_saturating (uint16_t total, uint32_t amount)
     return (sum > 65535U) ? 65535U : (uint16_t)sum;
 }
 
-static void report_downhill_change (unsigned int before,
-                                    unsigned int fault_before)
+static void report_downhill_change (uint32_t before,
+                                    uint32_t fault_before)
 {
     if (!before && g_downhill.engaged)
     {
@@ -951,8 +990,8 @@ static void report_downhill_change (unsigned int before,
 void motion_downhill_sample (float pitch_deg, float roll_deg,
                              bool fresh, bool driving)
 {
-    unsigned int const before = g_downhill.engaged;
-    unsigned int const fault_before = g_downhill.fault;
+    uint32_t const before = g_downhill.engaged;
+    uint32_t const fault_before = g_downhill.fault;
     downhill_sample(&g_downhill, pitch_deg, roll_deg, fresh, driving);
     report_downhill_change(before, fault_before);
 }
@@ -984,9 +1023,9 @@ void motion_reset_run(void)
 void motion_observe_terrain(terrain_snapshot const *s, uint32_t now)
 {
     bool fresh = s->b_valid &&
-        (uint32_t)(now - s->timestamp_msec) <= 200U;
-    unsigned int const before = g_downhill.engaged;
-    unsigned int const fault_before = g_downhill.fault;
+        (uint32_t)(now - s->timestamp_msec) <= MOTION_IMU_FRESH_MSEC;
+    uint32_t const before = g_downhill.engaged;
+    uint32_t const fault_before = g_downhill.fault;
     downhill_sample_terrain(&g_downhill, s->pitch_deg, s->roll_deg,
         fresh, true, s->height_valid && s->onHump &&
                      s->hump_phase == TERRAIN_HUMP_DESCENDING);
@@ -1089,13 +1128,23 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
         float candidate = p_wheel->integral +
                           MOTION_KI * error * MOTION_PERIOD_SEC;
         float effort = base_percent + MOTION_KP * error + candidate;
-        if ((effort >= -25.0f && effort <= 100.0f) ||
-            (effort < -25.0f && error > 0.0f) ||
-            (effort > 100.0f && error < 0.0f))
-            p_wheel->integral = clamp_symmetric(candidate, 40.0f);
+        if (((effort >= MOTION_RAMP_EFFORT_MIN) &&
+             (effort <= MOTION_RAMP_EFFORT_MAX)) ||
+            ((effort < MOTION_RAMP_EFFORT_MIN) && (error > 0.0f)) ||
+            ((effort > MOTION_RAMP_EFFORT_MAX) && (error < 0.0f)))
+        {
+            p_wheel->integral = clamp_symmetric(candidate,
+                                                MOTION_RAMP_INTEGRAL_MAX);
+        }
         effort = base_percent + MOTION_KP * error + p_wheel->integral;
-        if (effort < -25.0f) effort = -25.0f;
-        if (effort > 100.0f) effort = 100.0f;
+        if (effort < MOTION_RAMP_EFFORT_MIN)
+        {
+            effort = MOTION_RAMP_EFFORT_MIN;
+        }
+        if (effort > MOTION_RAMP_EFFORT_MAX)
+        {
+            effort = MOTION_RAMP_EFFORT_MAX;
+        }
         p_wheel->b_regulating = true;
         return step_towards((float)p_wheel->effort_pwm * 100.0f /
                              (float)MOTOR_PWM_WRAP,

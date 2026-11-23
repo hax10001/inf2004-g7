@@ -161,6 +161,10 @@ int32_t scan_plan_lateral_cm (scan_plan_bypass_t const * p_plan);
 int32_t scan_plan_diag_cm (scan_plan_bypass_t const * p_plan);
 /** @brief Distance to pass the object by dead reckoning, in cm. */
 int32_t scan_plan_fallback_cm (scan_plan_bypass_t const * p_plan);
+/** @brief The side not chosen has a clear corridor too (free choice). */
+bool scan_plan_other_side_ok (scan_plan_bypass_t const * p_plan);
+/** @brief Drive-out the side not chosen would need, cm. */
+int32_t scan_plan_other_lateral_cm (scan_plan_bypass_t const * p_plan);
 
 #endif /* SCAN_PLAN_H */
 

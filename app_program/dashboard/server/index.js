@@ -40,7 +40,7 @@ if((WEB_BIND!=='127.0.0.1'&&WEB_BIND!=='::1'&&!ADMIN_TOKEN)||
    (BROKER_BIND!=='127.0.0.1'&&BROKER_BIND!=='::1'&&(!MQTT_USER||!MQTT_PASSWORD))){
   console.error('LAN exposure requires ADMIN_TOKEN for web, MQTT_USER and MQTT_PASSWORD for MQTT.');process.exit(1);
 }
-const state=new RobotState(+(env.TRACK_WIDTH_MM||120));
+const state=new RobotState(+(env.TRACK_WIDTH_MM||130));
 const commandTracker=new CommandTracker();
 const subscribers=new Set();let tx=1,txSession=null,streamReady=false;
 /* Confirmed mapping survives a Pico reboot within this dashboard process.

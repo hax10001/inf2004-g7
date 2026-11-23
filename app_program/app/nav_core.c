@@ -23,19 +23,32 @@
 /* And never longer than this (a stalled robot does not travel). */
 #define NAV_CAPTURE_ROLL_MSEC 3000U
 #ifndef NAV_TAPE_LEAD_COUNTS
+/* Highest barcode letter index (A..Z = 0..25) and action code (2 bits). */
+#define NAV_LETTER_MAX 25U
+#define NAV_ACTION_MAX 3U
+/* The same letter read again within this time and travel is the same
+ * printed card, not a new barcode (needs track calibration). */
+#define NAV_DUP_WINDOW_MSEC 1500U
+#define NAV_DUP_WINDOW_COUNTS 120U
 #define NAV_TAPE_LEAD_COUNTS ((40U * 1056U * 10U) / 2198U)
 #endif
 
 void nav_init(nav_controller_t *nav, const nav_config_t *cfg)
 {
-    if (nav == NULL || cfg == NULL) return;
+    if (nav == NULL || cfg == NULL)
+    {
+        return;
+    }
     *nav = (nav_controller_t){0};
     nav->cfg = *cfg;
     nav->state = NAV_WAIT;
 }
 void nav_stop(nav_controller_t *nav)
 {
-    if (nav == NULL) return;
+    if (nav == NULL)
+    {
+        return;
+    }
     nav->state = NAV_WAIT;
     nav->pending = 0U;
     nav->black_since = 0U;
@@ -46,7 +59,10 @@ void nav_stop(nav_controller_t *nav)
 }
 void nav_forget(nav_controller_t *nav)
 {
-    if (nav == NULL) return;
+    if (nav == NULL)
+    {
+        return;
+    }
     nav_stop(nav);
     nav->held = 0U;
     nav->fault_reason = 0U;
@@ -56,7 +72,10 @@ void nav_forget(nav_controller_t *nav)
 }
 void nav_start(nav_controller_t *nav, uint32_t now_msec)
 {
-    if (nav == NULL || nav->state == NAV_FAULT) return;
+    if (nav == NULL || nav->state == NAV_FAULT)
+    {
+        return;
+    }
     nav->state = NAV_FOLLOW;
     nav->pending = 0U;
     nav->black_since = 0U;
@@ -92,27 +111,46 @@ static void nav_action_done(nav_controller_t *nav)
 int nav_barcode(nav_controller_t *nav, uint8_t letter, uint8_t action,
                 uint16_t seq, uint32_t ms, uint32_t traveled)
 {
-    if (nav == NULL || letter > 25U || action > 3U) return -2;
-    if (nav->state != NAV_FOLLOW && nav->state != NAV_APPROACH)
+    if (nav == NULL || letter > NAV_LETTER_MAX || action > NAV_ACTION_MAX)
+    {
         return -2;
+    }
+    if (nav->state != NAV_FOLLOW && nav->state != NAV_APPROACH)
+    {
+        return -2;
+    }
     /* A result consumed after the hard deadline cannot rescue that wait.
      * At the boundary itself, a valid result wins before nav_step. */
     if (nav->decode_hold &&
         (int32_t)(ms - (nav->hold_since + nav->cfg.decode_wait_msec)) > 0)
+    {
         return -3;
-    if (nav->have_barcode && nav->last_barcode_seq == seq) return 0;
+    }
+    if (nav->have_barcode && nav->last_barcode_seq == seq)
+    {
+        return 0;
+    }
     /* Reject duplicate readings of the same physical printed card until
      * there is a measured displacement. Suppression is deliberately small
      * and needs calibration against real barcode/track geometry. */
     if (nav->have_barcode && nav->letter == letter &&
-        (uint32_t)(ms - nav->last_barcode_ms) < 1500U &&
-        (uint32_t)(traveled - nav->last_barcode_counts) < 120U)
+        (uint32_t)(ms - nav->last_barcode_ms) < NAV_DUP_WINDOW_MSEC &&
+        (uint32_t)(traveled - nav->last_barcode_counts) <
+            NAV_DUP_WINDOW_COUNTS)
+    {
         return 0;
+    }
     /* Single mode keeps the first queued letter; repeat mode replaces the
      * remembered action with the newest barcode. */
-    if (nav->pending != 0U && !nav->cfg.repeat_action) return -1;
+    if (nav->pending != 0U && !nav->cfg.repeat_action)
+    {
+        return -1;
+    }
     nav->pending = 1U;
-    if (nav->decode_hold) nav->hold_letter = 1U;
+    if (nav->decode_hold)
+    {
+        nav->hold_letter = 1U;
+    }
     /* Remembered until used (single) or replaced (repeat), so an obstacle
      * bypass between the barcode and its junction does not lose it. */
     nav->held = 1U;
@@ -160,9 +198,18 @@ static void nav_begin_turn(nav_controller_t *nav, const nav_sample_t *s,
 static void nav_take_junction(nav_controller_t *nav, uint32_t now,
                               nav_result_t *result)
 {
-    if (nav->action == NAV_STRAIGHT) nav->state = NAV_CROSS;
-    else if (nav->cfg.centre_counts != 0U) nav->state = NAV_CENTRE;
-    else nav->state = NAV_TURN;
+    if (nav->action == NAV_STRAIGHT)
+    {
+        nav->state = NAV_CROSS;
+    }
+    else if (nav->cfg.centre_counts != 0U)
+    {
+        nav->state = NAV_CENTRE;
+    }
+    else
+    {
+        nav->state = NAV_TURN;
+    }
     nav->centre_from = nav->black_from_counts;
     nav->state_since = now;
     nav->edge_seen = 0U;
@@ -208,9 +255,14 @@ static void nav_decode_hold(nav_controller_t *nav, const nav_sample_t *s,
         nav_take_junction(nav, s->now_msec, result);
         return;
     }
-    if (s->barcode_decoding) nav->decode_idle_since = 0U;
+    if (s->barcode_decoding)
+    {
+        nav->decode_idle_since = 0U;
+    }
     else if (nav->decode_idle_since == 0U)
+    {
         nav->decode_idle_since = (s->now_msec != 0U) ? s->now_msec : 1U;
+    }
     if ((uint32_t)(s->now_msec - nav->hold_since) >=
             nav->cfg.decode_wait_msec ||
         (nav->decode_idle_since != 0U &&
@@ -230,15 +282,24 @@ static void nav_decode_hold(nav_controller_t *nav, const nav_sample_t *s,
             nav->black_since = 0U;
             nav_take_straight(nav, s->now_msec, result);
         }
-        else nav_fault(nav, 5U, result); /* decode gave no usable letter */
+        else
+        {
+            nav_fault(nav, 5U, result); /* decode gave no usable letter */
+        }
     }
 }
 nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
 {
     nav_result_t result = {NAV_OUTPUT_STOP, NAV_EVENT_NONE, 0U};
     uint8_t both, edge;
-    if (nav == NULL || s == NULL) return result;
-    if (nav->state == NAV_WAIT || nav->state == NAV_FAULT) return result;
+    if (nav == NULL || s == NULL)
+    {
+        return result;
+    }
+    if (nav->state == NAV_WAIT || nav->state == NAV_FAULT)
+    {
+        return result;
+    }
     both = (uint8_t)(s->left_black && s->right_black);
     edge = (uint8_t)((s->left_black != s->right_black) && !both);
     if ((nav->state == NAV_FOLLOW || nav->state == NAV_APPROACH) &&
@@ -319,7 +380,10 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
                     b_tape = 1U;
                 }
                 nav->capture_roll = 0U;
-                if (b_tape) nav->tape_capture = 1U;
+                if (b_tape)
+                {
+                    nav->tape_capture = 1U;
+                }
                 if ((!nav->pending || nav->cfg.repeat_action) &&
                     s->barcode_decoding && !b_tape &&
                     nav->cfg.decode_wait_msec != 0U)
@@ -404,7 +468,10 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
         else if (!both && (uint32_t)(s->now_msec - nav->state_since) >=
                  nav->cfg.min_turn_msec)
         {
-            if (nav->edge_since == 0U) nav->edge_since = s->now_msec;
+            if (nav->edge_since == 0U)
+            {
+                nav->edge_since = s->now_msec;
+            }
             if ((uint32_t)(s->now_msec - nav->edge_since) >=
                 nav->cfg.confirm_msec)
             {
@@ -416,7 +483,10 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
                 result.value = NAV_STRAIGHT;
             }
         }
-        else nav->edge_since = 0U;
+        else
+        {
+            nav->edge_since = 0U;
+        }
         return result;
     }
     if (nav->state == NAV_CENTRE)
@@ -495,7 +565,10 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
         else if ((uint32_t)(s->now_msec - nav->state_since) >=
                  nav->cfg.min_turn_msec && edge)
         {
-            if (nav->edge_since == 0U) nav->edge_since = s->now_msec;
+            if (nav->edge_since == 0U)
+            {
+                nav->edge_since = s->now_msec;
+            }
             if ((uint32_t)(s->now_msec - nav->edge_since) >=
                 nav->cfg.confirm_msec)
             {
@@ -506,9 +579,15 @@ nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *s)
                 result.event = NAV_EVENT_TURN_COMPLETED;
                 result.value = nav->action;
             }
-            else nav->state = NAV_REACQUIRE;
+            else
+            {
+                nav->state = NAV_REACQUIRE;
+            }
         }
-        else nav->edge_since = 0U;
+        else
+        {
+            nav->edge_since = 0U;
+        }
         return result;
     }
     if (nav->state == NAV_RESUME)

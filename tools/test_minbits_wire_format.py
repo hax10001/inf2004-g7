@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory(prefix='g7-v9-minbits-') as directory:
     binary = Path(directory) / 'v9_minbits'
     command = [os.environ.get('CC', 'gcc'), '-std=c11', '-O2', '-Wall',
                '-Wextra', '-Werror', '-I', str(ROOT / SRC),
-               'tools/tests/test_v9_minbits.c', SRC + 'buddy1_protocol.c',
+               'tools/tests/test_minbits_wire_format.c', SRC + 'buddy1_protocol.c',
                SRC + 'buddy1.c', '-o', str(binary)]
     subprocess.run(command, cwd=ROOT, check=True)
     output = subprocess.check_output([str(binary)], cwd=ROOT, text=True)

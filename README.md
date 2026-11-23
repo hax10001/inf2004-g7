@@ -48,10 +48,34 @@ build_make/             make build;  tools/  build helpers and host tests
 representation table, RAM and message-size comparisons and test/timing
 evidence, with the generated tables beside it.
 
+## Evidence (Tribunal 2)
+
+- [`docs/evidence/`](docs/evidence/README.md): demo videos per requirement, the latest test and build output, and a requirement → video → test table.
+- [`docs/tribunal2/requirements_traceability.md`](docs/tribunal2/requirements_traceability.md): every FR/NFR mapped to its tests.
+- [`docs/tribunal2/barr_c_compliance_notes.md`](docs/tribunal2/barr_c_compliance_notes.md): the BARR-C:2018 pass, including rules skipped and why.
+
 ## Tests
 
-- Firmware host tests: `bash tools/run_host_tests.sh`
+- Firmware host tests: `bash tools/run_host_tests.sh` (runs on the Mac, no
+  robot needed; ends with `HOST PASS`)
 - Dashboard: `cd app_program/dashboard && npm test`
+
+What the firmware tests cover (all run by the one script above):
+
+| File in `tools/` | Checks |
+| --- | --- |
+| `test_controller_handoff.c` | Start/stop from the dashboard, junction actions, waiting at a junction for a barcode still decoding |
+| `test_autonav.sh` | Whole navigation run in simulation |
+| `tests/line_follow_sim.c` | Line following on curves and corners |
+| `test_scan_handoff.c`, `test_scanner_ready.c`, `tests/test_barcode_port.c` | Barcode scanner hand-off between tasks |
+| `test_obstacle_integration.py` | Runs the obstacle tests below |
+| `tests/scan_planner.c` | Obstacle scan: side choice, width, drive-out distance |
+| `tests/obstacle_watch.c` | Servo sweep, edge vote, scan timing |
+| `tests/obstacle_return.c`, `tests/side_tracking.c`, `tests/obstacle_motion.c` | Bypass: turn-out peek, passing the box, return to the line |
+| `test_ramp_motion.c`, `tests/test_downhill_governor.c`, `tests/test_lift_math.c` | Hump, downhill speed, lift detection |
+| `test_minbits_all.py` (+ `test_minbits_*.py`, `tests/test_minbits_*.c`, `tests/test_ir_latches.c`) | Minimum-bit packing: field widths, saturation, wire format |
+| `test_precision_ranges.sh` | Value ranges fit their packed fields |
+| `check_app_standard.py` | Coding standard (also run by the build) |
 
 Private files (`config/wifi_*.h`, `app_program/dashboard/.lan-secrets.json`)
 are gitignored. Do not share UF2 files: they contain the Wi-Fi password.

@@ -50,6 +50,55 @@ typedef struct
 #if (JUNCTION_HOLD_CYCLES > 255U) || (JUNCTION_SETTLE_CYCLES > 255U)
 #error Junction hold/settle periods no longer fit their 8-bit counters
 #endif
+
+/* Mission state codes (3-bit MQTT field). Mirrored by missionNames in
+ * dashboard/public/app.js; the values are a wire contract. */
+#define CTRL_MISSION_SELF_CHECK  1U
+#define CTRL_MISSION_RUNNING     2U
+#define CTRL_MISSION_OBSTACLE    3U
+#define CTRL_MISSION_LIFTED      4U
+#define CTRL_MISSION_NAV_STOP    5U
+#define CTRL_MISSION_STOPPED     6U
+#define CTRL_MISSION_FAULT       7U
+
+/* START readiness blocker bits. Mirrored by READINESS_REASONS in
+ * dashboard/server/state.js; the values are a wire contract. */
+#define CTRL_BLOCK_MQTT_OFFLINE  1U
+#define CTRL_BLOCK_NOT_HELD      2U
+#define CTRL_BLOCK_CMD_PENDING   4U
+#define CTRL_BLOCK_IMU           8U
+#define CTRL_BLOCK_IR_INVALID    16U
+#define CTRL_BLOCK_IR_STALE      32U
+#define CTRL_BLOCK_CONTROLLER    64U
+#define CTRL_BLOCK_SCANNER       128U
+
+/* Safety-stop fault sources (EVENT kind 21 value). Mirrored by
+ * controllerFaults in dashboard/server/state.js; a wire contract. */
+#define CTRL_FAULT_IR_STALE      2U
+#define CTRL_FAULT_IR_READ       3U
+#define CTRL_FAULT_CLOCK         4U
+#define CTRL_FAULT_OBSTACLE      5U
+#define CTRL_FAULT_DECODE_TIME   6U
+#define CTRL_FAULT_NO_ACTION     7U
+#define CTRL_FAULT_TURN          8U
+#define CTRL_FAULT_OVERSPEED     9U
+#define CTRL_FAULT_IMU_LOST      10U
+#define CTRL_FAULT_IMU_STALE     11U
+#define CTRL_FAULT_SCAN_OVERFLOW 12U
+#define CTRL_FAULT_UNMAPPED      13U
+#define CTRL_FAULT_LIFTED        14U
+
+/* Navigation safe-stop reasons (nav_core) that pick a fault source. */
+#define CTRL_NAV_REASON_TURN     2U
+#define CTRL_NAV_REASON_DECODE   5U
+#define CTRL_NAV_REASON_COUNT    6U
+
+/* An IMU snapshot older than this cannot drive the downhill governor;
+ * none for this long while driving is a safety stop. */
+#define CTRL_IMU_FRESH_MSEC      200U
+#define CTRL_IMU_LOST_MSEC       1000U
+/* motion_downhill_fault(): 2 = overspeed, 1 = stale/invalid IMU. */
+#define CTRL_DOWNHILL_OVERSPEED  2U
 #if APP_IMU_ENABLED
 static uint32_t g_imu_last_good_msec;
 #endif
@@ -120,8 +169,14 @@ static uint16_t g_nav_report_seq;
 void g7_controller_navigation_report(uint8_t *kind, uint8_t *value,
                                      uint16_t *sequence)
 {
-    if (!kind || !value || !sequence || g_remote_mutex <= E_OK) return;
-    if (tk_loc_mtx(g_remote_mutex, TMO_POL) < E_OK) return;
+    if (!kind || !value || !sequence || g_remote_mutex <= E_OK)
+    {
+        return;
+    }
+    if (tk_loc_mtx(g_remote_mutex, TMO_POL) < E_OK)
+    {
+        return;
+    }
     *kind = g_nav_report_event;
     *value = g_nav_report_value;
     *sequence = g_nav_report_seq;
@@ -129,7 +184,10 @@ void g7_controller_navigation_report(uint8_t *kind, uint8_t *value,
 }
 static void nav_report(nav_event_t kind, uint8_t value)
 {
-    if (kind == NAV_EVENT_NONE) return;
+    if (kind == NAV_EVENT_NONE)
+    {
+        return;
+    }
     g_control.event = (unsigned int)kind;
     g_control.value = value;
     ++g_control.sequence;
@@ -319,22 +377,24 @@ uint8_t g7_controller_mission_state (void)
     if (g_remote_mutex <= E_OK ||
         tk_loc_mtx(g_remote_mutex, TMO_POL) < E_OK)
     {
-        return 6U; /* Fail closed: do not advertise a ready controller. */
+        /* Fail closed: do not advertise a ready controller. */
+        return CTRL_MISSION_STOPPED;
     }
     state = g_reported_state;
     (void)tk_unl_mtx(g_remote_mutex);
 
     switch (state)
     {
-        case ROBOT_LINE_FOLLOWING: return 2U;
-        case ROBOT_OBSTACLE: return 3U;
-        case ROBOT_AT_JUNCTION: return 6U;
-        case ROBOT_STOPPED: return 6U;
-        case ROBOT_NAV_SAFETY_STOP: return 5U; /* Navigation safe stop */
-        case ROBOT_ERROR: return 7U;
-        case ROBOT_REMOTE_HOLD: return 6U;
-        case ROBOT_LIFTED: return 4U; /* Paused; resumes when put down. */
-        default: return 1U;
+        case ROBOT_LINE_FOLLOWING: return CTRL_MISSION_RUNNING;
+        case ROBOT_OBSTACLE: return CTRL_MISSION_OBSTACLE;
+        case ROBOT_AT_JUNCTION: return CTRL_MISSION_STOPPED;
+        case ROBOT_STOPPED: return CTRL_MISSION_STOPPED;
+        case ROBOT_NAV_SAFETY_STOP: return CTRL_MISSION_NAV_STOP;
+        case ROBOT_ERROR: return CTRL_MISSION_FAULT;
+        case ROBOT_REMOTE_HOLD: return CTRL_MISSION_STOPPED;
+        /* Paused; resumes when put down. */
+        case ROBOT_LIFTED: return CTRL_MISSION_LIFTED;
+        default: return CTRL_MISSION_SELF_CHECK;
     }
 }
 
@@ -350,59 +410,64 @@ uint8_t g7_controller_remote_blockers (void)
 
     if (!b1_mqtt_connected())
     {
-        reason |= 1U;
+        reason |= CTRL_BLOCK_MQTT_OFFLINE;
     }
     if (g_remote_mutex <= E_OK ||
         tk_loc_mtx(g_remote_mutex, TMO_POL) < E_OK)
     {
-        return (uint8_t)(reason | 64U);
+        return (uint8_t)(reason | CTRL_BLOCK_CONTROLLER);
     }
     if (g_reported_state != ROBOT_REMOTE_HOLD)
     {
-        reason |= 2U;
+        reason |= CTRL_BLOCK_NOT_HELD;
     }
     if (g_stop_pending != 0U || g_start_pending != 0U)
     {
-        reason |= 4U;
+        reason |= CTRL_BLOCK_CMD_PENDING;
     }
     (void)tk_unl_mtx(g_remote_mutex);
 #if APP_IMU_ENABLED
     if (!terrain_is_calibrated())
     {
-        reason |= 8U;
+        reason |= CTRL_BLOCK_IMU;
     }
     terrain_snapshot terrain = {0};
     if (terrain_get_snapshot(&terrain) < E_OK || !terrain.b_valid ||
         tk_get_otm(&now) < E_OK ||
         (uint32_t)(now.lo - terrain.timestamp_msec) > APP_IR_MAX_AGE_MSEC)
-        reason |= 8U;
+    {
+        reason |= CTRL_BLOCK_IMU;
+    }
 #endif
     if (ir_shared_get_latest(&reading) < E_OK || !reading.b_valid)
     {
-        reason |= 16U;
+        reason |= CTRL_BLOCK_IR_INVALID;
     }
     else if (tk_get_otm(&now) < E_OK)
     {
-        reason |= 64U;
+        reason |= CTRL_BLOCK_CONTROLLER;
     }
     else if ((UW)(now.lo - reading.timestamp_msec) >
              APP_IR_MAX_AGE_MSEC)
     {
-        reason |= 32U;
+        reason |= CTRL_BLOCK_IR_STALE;
     }
     /* CLEAR/DONE are safe to reset, but cannot capture the first barcode.
      * Require the learned, armed phase before accepting movement. */
     if (!bc_wave_is_ready())
     {
-        reason |= 128U;
+        reason |= CTRL_BLOCK_SCANNER;
     }
     if (obstacle_has_fault())
     {
-        reason |= 64U;
+        reason |= CTRL_BLOCK_CONTROLLER;
     }
     uint16_t left_pwm = 0U, right_pwm = 0U;
     motor_last_command(&left_pwm, &right_pwm);
-    if (left_pwm || right_pwm) reason |= 64U;
+    if (left_pwm || right_pwm)
+    {
+        reason |= CTRL_BLOCK_CONTROLLER;
+    }
     return reason;
 }
 
@@ -469,7 +534,9 @@ uint8_t g7_controller_remote_command (uint8_t cmd, void * p_context)
     if (cmd == B1_CMD_RECAL_BARCODE)
     {
         if (!g7_controller_remote_hold_applied() || !bc_wave_can_rearm())
+        {
             return B1_NOT_READY;
+        }
         /* Telemetry already refused this while running. The barcode task
          * drops any capture and relearns white on its next poll. */
         bc_wave_request_relearn();
@@ -658,7 +725,10 @@ static robot_state_t controller_cycle(robot_state_t state,
                 *p_history = (controller_history_t){0};
                 /* A navigation safety stop is recoverable only by STOP.
                  * A real error remains latched. No automatic restart. */
-                if (explicit_stop) state = remote_reset_after_stop(state);
+                if (explicit_stop)
+                {
+                    state = remote_reset_after_stop(state);
+                }
                 else
                 {
                     /* Link loss/contention cannot acknowledge a fault. */
@@ -666,10 +736,14 @@ static robot_state_t controller_cycle(robot_state_t state,
                     nav_forget(&g_navigation);
                     if (state != ROBOT_ERROR && state != ROBOT_STOPPED &&
                         state != ROBOT_NAV_SAFETY_STOP)
+                    {
                         state = ROBOT_REMOTE_HOLD;
+                    }
                 }
                 if (explicit_stop)
+                {
                     tm_printf((UB *)"[CTRL] Remote STOP applied\n");
+                }
                 g_capture_end_travel = 0U;
                 g_control.capture_known = 0U;
             }
@@ -719,7 +793,8 @@ static robot_state_t controller_cycle(robot_state_t state,
         bool const imu_clock_ok = tk_get_otm(&terrain_now) >= E_OK;
         bool const imu_fresh = terrain_error >= E_OK && imu_clock_ok &&
             snapshot.b_valid &&
-            (uint32_t)(terrain_now.lo - snapshot.timestamp_msec) <= 200U;
+            (uint32_t)(terrain_now.lo - snapshot.timestamp_msec) <=
+                CTRL_IMU_FRESH_MSEC;
         if (imu_fresh)
         {
             g_imu_last_good_msec = snapshot.timestamp_msec;
@@ -730,7 +805,9 @@ static robot_state_t controller_cycle(robot_state_t state,
         {
 #if APP_IMU_ENABLED
             if (imu_clock_ok)
+            {
                 motion_observe_terrain(&snapshot, terrain_now.lo);
+            }
 #endif
             if (motion_downhill_fault())
             {
@@ -738,18 +815,21 @@ static robot_state_t controller_cycle(robot_state_t state,
                 tm_printf((UB *)"[CTRL] SAFE STOP: downhill fault=%u\n",
                           (UINT)motion_downhill_fault());
                 state = ROBOT_STOPPED;
-                report_fault(motion_downhill_fault() == 2U ? 9U : 11U);
+                report_fault((motion_downhill_fault() ==
+                              CTRL_DOWNHILL_OVERSPEED) ?
+                             CTRL_FAULT_OVERSPEED : CTRL_FAULT_IMU_STALE);
             }
         }
 #if APP_IMU_ENABLED
         if ((state == ROBOT_LINE_FOLLOWING || state == ROBOT_OBSTACLE) &&
             (!imu_clock_ok || !g_control.imu_seen ||
-             (uint32_t)(terrain_now.lo - g_imu_last_good_msec) > 1000U))
+             (uint32_t)(terrain_now.lo - g_imu_last_good_msec) >
+                 CTRL_IMU_LOST_MSEC))
         {
             motion_apply(LINE_UNCERTAIN);
             state = ROBOT_STOPPED;
             tm_printf((UB *)"[CTRL] SAFE STOP: IMU unavailable\n");
-            report_fault(10U);
+            report_fault(CTRL_FAULT_IMU_LOST);
         }
 #if APP_LIFT_STOP_ENABLED
         /* Picked up while it may drive: cut the motors at once. With
@@ -775,7 +855,7 @@ static robot_state_t controller_cycle(robot_state_t state,
 #if APP_LIFT_RESUME_ENABLED
             g_lift_floor_since = 0U;
 #endif
-            report_fault(14U);
+            report_fault(CTRL_FAULT_LIFTED);
         }
 #if APP_LIFT_RESUME_ENABLED
         else if (state == ROBOT_LIFTED)
@@ -960,7 +1040,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
         motion_apply(LINE_UNCERTAIN);
         tm_printf((UB *)"[CTRL] IR snapshot read error %d -> ERROR\n",
                   (INT)error);
-        report_fault(3U);
+        report_fault(CTRL_FAULT_IR_READ);
         return ROBOT_ERROR;
     }
 
@@ -971,7 +1051,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
     {
         motion_apply(LINE_UNCERTAIN);
         tm_printf((UB *)"[CTRL] Clock read error %d -> ERROR\n", (INT)error);
-        report_fault(4U);
+        report_fault(CTRL_FAULT_CLOCK);
         return ROBOT_ERROR;
     }
 
@@ -984,7 +1064,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
         tm_printf((UB *)"[CTRL] IR data stale (%s, age %u ms) -> STOPPED\n",
                   reading.b_valid ? "old" : "invalid",
                   (UINT)(now.lo - reading.timestamp_msec));
-        report_fault(2U);
+        report_fault(CTRL_FAULT_IR_STALE);
         return ROBOT_STOPPED;
     }
 
@@ -994,7 +1074,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
         motion_apply(LINE_UNCERTAIN);
         obstacle_abort();
         tm_printf((UB *)"[CTRL] Obstacle sensor fault -> ERROR\n");
-        report_fault(5U);
+        report_fault(CTRL_FAULT_OBSTACLE);
         return ROBOT_ERROR;
     }
     if (obstacle_is_blocked())
@@ -1047,7 +1127,7 @@ static robot_state_t handle_following (controller_history_t * p_history)
         reading.left  = b_left ? 1U : 0U;
         reading.right = b_right ? 1U : 0U;
         /* UB views the same string bytes; tm_printf does not modify them. */
-        //tm_printf((UB *)"[CTRL] Line touch seen between reads\n");
+        /* tm_printf((UB *)"[CTRL] Line touch seen between reads\n"); */
     }
     else
     {
@@ -1152,7 +1232,8 @@ static robot_state_t handle_following (controller_history_t * p_history)
                 tm_printf((UB *)"[NAV] SAFE STOP: scan %s seq=%u now=%u\n",
                     received == -1 ? "unmapped" : "handoff overflow",
                     (UINT)sequence, (UINT)now.lo);
-                report_fault(received == -1 ? 13U : 12U);
+                report_fault((received == -1) ? CTRL_FAULT_UNMAPPED :
+                                             CTRL_FAULT_SCAN_OVERFLOW);
                 return ROBOT_NAV_SAFETY_STOP;
             }
 #else
@@ -1257,10 +1338,14 @@ static robot_state_t handle_following (controller_history_t * p_history)
                     "invalid navigation state", "decode timeout"
                 };
                 tm_printf((UB *)"[NAV] SAFE STOP: %s seq=%u now=%u\n",
-                    reasons[decision.value < 6U ? decision.value : 0U],
+                    reasons[(decision.value < CTRL_NAV_REASON_COUNT) ?
+                            decision.value : 0U],
                     (UINT)g_navigation.last_barcode_seq, (UINT)now.lo);
-                report_fault(decision.value == 5U ? 6U :
-                    decision.value == 2U ? 8U : 7U);
+                report_fault(
+                    (decision.value == CTRL_NAV_REASON_DECODE) ?
+                        CTRL_FAULT_DECODE_TIME :
+                    ((decision.value == CTRL_NAV_REASON_TURN) ?
+                        CTRL_FAULT_TURN : CTRL_FAULT_NO_ACTION));
             }
         }
         switch (decision.drive)
@@ -1273,10 +1358,14 @@ static robot_state_t handle_following (controller_history_t * p_history)
                  * real junction over APP_NAV_JUNCTION_CONFIRM_MM of travel
                  * and brakes through NAV_OUTPUT_STOP. */
                 if (reading.left && reading.right)
+                {
                     motion_apply(LINE_FORWARD);
+                }
                 else
+                {
                     motion_apply(line_follow_decide(reading.left,
                                                    reading.right));
+                }
                 break;
             case NAV_OUTPUT_FORWARD:
                 motion_apply(LINE_FORWARD);
@@ -1313,9 +1402,18 @@ static robot_state_t handle_obstacle (controller_history_t * p_history)
     SYSTIM now = {0};
     bool b_left = false, b_right = false, b_both = false;
     ER error = ir_shared_get_latest(&reading);
-    if (error >= E_OK) error = tk_get_otm(&now);
-    if (error >= E_OK) error = ir_shared_take_sides(&b_left, &b_right);
-    if (error >= E_OK) error = ir_shared_take_junction(&b_both);
+    if (error >= E_OK)
+    {
+        error = tk_get_otm(&now);
+    }
+    if (error >= E_OK)
+    {
+        error = ir_shared_take_sides(&b_left, &b_right);
+    }
+    if (error >= E_OK)
+    {
+        error = ir_shared_take_junction(&b_both);
+    }
     if (error < E_OK || !reading.b_valid ||
         (UW)(now.lo - reading.timestamp_msec) > APP_IR_MAX_AGE_MSEC)
     {
@@ -1532,8 +1630,11 @@ static robot_state_t apply_action (ir_shared_snapshot_t const * p_reading,
         /* UINT matches the original %u arguments on the 32-bit target.
          * UB views string bytes; tm_printf does not modify the string.
          */
-        //tm_printf((UB *)"[CTRL] L=%u R=%u ACTION=%s\n", (UINT)p_reading->left,
-        //          (UINT)p_reading->right, line_follow_text(action));
+        /* Disabled trace:
+         * tm_printf((UB *)"[CTRL] L=%u R=%u ACTION=%s\n",
+         *           (UINT)p_reading->left, (UINT)p_reading->right,
+         *           line_follow_text(action));
+         */
 
         p_history->previous_action        = action;
         p_history->b_have_previous_action = true;

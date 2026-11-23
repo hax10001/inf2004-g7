@@ -122,10 +122,20 @@ typedef struct
     unsigned int b_align_right:1;
     unsigned int b_line_past:1;
     unsigned int b_align_check:1; /**< Main-return ALIGN: check crossings. */
+    /** ALIGN went past the straight-ahead heading looking for the line. */
+    unsigned int b_align_more:1;
     /** Handed back next to the line: +1 it is on the left, -1 right. */
     signed int   rejoin_hint:2;
     /** Scans in a row that found both sides blocked (0..15). */
     unsigned int no_route_scans:4;
+    /** Pinging ahead after a first scan, before committing to its plan. */
+    unsigned int b_rechecking:1;
+    unsigned int recheck_clear:2; /**< Clear front pings in a row, 0..3. */
+    unsigned int recheck_pings:3; /**< Front pings taken, 0..7. */
+    /** Turn-out peek: 0 first side, 1 second side, 2 done or not used.
+     *  While it samples, b_rechecking is set and the two recheck counters
+     *  count its pings and face echoes (they are idle after the scan). */
+    unsigned int peek_state:2;
     uint32_t          enter_msec;
     int32_t           last_left;
     int32_t           last_right;
@@ -180,6 +190,21 @@ typedef struct
     (OBS_SIDE_PUSH_GAIN_DDEG_PER_MM < 0)
 #error "Push-out heading must fit 0..255 tenths of a degree."
 #endif
+#if (OBS_RESUME_CLEAR_MM != 0) && \
+    ((OBS_RESUME_CLEAR_MM <= OBS_STOP_MM) || (OBS_RESUME_HITS < 1U) || \
+     (OBS_RESUME_HITS > 3U) || (OBS_RESUME_PINGS < OBS_RESUME_HITS) || \
+     (OBS_RESUME_PINGS > 7U))
+#error "Resume check: CLEAR_MM > OBS_STOP_MM, HITS 1..3, PINGS HITS..7."
+#endif
+#if (OBS_PEEK_DEG < 30) || (OBS_PEEK_DEG > 60) || ((OBS_PEEK_DEG % 5) != 0) || \
+    (OBS_PEEK_PINGS < 3U) || ((OBS_PEEK_PINGS + OBS_PEEK_SKIP) > 7U)
+#error "Peek: DEG 30..60 in fives; PINGS >= 3 and PINGS + SKIP <= 7."
+#endif
+#define PEEK_FIRST 0U
+#define PEEK_SECOND 1U
+#define PEEK_DONE 2U
+/* Face echoes that mean the box is still there (saturating 2-bit count). */
+#define PEEK_FACE_HITS 3U
 #if OBS_SIDE_SEEN_HITS > 3U || OBS_SIDE_CLEAR_HITS > 7U || OBS_SEEK_LEGS > 7U
 #error Obstacle counter configuration exceeds its minimum-bit storage
 #endif
@@ -220,6 +245,21 @@ static void enter_phase (obstacle_seq_t * p_seq, obs_state_phase_t phase,
 /** @brief Whether to creep closer before this scan: the first stop for an
  *  obstacle only, never a rescan in the middle of a bypass. */
 static bool approach_wanted (obstacle_seq_t const * p_seq);
+/** @brief Turn-out peek (OBS_PEEK_*): at OBS_PEEK_DEG of the turn out,
+ *  stop, look square at the face from the sensor's sideways position and
+ *  change sides if the box still sticks out there.
+ *  @return true while the peek holds the robot (skip the turn this period).
+ */
+static bool peek_step (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                       uint32_t now_msec);
+/** @brief Whether to ping ahead again before committing to this scan's
+ *  plan: a first plan (or a both-blocked rescan) that is not clear. */
+static bool recheck_wanted (obstacle_seq_t const * p_seq);
+/** @brief One period of that check: OBS_RESUME_HITS clear pings in a row
+ *  end the obstacle (back to line following); a near echo or
+ *  OBS_RESUME_PINGS pings without the run carry out the plan. */
+static void recheck_step (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                          uint32_t now_msec);
 /** @brief One period of the creep: forward at OBS_APPROACH_RPM until a
  *  fresh front ping is within OBS_SCAN_FROM_MM, or a bound is reached; then
  *  stop and settle again before the scan. */
@@ -274,6 +314,13 @@ static void aim_at_object (obstacle_seq_t * p_seq);
  *  normal return, anywhere while zig-zagging for a missed line.
  */
 static bool line_seen (obstacle_seq_t const * p_seq, bool b_black);
+/** @brief Black that counts as the line on the way back to it. */
+static bool return_black (obstacle_seq_t const * p_seq, bool b_black);
+/** @brief Main-return ALIGN: the leading sensor has crossed the line,
+ *  the trailing one has not, and both are off it now. */
+static bool align_between (obstacle_seq_t const * p_seq);
+/** @brief Main-return ALIGN: the leading sensor has crossed the line. */
+static bool align_lead_crossed (obstacle_seq_t const * p_seq);
 /** @brief Start the next zig-zag leg across the expected line, or stop
  *  once OBS_SEEK_LEGS legs have not found it.
  */
@@ -520,20 +567,48 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
             case OBS_PHASE_SCANNING:
                 p_out->b_stop = true;
 
-                if (0U != (pattern & OBS_EVT_SCAN_DONE))
+                if (0U != p_seq->b_rechecking)
+                {
+                    recheck_step(p_seq, p_out, now_msec);
+                }
+                else if (0U != (pattern & OBS_EVT_SCAN_DONE))
                 {
                     obs_state_flags_clear(OBS_EVT_SCAN_DONE);
-                    handle_plan(p_seq, p_out, now_msec);
+
+                    if (recheck_wanted(p_seq))
+                    {
+                        /* Ping ahead before committing (see recheck_step). */
+                        p_seq->b_rechecking  = 1U;
+                        p_seq->recheck_clear = 0U;
+                        p_seq->recheck_pings = 0U;
+                        p_seq->front_seq     = obs_state_front_seq_get();
+                        obs_state_flags_set(OBS_EVT_FRONT_WATCH);
+                    }
+                    else
+                    {
+                        handle_plan(p_seq, p_out, now_msec);
+                    }
+                }
+                else
+                {
+                    /* Waiting for the scan. */
                 }
             break;
 
             case OBS_PHASE_TURN_OUT:
                 /* 1. Swing towards the clear side. */
-                aim_at_object(p_seq);
-
-                if (turn_step(p_seq, p_out))
+                if (peek_step(p_seq, p_out, now_msec))
                 {
-                    enter_phase(p_seq, OBS_PHASE_DIAG_OUT, now_msec);
+                    /* Stopped part way, looking square at the face. */
+                }
+                else
+                {
+                    aim_at_object(p_seq);
+
+                    if (turn_step(p_seq, p_out))
+                    {
+                        enter_phase(p_seq, OBS_PHASE_DIAG_OUT, now_msec);
+                    }
                 }
             break;
 
@@ -669,7 +744,8 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
             case OBS_PHASE_TURN_BACK:
                 p_seq->line_hits =
-                    line_seen(p_seq, b_black) ? SAT_INC8(p_seq->line_hits) : 0U;
+                    return_black(p_seq, b_black) ? SAT_INC8(p_seq->line_hits)
+                                                 : 0U;
 
                 if (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES)
                 {
@@ -706,7 +782,8 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
                 set_straight(p_out, heading, p_seq->search_ddeg);
                 p_seq->line_hits =
-                    line_seen(p_seq, b_black) ? SAT_INC8(p_seq->line_hits) : 0U;
+                    return_black(p_seq, b_black) ? SAT_INC8(p_seq->line_hits)
+                                                 : 0U;
 
                 if ((!p_seq->b_black_seen) &&
                     (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES))
@@ -716,7 +793,9 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                      */
                     line_found(p_seq, now_msec);
                 }
-                else if ((p_seq->b_black_seen || (!p_seq->b_seeking)) &&
+                else if ((p_seq->b_black_seen ||
+                          ((!p_seq->b_seeking) &&
+                           (0 == OBS_RETURN_TO_BLACK))) &&
                          (near_y <= turn_at))
                 {
                     /* Back on the expected line: straighten up. The turn
@@ -735,6 +814,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                     p_seq->b_black_seen  = false;
                     p_seq->b_align_left  = 0U;
                     p_seq->b_align_right = 0U;
+                    p_seq->b_align_more  = 0U;
                     enter_turn(p_seq, OBS_PHASE_ALIGN, 0, now_msec);
                 }
                 else if (guard_tripped(p_seq, true))
@@ -745,6 +825,13 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                          (near_y <= -(float)OBS_SEEK_BAND_MM))
                 {
                     /* Crossed the search band unseen: zig back. */
+                    next_seek_leg(p_seq, p_out, now_msec);
+                }
+                else if ((0 != OBS_RETURN_TO_BLACK) && (!p_seq->b_seeking) &&
+                         (near_y <= -(float)OBS_RETURN_SEARCH_MM))
+                {
+                    /* Well past where the line should be, still unseen:
+                     * the zig-zag search takes over. */
                     next_seek_leg(p_seq, p_out, now_msec);
                 }
                 else
@@ -760,7 +847,32 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                 p_seq->b_align_left  |= p_seq->b_ir_left;
                 p_seq->b_align_right |= p_seq->b_ir_right;
 
-                if (turn_step(p_seq, p_out))
+                if ((0 != OBS_RETURN_TO_BLACK) && align_between(p_seq))
+                {
+                    /* The line is between the sensors now, whatever the
+                     * heading: stop turning, line following takes it. */
+                    tm_printf((UB *)"[OBS] Aligned on the line at %d ddeg\n",
+                              (INT)heading);
+                    p_seq->verify_cycles = 0U;
+                    enter_phase(p_seq, OBS_PHASE_VERIFY, now_msec);
+                }
+                else if ((0 != OBS_RETURN_TO_BLACK) &&
+                         turn_step(p_seq, p_out) &&
+                         (0U != p_seq->b_align_check) &&
+                         (0U == p_seq->b_align_more) &&
+                         !align_lead_crossed(p_seq))
+                {
+                    /* Straight ahead and the line not reached yet: it lies
+                     * further round (stopped at an angle to it). */
+                    p_seq->b_align_more = 1U;
+                    tm_printf((UB *)"[OBS] Line not reached at the straight "
+                                    "heading; turning further for it\n");
+                    p_seq->turn_target_ddeg = clamp_i16(
+                        p_seq->turn_target_ddeg +
+                        (p_seq->turn_dir * OBS_ALIGN_MORE_DEG * DDEG_PER_DEG));
+                    set_arc(p_out, p_seq->turn_dir);
+                }
+                else if (turn_step(p_seq, p_out))
                 {
                     int32_t const rejoin = align_line_side(p_seq);
 
@@ -1394,6 +1506,31 @@ static bool line_seen (obstacle_seq_t const * p_seq, bool b_black)
     return p_seq->b_seeking ? b_black : line_near(p_seq, b_black);
 }
 
+static bool return_black (obstacle_seq_t const * p_seq, bool b_black)
+{
+    /* Stopped at an angle to the line, it is not where odometry expects
+     * it, so on the way back any black under a line sensor is the line.
+     * Barcode and junction tape lie on the line; the barcode scanner is
+     * suppressed while the bypass runs. */
+    return (0 != OBS_RETURN_TO_BLACK) ? b_black : line_seen(p_seq, b_black);
+}
+
+static bool align_lead_crossed (obstacle_seq_t const * p_seq)
+{
+    return (p_seq->turn_dir > 0) ? (0U != p_seq->b_align_left)
+                                 : (0U != p_seq->b_align_right);
+}
+
+static bool align_between (obstacle_seq_t const * p_seq)
+{
+    bool const b_trail = (p_seq->turn_dir > 0) ? (0U != p_seq->b_align_right)
+                                               : (0U != p_seq->b_align_left);
+
+    return (0U != p_seq->b_align_check) && align_lead_crossed(p_seq) &&
+           (!b_trail) && (0U == p_seq->b_ir_left) &&
+           (0U == p_seq->b_ir_right);
+}
+
 static void next_seek_leg (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                            uint32_t now_msec)
 {
@@ -1681,7 +1818,209 @@ static void seq_begin (obstacle_seq_t * p_seq, int32_t left_count,
     p_seq->approach_misses  = 0U;
     p_seq->approach_from_mm = 0.0F;
     p_seq->approach_msec    = now_msec;
+    p_seq->b_rechecking     = 0U;
+    p_seq->peek_state       = PEEK_DONE;
+    p_seq->recheck_clear    = 0U;
+    p_seq->recheck_pings    = 0U;
     enter_phase(p_seq, OBS_PHASE_STOPPING, now_msec);
+}
+
+static bool recheck_wanted (obstacle_seq_t const * p_seq)
+{
+    scan_plan_bypass_t plan = {0U, 0U};
+
+    obs_state_plan_load(&plan);
+
+    /* A clear scan already resumes; mid-bypass rescans keep their side. */
+    return (0 != OBS_RESUME_CLEAR_MM) && (!p_seq->b_planned) &&
+           (SCAN_PLAN_CLEAR != scan_plan_result(&plan));
+}
+
+static void recheck_step (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                          uint32_t now_msec)
+{
+    uint32_t const seq       = obs_state_front_seq_get();
+    bool           b_blocked = false;
+    int32_t        range_mm  = -1;
+
+    if (seq != p_seq->front_seq)
+    {
+        p_seq->front_seq = seq;
+        range_mm         = obs_state_front_range_get();
+
+        if (p_seq->recheck_pings < OBS_RESUME_PINGS)
+        {
+            p_seq->recheck_pings++;
+        }
+
+        if (range_mm > OBS_RESUME_CLEAR_MM)
+        {
+            if (p_seq->recheck_clear < OBS_RESUME_HITS)
+            {
+                p_seq->recheck_clear++;
+            }
+        }
+        else
+        {
+            /* Near, or no echo (unverified): the clear run starts again. */
+            p_seq->recheck_clear = 0U;
+            b_blocked            = (range_mm > 0);
+        }
+    }
+
+    if (p_seq->recheck_clear >= OBS_RESUME_HITS)
+    {
+        p_seq->b_rechecking = 0U;
+        /* Values fit INT on the target; UB keeps the string bytes. */
+        tm_printf((UB *)"[OBS] Way ahead clear again (%d mm); back to line "
+                        "following\n",
+                  (INT)range_mm);
+        p_out->b_stop = true;
+        finish_bypass(p_seq, p_out, false);
+    }
+    else if (b_blocked || (p_seq->recheck_pings >= OBS_RESUME_PINGS))
+    {
+        p_seq->b_rechecking = 0U;
+        obs_state_flags_clear(OBS_EVT_FRONT_WATCH);
+        handle_plan(p_seq, p_out, now_msec);
+    }
+    else
+    {
+        /* Waiting for the next front ping. */
+    }
+}
+
+static bool peek_step (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
+                       uint32_t now_msec)
+{
+    int32_t const heading = heading_ddeg(&p_seq->pose);
+    bool          b_hold  = false;
+
+    if (PEEK_DONE == p_seq->peek_state)
+    {
+        /* Nothing to do. */
+    }
+    else if (0U == p_seq->b_rechecking)
+    {
+        if ((p_seq->side * heading) >= (OBS_PEEK_DEG * DDEG_PER_DEG))
+        {
+            /* Far enough round: stop and settle (approach_msec is idle
+             * after the creep, so it times the hold). */
+            p_seq->b_rechecking  = 1U;
+            p_seq->recheck_pings = 0U;
+            p_seq->recheck_clear = 0U;
+            p_seq->approach_msec = now_msec;
+            b_hold               = true;
+        }
+    }
+    else if ((uint32_t)(now_msec - p_seq->approach_msec) <
+             OBS_STOP_SETTLE_MSEC)
+    {
+        b_hold = true;
+    }
+    else
+    {
+        float const   heading_rad = p_seq->pose.heading_rad;
+        float const   sensor_x    =
+            p_seq->pose.x_mm +
+            ((float)OBS_SENSOR_TO_AXLE_MM * OBS_COSF(heading_rad));
+        float const   sensor_y    =
+            p_seq->pose.y_mm +
+            ((float)OBS_SENSOR_TO_AXLE_MM * OBS_SINF(heading_rad));
+        /* Square to the face: back along the line, in whole aim steps. */
+        int32_t const step = OBS_AIM_STEP_DEG * DDEG_PER_DEG;
+        int32_t       deg  = (((heading < 0) ? (heading - (step / HALF))
+                                             : (heading + (step / HALF))) /
+                              step) *
+                             -OBS_AIM_STEP_DEG;
+        uint32_t const seq = obs_state_side_seq_get();
+
+        b_hold = true;
+
+        if (deg > servo_left_limit_deg())
+        {
+            deg = servo_left_limit_deg();
+        }
+
+        if (deg < -servo_right_limit_deg())
+        {
+            deg = -servo_right_limit_deg();
+        }
+
+        if (deg != p_seq->aim_deg)
+        {
+            p_seq->aim_deg = clamp_servo(deg);
+            obs_state_watch_angle_set(deg);
+            p_seq->side_seq = seq;
+        }
+        else if (seq != p_seq->side_seq)
+        {
+            int32_t const range_mm = obs_state_side_range_get();
+            int32_t const face_mm  = (int32_t)(p_seq->face_x_mm - sensor_x);
+
+            p_seq->side_seq = seq;
+            p_seq->recheck_pings++;
+
+            if ((p_seq->recheck_pings > OBS_PEEK_SKIP) &&
+                (range_mm >= OBS_SIDE_MIN_MM) &&
+                (range_mm <= (face_mm + OBS_PEEK_SLACK_MM)) &&
+                (p_seq->recheck_clear < PEEK_FACE_HITS))
+            {
+                p_seq->recheck_clear++;
+            }
+
+            /* Values fit INT on the target; UB keeps the string bytes. */
+            tm_printf((UB *)"[OBS] Peek ping %d mm (face expected %d mm)\n",
+                      (INT)range_mm, (INT)face_mm);
+        }
+        else
+        {
+            /* Waiting for the next ping. */
+        }
+
+        if (p_seq->recheck_pings >= (OBS_PEEK_PINGS + OBS_PEEK_SKIP))
+        {
+            bool const b_face  = p_seq->recheck_clear >= PEEK_FACE_HITS;
+            bool const b_first = PEEK_FIRST == p_seq->peek_state;
+
+            p_seq->b_rechecking = 0U;
+            /* Values fit INT on the target; UB keeps the string bytes. */
+            tm_printf((UB *)"[OBS] Peek %s, sensor %d mm off the line: box "
+                            "%s here -> %s\n",
+                      (p_seq->side > 0) ? (UB *)"left" : (UB *)"right",
+                      (INT)(((float)p_seq->side) * sensor_y),
+                      b_face ? (UB *)"still sticks out" : (UB *)"ends",
+                      (b_face && b_first) ? (UB *)"other side"
+                                          : (UB *)"carry on");
+
+            if (b_face && b_first)
+            {
+                scan_plan_bypass_t plan = {0U, 0U};
+
+                obs_state_plan_load(&plan);
+                p_seq->peek_state  = PEEK_SECOND;
+                p_seq->side        = -p_seq->side;
+                p_seq->search_side = p_seq->side;
+                p_seq->lateral_mm  = clamp_i16(
+                    scan_plan_other_lateral_cm(&plan) * MM_PER_CM);
+                obs_state_set_route((p_seq->side > 0) ? OBS_ROUTE_LEFT
+                                                      : OBS_ROUTE_RIGHT);
+                enter_turn(p_seq, OBS_PHASE_TURN_OUT,
+                           p_seq->side * p_seq->out_ddeg, now_msec);
+            }
+            else
+            {
+                p_seq->peek_state = PEEK_DONE;
+            }
+        }
+    }
+
+    if (b_hold)
+    {
+        p_out->b_stop = true;
+    }
+
+    return b_hold;
 }
 
 static bool approach_wanted (obstacle_seq_t const * p_seq)
@@ -1764,6 +2103,8 @@ static void enter_phase (obstacle_seq_t * p_seq, obs_state_phase_t phase,
 
     p_seq->phase      = phase;
     p_seq->enter_msec = now_msec;
+    /* No check in progress carries over into another phase. */
+    p_seq->b_rechecking = 0U;
     p_seq->line_hits  = 0U;
 
     /* Pings taken before this phase are stale for its guard. */
@@ -1949,6 +2290,15 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         if (!p_seq->b_planned)
         {
             p_seq->side = plan_side;
+            /* First, free choice with room both ways: peek on the way. */
+            p_seq->peek_state =
+                ((0 != OBS_PEEK) && scan_plan_other_side_ok(&plan) &&
+                 (near_mm >= OBS_PEEK_MIN_NEAR_MM))
+                    ? PEEK_FIRST : PEEK_DONE;
+        }
+        else
+        {
+            p_seq->peek_state = PEEK_DONE;
         }
 
         p_seq->b_planned = true;

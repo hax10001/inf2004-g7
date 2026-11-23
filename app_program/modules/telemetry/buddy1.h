@@ -13,6 +13,10 @@
 #define B1_SRC_TERRAIN 0x04u
 #define B1_SRC_OBSTACLE 0x08u
 #define B1_SRC_MISSION 0x10u
+/* Terrain EVENT kind: a hump the robot drove over (value = peak mm). */
+#define B1_EVT_HUMP_CROSSED 9u
+/* ODOM checkpoint spacing along the driven path. */
+#define B1_CHECKPOINT_MM 500u
 /* All time stamps are monotonically increasing milliseconds since boot. */
 /* V9: application-owned records use minimum-width discrete states and
  * packed booleans. Records are never memcpy'ed onto the MQTT wire.
@@ -34,8 +38,10 @@ typedef struct {
 typedef struct {
     uint32_t ms;
     uint16_t seq,hump_mm,max_hump_mm,event_id;
-    /* Height-valid quality (0..1), hump phase (0..2), event 0..20. */
+    /* Height-valid quality (0..1), hump phase (0..2), event 0..21. */
     unsigned char quality:1,mode:2,event_kind:5;
+    /* EVENT value: crossed hump's peak height, 0..127 mm. */
+    unsigned char event_value:7;
 } B1_Terrain;
 typedef struct {
     uint32_t ms;

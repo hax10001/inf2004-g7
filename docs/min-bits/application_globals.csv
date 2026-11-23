@@ -264,3 +264,4 @@ app_program/modules/terrain/terrain.c,13,gh_calibration_mutex,volatile ID,static
 app_program/modules/terrain/terrain.c,14,gh_snapshot_mutex,volatile ID,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/terrain/terrain.c,15,g_calibration,volatile terrain_calibration,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/terrain/terrain.c,16,g_snapshot,volatile terrain_snapshot,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,27,mission_event_seq,uint16_t,static,telemetry task only,WIRE_WIDTH; mission EVENT IDs (16-bit on the wire)

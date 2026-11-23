@@ -9,7 +9,6 @@ const actions=['STRAIGHT','LEFT','RIGHT','U-TURN'];
 const scanFailureNames=['Reason unavailable (firmware reported 0)','Invalid sensor input','Barcode width mismatch',
   'Capture buffer overflow','Capture timed out','Invalid encoder travel',
   'Scan interrupted','Code 39 pattern mismatch','Scanner/result queue busy'];
-const colors={1:'#7866BA',2:'#C49B3B',3:'#E7B750',4:'#B44C42',5:'#5A91B9',6:'#258971',7:'#B53F42',8:'#A9742C',9:'#D7A24A',10:'#536879'};
 const lineNames=['UNKNOWN','FOLLOWING','LEFT BIAS','RIGHT BIAS','SEARCHING','JUNCTION','LOST','FAULT'];
 const commandLabels=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU','RECALIBRATE_BARCODE'];
 const readyBits=[[1,'MQTT offline'],[2,'not in safe hold'],[4,'command pending'],
@@ -314,7 +313,7 @@ function updateRouteMap(){
  const odomValid=hasOdom && (view.points||[]).length>1 && (view.pose?.distanceMm||0)>1;
  const p=view.pose||{x:0,y:0,theta:0,distanceMm:0};
  el('routeLiveStatus').textContent=!isLive?'WAITING FOR LIVE ROBOT':
-   odomValid?(view.uncertain?'LIVE · ESTIMATED PATH (GAPS)':'LIVE · ODOMETRY PATH'):
+   odomValid?(view.uncertain?'LIVE · DEAD-RECKONED · GAP, SEGMENT APPROXIMATE':'LIVE · DEAD-RECKONED, CORRECTED AT JUNCTION TURNS'):
    hasOdom?'LIVE ROBOT · WHEELS NOT MOVING':'LIVE ROBOT · NO WHEEL ODOMETRY';
  el('routeLivePose').textContent=odomValid?
    `Relative x ${num(p.x/1000,2)} m · y ${num(p.y/1000,2)} m · ${num(p.distanceMm/1000,2)} m travelled`:
@@ -346,12 +345,31 @@ function updateRouteMap(){
  el('routeDetections').innerHTML=detected.length?detected.map(e=>{
    const letter=String.fromCharCode(65+e.value),index=confirmed?report.letters.indexOf(letter):-1;
    const action=index<0?'No matched action':pairs[index];
-   const location=e.positionValid&&odomValid?`At ~(${num(e.x/1000,2)}, ${num(e.y/1000,2)}) m`:'Position unavailable';
+   const location=e.positionValid?`At ~(${num(e.x/1000,2)}, ${num(e.y/1000,2)}) m${e.approximate?' (approx.)':''}`:'Position unavailable (no wheel odometry yet)';
    return `<div class="routeDetection"><b>${letter}</b><span>${safe(action)}</span><small>${safe(location)}</small></div>`;
  }).join(''):'<span class="routeNotKnown">No barcode detected yet. The robot only reports letters after it physically decodes their symbols.</span>';
  el('routeEstimateHelp').textContent=odomValid?
-   (view.uncertain?'Path is approximate; missing or inconsistent odometry frames were detected.':'Estimated route from received wheel-motion deltas; not a camera map or SLAM.'):
+   (view.uncertain?'Some wheel updates were lost; the dashed segment is approximate until the next distance checkpoint.':'Dead-reckoned from wheel deltas; heading and position are corrected to the junction at each Left/Right/U-turn. Not a camera map or SLAM.'):
    hasOdom?'Odometry is arriving but reports no travelled distance. Raise the wheels before physical movement tests.':'The dashboard cannot reconstruct a physical route from IR/IMU readings alone. Check encoder motion and ODOM MQTT packets.';
+}
+/* One marker style per event kind on the route map; null = list only. */
+function mapMarker(e){
+ const turn={1:'L',2:'R',3:'U'};
+ if(e.kind===1&&e.value<26)return {shape:'square',color:'#7866BA',label:String.fromCharCode(65+e.value)};
+ if(e.kind===14&&turn[e.value])return {shape:'triangle',color:'#258971',label:turn[e.value]};
+ if(e.kind===13&&e.value===0)return {shape:'triangle',color:'#258971',label:'S'};
+ if(e.kind===9)return {shape:'circle',color:'#E7B750',label:`${e.value} mm`};
+ if(e.kind===4)return {shape:'diamond',color:'#B44C42',label:'obstacle'};
+ return null;
+}
+function drawMarker(g,x,y,m){
+ g.save();g.fillStyle=m.color;g.strokeStyle='#FBF8F1';g.lineWidth=2;g.beginPath();
+ if(m.shape==='square')g.rect(x-6,y-6,12,12);
+ else if(m.shape==='triangle'){g.moveTo(x,y-8);g.lineTo(x+7,y+5);g.lineTo(x-7,y+5);g.closePath();}
+ else if(m.shape==='diamond'){g.moveTo(x,y-8);g.lineTo(x+7,y);g.lineTo(x,y+8);g.lineTo(x-7,y);g.closePath();}
+ else g.arc(x,y,6,0,Math.PI*2);
+ g.fill();g.stroke();
+ g.font='600 11px system-ui,sans-serif';g.fillStyle='#1F2A37';g.textBaseline='middle';g.fillText(m.label,x+10,y);g.restore();
 }
 function draw(){if(activeView!=='three')return;const c=el('map'),r=c.getBoundingClientRect();if(r.width<1||r.height<1)return;
  const dpr=Math.min(devicePixelRatio||1,2),w=Math.round(r.width*dpr),h=Math.round(r.height*dpr);if(c.width!==w||c.height!==h){c.width=w;c.height=h;}
@@ -365,7 +383,7 @@ function draw(){if(activeView!=='three')return;const c=el('map'),r=c.getBounding
  for(let y=-70;y<=70;y++){const v=py(y*200);if(v>=0&&v<=r.height){g.beginPath();g.moveTo(0,v);g.lineTo(r.width,v);g.stroke();}}
  g.lineCap='round';g.lineJoin='round';g.lineWidth=3;
  for(let i=1;i<points.length;i++){g.setLineDash(points[i].uncertain?[4,6]:[]);g.strokeStyle=points[i].uncertain?'#C49B3B':'#314660';g.beginPath();g.moveTo(px(points[i-1].x),py(points[i-1].y));g.lineTo(px(points[i].x),py(points[i].y));g.stroke();}g.setLineDash([]);
- for(const e of (view?.events||[]).filter(e=>e.positionValid && view?.lastMotionSeq!=null)){g.fillStyle=colors[e.kind]||'#314660';g.beginPath();g.arc(px(e.x),py(e.y),5,0,Math.PI*2);g.fill();g.strokeStyle='#FBF8F1';g.lineWidth=2;g.stroke();}
+ for(const e of (view?.events||[]).filter(e=>e.positionValid && view?.lastMotionSeq!=null).slice().reverse()){const m=mapMarker(e);if(m)drawMarker(g,px(e.x),py(e.y),m);}
  if(view?.lastMotionSeq!=null){g.save();g.translate(px(p.x),py(p.y));g.rotate(-p.theta);g.fillStyle='#C49B3B';g.shadowColor='#314660';g.shadowBlur=14;g.beginPath();g.moveTo(15,0);g.lineTo(-11,-9);g.lineTo(-6,0);g.lineTo(-11,9);g.closePath();g.fill();g.restore();}
  g.fillStyle='#314660';g.beginPath();g.arc(px(0),py(0),3,0,Math.PI*2);g.fill();el('mapScale').textContent=`Grid: 0.2 m · ${num(zoom)}×`;
 }

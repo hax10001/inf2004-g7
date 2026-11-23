@@ -18,12 +18,27 @@
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
 
+#define B1_TASK_STACK 4096
+#define B1_TASK_PRIORITY 9
+/* Task period (ms) and frames sent per period. */
+#define B1_TASK_PERIOD_MSEC 50
+#define B1_FRAMES_PER_PERIOD 6
+/* Wi-Fi status is reported once after this boot deadline, then the
+ * network line is logged on every change or at this interval. */
+#define B1_WIFI_DEADLINE_MSEC 10000u
+#define B1_NET_LOG_MSEC 5000u
+/* Mission state that never occurs: forces the first mission EVENT. */
+#define B1_MISSION_NONE 255u
+
 static B1_Store store;
 static G7_TelemetryPeers peers;
 static uint16_t mission_seq;
-static uint8_t last_mission=255u;
+/* Mission EVENT IDs have their own counter: sharing mission_seq made the
+ * record sequence skip a number on every event, which the store reads as
+ * a lost record and flags all later telemetry uncertain. */
+static uint16_t mission_event_seq;
+static uint8_t last_mission=B1_MISSION_NONE;
 static ID mutex_id;
-#define B1_TASK_STACK 4096
 static void acquire(void *ctx){(void)ctx;(void)tk_loc_mtx(mutex_id,TMO_FEVR);}
 static void release(void *ctx){(void)ctx;(void)tk_unl_mtx(mutex_id);}
 
@@ -46,7 +61,10 @@ int g7_nav_begin_run(void)
 {
     /* Held suppression prevents a new capture here. Reset only mailbox
      * ownership; never cancel the scanner that just passed readiness. */
-    if (!bc_wave_is_ready()) return 0;
+    if (!bc_wave_is_ready())
+    {
+        return 0;
+    }
     return bc_port_nav_enable(1U) >= E_OK;
 }
 int g7_nav_continue_run(void)
@@ -65,11 +83,16 @@ int g7_nav_take_scan(uint8_t *letter, uint8_t *action, uint16_t *sequence,
     int result = 0;
     if (!letter || !action || !sequence || !captured_msec ||
         !completed_msec || !pending)
+    {
         return -3;
+    }
     /* On contention do not pretend the decoder is idle. Never consume a
      * result until mapping can be read under its existing mutex. */
     *pending = 1U;
-    if (mutex_id <= 0 || tk_loc_mtx(mutex_id, TMO_POL) < E_OK) return 0;
+    if (mutex_id <= 0 || tk_loc_mtx(mutex_id, TMO_POL) < E_OK)
+    {
+        return 0;
+    }
     if (bc_port_nav_take(&scan) < E_OK) {
         (void)tk_unl_mtx(mutex_id);
         return 0;
@@ -82,7 +105,10 @@ int g7_nav_take_scan(uint8_t *letter, uint8_t *action, uint16_t *sequence,
         *captured_msec = scan.captured_msec;
         *completed_msec = scan.completed_msec;
         result = (scan.letter < 26U) ? -1 : -2;
-        if (scan.overflow) result = -3;
+        if (scan.overflow)
+        {
+            result = -3;
+        }
         if (scan.letter < 26U && store.mapping_valid) {
             for (i = 0U; i < 4U; ++i) {
                 if (store.mapping[i] == *letter) {
@@ -124,8 +150,11 @@ static void network_application_task(INT stacd,void *exinf){
             extern uint64_t time_us_64(void);
             now=(uint32_t)(time_us_64()/1000ULL);
         }
-        if(boot_ms==0u)boot_ms=now;
-        if(!reported_network_deadline && now-boot_ms>=10000u) {
+        if(boot_ms==0u)
+        {
+            boot_ms=now;
+        }
+        if(!reported_network_deadline && now-boot_ms>=B1_WIFI_DEADLINE_MSEC) {
             T_CYW43_UTK_STATUS wifi={0};
             cyw43_utk_get_status(&wifi);
             reported_network_deadline=1u;
@@ -142,7 +171,7 @@ static void network_application_task(INT stacd,void *exinf){
         {
             uint8_t is_connected=b1_mqtt_connected();
             if(is_connected!=previous_connected ||
-               now-last_net_log_ms>=5000u) {
+               now-last_net_log_ms>=B1_NET_LOG_MSEC) {
                 T_CYW43_UTK_STATUS wifi={0};
                 cyw43_utk_get_status(&wifi);
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
@@ -213,31 +242,45 @@ static void network_application_task(INT stacd,void *exinf){
                 if(seq!=nav_reported_seq && kind!=0u) {
                     mission.event_kind=kind;
                     mission.event_value=value;
-                    mission.event_id=++mission_seq;
+                    if(++mission_event_seq==0u)
+                    {
+                        mission_event_seq=1u;
+                    }
+                    mission.event_id=mission_event_seq;
                     nav_reported_seq=seq;
                 }
             }
             if(mission.mission!=last_mission && mission.event_kind==0u){
                 mission.event_kind=10u;
-                mission.event_id=++mission_seq;
+                if(++mission_event_seq==0u)
+                {
+                    mission_event_seq=1u;
+                }
+                mission.event_id=mission_event_seq;
                 last_mission=mission.mission;
             }
             mission.seq=++mission_seq;
             (void)b1_ingest_mission(&store,&mission);
         }
 #endif
-        for(int i=0;i<6 && b1_next_frame(&store,now,&f)>0;i++){
+        /* While MQTT is down (or the queue is full) frames stay in the
+         * store's bounded rings, 32 ODOM and 24 EVENT, and are sent in
+         * order after reconnect; ring overflow is counted as dropped. */
+        for(int32_t i=0;
+                i<B1_FRAMES_PER_PERIOD && b1_mqtt_can_send() &&
+                b1_next_frame(&store,now,&f)>0;i++){
             if(b1_mqtt_submit(&f)<0){
                 acquire(NULL);store.dropped++;store.uncertain=1u;release(NULL);
             }
         }
-        er=tk_dly_tsk(50);
+        er=tk_dly_tsk(B1_TASK_PERIOD_MSEC);
         (void)er;
     }
 }
 int b1_rt_start(void){
     static const T_CMTX mutex_cfg={.mtxatr=TA_TFIFO|TA_INHERIT};
-    static const T_CTSK task_cfg={.itskpri=9,.stksz=B1_TASK_STACK,
+    static const T_CTSK task_cfg={.itskpri=B1_TASK_PRIORITY,
+                                  .stksz=B1_TASK_STACK,
                                   .task=network_application_task,
             .tskatr=TA_HLNG|TA_RNG3};
     ID tid;

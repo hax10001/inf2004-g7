@@ -205,6 +205,15 @@ int main(void)
         g_seq.pose.y_mm=40.0F; /* beyond OBS_ALIGN_ON_LINE_MM */
         g_seq.pose.heading_rad=0.0F;
         drive=step(4000,false,1400);
+#if (0 != OBS_RETURN_TO_BLACK)
+        /* 23 Nov: first keep turning up to OBS_ALIGN_MORE_DEG for it (a
+         * stop at an angle to the line puts it further round). */
+        assert(g_seq.phase==OBS_PHASE_ALIGN && g_seq.b_align_more);
+        assert(g_seq.turn_target_ddeg==OBS_ALIGN_MORE_DEG*DDEG_PER_DEG);
+        assert(drive.right_rpm>0 && drive.left_rpm==0);
+        g_seq.pose.heading_rad=OBS_ALIGN_MORE_DEG*OBS_RAD_PER_DEG;
+        drive=step(4000,false,1450);
+#endif
         assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.search_side==-1);
         assert(g_seq.turn_target_ddeg==OBS_SEEK_DEG*DDEG_PER_DEG);
         puts("PASS turn fell short of the line: rejoin to the left");
@@ -460,6 +469,17 @@ int main(void)
     assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
     g_seq.pose.y_mm=5.0F;
     (void)step(4000,false,150);
+#if (0 != OBS_RETURN_TO_BLACK)
+    /* 23 Nov: the IR sensors decide. No black at the odometry line: keep
+     * heading in, up to OBS_RETURN_SEARCH_MM beyond it, then seek. */
+    assert(g_seq.phase==OBS_PHASE_SEARCH_LINE && !g_seq.b_black_seen);
+    g_seq.pose.y_mm=-(float)OBS_RETURN_SEARCH_MM+1.0F;
+    (void)step(4000,false,200);
+    assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
+    g_seq.pose.y_mm=-(float)OBS_RETURN_SEARCH_MM-1.0F;
+    drive=step(4000,false,250);
+    puts("PASS return keeps heading in until black, bounded, then seeks");
+#else
     assert(g_seq.phase==OBS_PHASE_ALIGN && !g_seq.b_black_seen);
     puts("PASS return straightens up on the odometry line without seeing black");
 
@@ -469,6 +489,7 @@ int main(void)
     assert(g_seq.phase==OBS_PHASE_VERIFY);
     for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
         drive=step(4000,false,250U+i*50U);
+#endif
     assert(!drive.b_fault && !drive.b_done);
     assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.b_seeking);
     assert(g_seq.seek_legs==1U);
@@ -676,6 +697,78 @@ int main(void)
     (void)step(-1,false,200);
     assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
     puts("PASS echo after a default end resumes passing without flapping");
+
+    /* Turn-out peek: at OBS_PEEK_DEG of the turn the sensor is ~100 mm out
+     * on the chosen side, looking square at the face. Face still there:
+     * the box sticks out on this side, so turn out the other way. */
+    for(int32_t face_there=0;face_there<=1;face_there++)
+    {
+        scan_plan_point_t pts[OBS_SCAN_POINTS]={{0}};
+        int32_t n=0;
+        for(int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG &&
+            n<OBS_SCAN_POINTS;a=scan_plan_next_angle(a))
+        {
+            pts[n].angle_deg=a;pts[n].range_mm=(a>=-20&&a<=20)?225U:1500U;
+            ++n;
+        }
+        scan_plan_build_side(pts,n,0,0,&loaded_plan);
+        assert(scan_plan_result(&loaded_plan)==SCAN_PLAN_ROUTE);
+        assert(scan_plan_other_side_ok(&loaded_plan));
+        flags=0U;fault_bits=0U;
+        g_seq=(obstacle_seq_t){0};g_seq.b_active=true;
+        obstacle_drive_t d={0};
+        handle_plan(&g_seq,&d,1000U);
+        assert(g_seq.phase==OBS_PHASE_TURN_OUT);
+        assert(OBS_PEEK==0 || g_seq.peek_state==PEEK_FIRST);
+        int32_t const first=g_seq.side;
+        uint32_t t=1050U;
+        /* Before the peek angle the turn runs as before. */
+        g_seq.pose.heading_rad=(float)first*20.0F*OBS_RAD_PER_DEG;
+        d=step(-1,false,t);
+        assert(!d.b_stop);
+        /* At the peek angle: stop, settle, aim square at the face. */
+        g_seq.pose.heading_rad=
+            (float)first*(float)(OBS_PEEK_DEG+5)*OBS_RAD_PER_DEG;
+        d=step(-1,false,t+=50U);
+        assert(OBS_PEEK==0 || d.b_stop);
+        t+=OBS_STOP_SETTLE_MSEC;
+        d=step(-1,false,t+=50U);
+        assert(OBS_PEEK==0 || (d.b_stop && watch_deg==-first*(OBS_PEEK_DEG+5)));
+        for(uint32_t k=0;k<OBS_PEEK_PINGS+OBS_PEEK_SKIP;k++)
+            d=step(face_there?262:1500,false,t+=60U);
+        if(OBS_PEEK!=0 && face_there)
+        {
+            /* Other way, with that side's own drive-out. */
+            assert(g_seq.side==-first && g_seq.peek_state==PEEK_SECOND);
+            assert(g_seq.phase==OBS_PHASE_TURN_OUT);
+            assert(g_seq.turn_target_ddeg==-first*g_seq.out_ddeg);
+            assert(g_seq.lateral_mm==
+                   scan_plan_other_lateral_cm(&loaded_plan)*10);
+            d=step(-1,false,t+=50U);
+            assert(!d.b_stop); /* Swinging back. */
+            /* Second side: whatever it sees, it goes (no ping-pong). */
+            g_seq.pose.heading_rad=
+                (float)g_seq.side*(float)(OBS_PEEK_DEG+5)*OBS_RAD_PER_DEG;
+            d=step(-1,false,t+=50U);
+            t+=OBS_STOP_SETTLE_MSEC;
+            d=step(-1,false,t+=50U);
+            for(uint32_t k=0;k<OBS_PEEK_PINGS+OBS_PEEK_SKIP;k++)
+                d=step(262,false,t+=60U);
+            assert(g_seq.side==-first && g_seq.peek_state==PEEK_DONE);
+        }
+        else
+        {
+            assert(g_seq.side==first);
+            assert(OBS_PEEK==0 || g_seq.peek_state==PEEK_DONE);
+        }
+        d=step(-1,false,t+=50U);
+        assert(!d.b_stop && g_seq.phase==OBS_PHASE_TURN_OUT &&
+               0U==fault_bits);
+        loaded_plan=(scan_plan_bypass_t){0};
+    }
+    assert(sizeof(obstacle_seq_t)==112U);
+    puts("PASS turn-out peek: box ends -> carry on; box still there -> other "
+         "side, once; sequencer still 112 bytes");
 
     return 0;
 }

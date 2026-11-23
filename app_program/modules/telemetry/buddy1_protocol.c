@@ -21,7 +21,10 @@ static uint8_t checksum(const uint8_t *p, size_t n) {
         for(i = 0; i < 8u; i++) {
             uint8_t carry = (uint8_t)((crc ^ b) & 0x80u);
             crc = (uint8_t)(crc << 1u);
-            if(carry != 0u) crc ^= 0x07u;
+            if(carry != 0u)
+            {
+                crc ^= 0x07u;
+            }
             b = (uint8_t)(b << 1u);
         }
     }
@@ -30,9 +33,15 @@ static uint8_t checksum(const uint8_t *p, size_t n) {
 
 size_t b1_frame_encode(const B1_Frame *in, uint8_t *out, size_t cap) {
     size_t n;
-    if(in == NULL || out == NULL || in->payload_len > B1_MAX_PAYLOAD) return 0;
+    if(in == NULL || out == NULL || in->payload_len > B1_MAX_PAYLOAD)
+    {
+        return 0;
+    }
     n = B1_HEADER + (size_t)in->payload_len + 1u;
-    if(n > cap) return 0;
+    if(n > cap)
+    {
+        return 0;
+    }
     out[0] = B1_MAGIC; out[1] = B1_VERSION; out[2] = in->type;
     out[3] = in->flags;
     b1_put16(out + 4, in->session); b1_put16(out + 6, in->seq);
@@ -45,7 +54,10 @@ int b1_frame_decode(const uint8_t *bytes, size_t n, B1_Frame *out) {
     if(bytes == NULL || out == NULL || n < B1_HEADER + 1u ||
        n > B1_MAX_FRAME || bytes[0] != B1_MAGIC || bytes[1] != B1_VERSION ||
        bytes[12] > B1_MAX_PAYLOAD || n != B1_HEADER + (size_t)bytes[12] + 1u ||
-       checksum(bytes, n - 1u) != bytes[n - 1u]) return -1;
+       checksum(bytes, n - 1u) != bytes[n - 1u])
+    {
+        return -1;
+    }
     memset(out, 0, sizeof(*out));
     out->type = bytes[2]; out->flags = bytes[3];
     out->session = b1_get16(bytes + 4); out->seq = b1_get16(bytes + 6);
@@ -56,11 +68,23 @@ int b1_frame_decode(const uint8_t *bytes, size_t n, B1_Frame *out) {
 
 int b1_pack_mapping(const uint8_t x[4], uint8_t dst[3]) {
     uint32_t v;
-    unsigned i,j;
-    if(x == NULL || dst == NULL) return -1;
+    uint32_t i,j;
+    if(x == NULL || dst == NULL)
+    {
+        return -1;
+    }
     for(i = 0; i < 4u; i++) {
-        if(x[i] > 25u) return -1;
-        for(j = 0; j < i; j++) if(x[j] == x[i]) return -1;
+        if(x[i] > 25u)
+        {
+            return -1;
+        }
+        for(j = 0; j < i; j++)
+        {
+            if(x[j] == x[i])
+            {
+                return -1;
+            }
+        }
     }
     v = (uint32_t)x[0] | ((uint32_t)x[1] << 5u) |
         ((uint32_t)x[2] << 10u) | ((uint32_t)x[3] << 15u);
@@ -71,39 +95,55 @@ int b1_pack_mapping(const uint8_t x[4], uint8_t dst[3]) {
 int b1_unpack_mapping(const uint8_t src[3], uint8_t x[4]) {
     uint32_t v;
     uint8_t mapped[3];
-    unsigned i;
-    if(src == NULL || x == NULL || (src[2] & 0xf0u) != 0u) return -1;
+    uint32_t i;
+    if(src == NULL || x == NULL || (src[2] & 0xf0u) != 0u)
+    {
+        return -1;
+    }
     v = (uint32_t)src[0] | ((uint32_t)src[1] << 8) | ((uint32_t)src[2] << 16);
-    for(i = 0; i < 4u; i++) x[i] = (uint8_t)((v >> (5u * i)) & 31u);
+    for(i = 0; i < 4u; i++)
+    {
+        x[i] = (uint8_t)((v >> (5u * i)) & 31u);
+    }
     return b1_pack_mapping(x, mapped);
 }
 
 /* Least-significant-bit first within each octet, independent of C ABI. */
 typedef struct { uint8_t *bytes; size_t bits, cap; } Writer;
-static void putbits(Writer *w, uint32_t v, unsigned count) {
-    unsigned i;
+static void putbits(Writer *w, uint32_t v, uint32_t count) {
+    uint32_t i;
     for(i = 0; i < count; i++) {
         size_t bit = w->bits++;
         if(bit < w->cap * 8u) {
-            if((v & (1u << i)) != 0u) w->bytes[bit / 8u] |= (uint8_t)(1u << (
-            bit % 8u));
+            if((v & (1u << i)) != 0u)
+            {
+                w->bytes[bit / 8u] |= (uint8_t)(1u << (bit % 8u));
+            }
         }
     }
 }
 typedef struct { const uint8_t *bytes; size_t bits; } Reader;
-static uint32_t getbits(Reader *r, unsigned count) {
-    uint32_t v = 0; unsigned i;
+static uint32_t getbits(Reader *r, uint32_t count) {
+    uint32_t v = 0; uint32_t i;
     for(i = 0; i < count; i++) {
         size_t bit = r->bits++;
-        if((r->bytes[bit / 8u] & (uint8_t)(1u << (bit % 8u))) != 0u) v |= (1u
-            << i);
+        if((r->bytes[bit / 8u] & (uint8_t)(1u << (bit % 8u))) != 0u)
+        {
+            v |= (1u << i);
+        }
     }
     return v;
 }
 static uint16_t bounded(uint16_t x, uint16_t max) { return x > max ? max : x; }
 static uint16_t signed12(int16_t x) {
-    if(x < -2047) x = -2047;
-    if(x > 2047) x = 2047;
+    if(x < -2047)
+    {
+        x = -2047;
+    }
+    if(x > 2047)
+    {
+        x = 2047;
+    }
     return (uint16_t)x & 0xfffu;
 }
 static int16_t unsign12(uint16_t x) {
@@ -112,7 +152,10 @@ static int16_t unsign12(uint16_t x) {
 size_t b1_encode_snapshot(const B1_SnapshotPayload *s, uint8_t dst[13]) {
     Writer w;
     if(s == NULL || dst == NULL || (s->barcode > 25u &&
-       s->barcode != 31u)) return 0;
+       s->barcode != 31u))
+    {
+        return 0;
+    }
     memset(dst, 0, 13u); w.bytes = dst; w.bits = 0; w.cap = 13u;
     putbits(&w, s->source_mask & 31u, 5u); putbits(&w, s->stale_mask & 31u, 5u);
     putbits(&w, s->mission, 3u); putbits(&w, s->line, 3u);
@@ -130,7 +173,9 @@ size_t b1_encode_snapshot(const B1_SnapshotPayload *s, uint8_t dst[13]) {
 int b1_decode_snapshot(const uint8_t *src, size_t size, B1_SnapshotPayload *s) {
     Reader r;
     if(src == NULL || s == NULL || size != 13u || (src[12] & 0xf8u) != 0u)
+    {
         return -1;
+    }
     r.bytes = src; r.bits = 0;
     memset(s,0,sizeof(*s));
     s->source_mask = (uint8_t)getbits(&r,5u);
@@ -145,16 +190,28 @@ int b1_decode_snapshot(const uint8_t *src, size_t size, B1_SnapshotPayload *s) {
     s->faults=(uint8_t)getbits(&r,8u);
     s->speed_left_mm_s=unsign12((uint16_t)getbits(&r,12u));
     s->speed_right_mm_s=unsign12((uint16_t)getbits(&r,12u));
-    if(s->barcode>25u && s->barcode!=31u)return -1;
+    if(s->barcode>25u && s->barcode!=31u)
+    {
+        return -1;
+    }
     return 0;
 }
 size_t b1_encode_command(const B1_Command *c, uint8_t *p, size_t cap) {
     if(c == NULL || p == NULL || cap < (c->command
-        == B1_CMD_MAPPING ? 6u : 3u)) return 0;
-    if(c->command < B1_CMD_MAPPING || c->command > B1_CMD_LAST) return 0;
+        == B1_CMD_MAPPING ? 6u : 3u))
+    {
+        return 0;
+    }
+    if(c->command < B1_CMD_MAPPING || c->command > B1_CMD_LAST)
+    {
+        return 0;
+    }
     p[0]=c->command; b1_put16(p+1,c->transaction);
     if(c->command==B1_CMD_MAPPING) {
-        if(b1_pack_mapping(c->mapping,p+3)!=0) return 0;
+        if(b1_pack_mapping(c->mapping,p+3)!=0)
+        {
+            return 0;
+        }
         return 6u;
     }
     return 3u;
@@ -162,10 +219,16 @@ size_t b1_encode_command(const B1_Command *c, uint8_t *p, size_t cap) {
 int b1_decode_command(const uint8_t *p,size_t n,B1_Command *c) {
     if(p==NULL || c==NULL || n < 3u || p[0]<B1_CMD_MAPPING
         || p[0]>B1_CMD_LAST ||
-       n != (p[0]==B1_CMD_MAPPING ? 6u : 3u)) return -1;
+       n != (p[0]==B1_CMD_MAPPING ? 6u : 3u))
+    {
+        return -1;
+    }
     memset(c,0,sizeof(*c)); c->command=p[0]; c->transaction=b1_get16(p+1);
     if(c->command==B1_CMD_MAPPING && b1_unpack_mapping(p+3,
-        c->mapping)!=0) return -1;
+        c->mapping)!=0)
+    {
+        return -1;
+    }
     return 0;
 }
 /*** end of file ***/

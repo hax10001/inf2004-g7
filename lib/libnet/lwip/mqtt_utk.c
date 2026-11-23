@@ -58,6 +58,11 @@ static volatile uint8_t mqtt_link_ready;
 uint8_t b1_mqtt_connected(void) {
     return __atomic_load_n(&mqtt_link_ready, __ATOMIC_ACQUIRE);
 }
+uint8_t b1_mqtt_can_send(void) {
+    /* Telemetry task is the only producer, so a free slot stays free. */
+    uint8_t next=(uint8_t)((tx_head+1u)%B1_QUEUE_SIZE);
+    return (uint8_t)(b1_mqtt_connected() && next!=tx_tail);
+}
 static void publish_link_status(uint8_t ready) {
     __atomic_store_n(&mqtt_link_ready, ready, __ATOMIC_RELEASE);
 }
@@ -118,6 +123,13 @@ static void publish_link_status(uint8_t ready) {
 #define B1_TXBUF_CAP 320u
 #define B1_RXBUF_CAP 256u
 #define B1_KEEPALIVE_MS 30000u
+/* Link-loss detection. The broker answers each PINGREQ at once, so
+ * silence for B1_LINK_SILENCE_MS (three ping periods with no reply and
+ * no other inbound data) means the link is gone and the controller
+ * stops the motors. The longest uplink stall seen on the phone hotspot
+ * on 2026-11-23 (11,800 frames) was 4.3 s, well under 15 s. */
+#define B1_PING_PERIOD_MS 5000u
+#define B1_LINK_SILENCE_MS 15000u
 static struct tcp_pcb *pcb;
 static uint8_t connected,subscribed,tcp_ready,awaiting_ping;
 static uint8_t rx[B1_RXBUF_CAP];static uint16_t rxlen;
@@ -332,13 +344,13 @@ void mqtt_utk_poll(struct netif *netif) {
     }
     if(!tcp_ready){if(now-last_rx_ms>10000u)discard();return;}
     if(!connected){if(now-last_rx_ms>10000u)discard();return;}
-    if(now-last_rx_ms>45000u){discard();return;}
-    /* Ping every 15 s even while telemetry and logs keep sending: the
+    if(now-last_rx_ms>B1_LINK_SILENCE_MS){discard();return;}
+    /* Ping every 5 s even while telemetry and logs keep sending: the
      * broker then answers with PINGRESP, which is what keeps last_rx_ms
      * fresh. Pinging only after 15 s of *no transmit* meant a busy robot
      * never pinged, heard nothing back while the dashboard was silent, and
      * dropped the link every ~45 s ("MQTT lost -> motors STOPPED"). */
-    if(now-last_ping_ms>15000u){
+    if(now-last_ping_ms>B1_PING_PERIOD_MS){
         if(mqtt_write(0xc0u,(const uint8_t *)"",0u)==0){
             awaiting_ping=1u;last_ping_ms=now;
         }

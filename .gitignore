@@ -37,3 +37,8 @@ app_program/modules/telemetry/buddy1_broker_local.h
 
 # Private backups of local credentials
 .g7-wifi-private-backups/
+
+# macOS Finder metadata, local build output and installed dashboard packages.
+.DS_Store
+out/
+node_modules/

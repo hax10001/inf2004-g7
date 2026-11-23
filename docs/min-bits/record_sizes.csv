@@ -51,8 +51,8 @@ nav_result_t,3,3,2,1
 nav_sample_t,7,24,20,4
 obstacle_drive_t,5,16,12,4
 obstacle_pose_t,0,12,12,0
-obstacle_seq_t,27,212,112,100
-plan_fields_t,1,32,32,0
+obstacle_seq_t,31,228,112,116
+plan_fields_t,2,40,40,0
 scan_anchor_t,1,12,12,0
 scan_handoff_t,7,24,12,12
 scan_plan_bypass_t,0,8,8,0

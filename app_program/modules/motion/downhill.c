@@ -125,17 +125,17 @@ static void sample_terrain (downhill_governor_t * p_state,
     }
     /* Both entering and leaving a ramp are continuous reductions of
      * forward RPM; never convert a slope transition into a stop pulse. */
-    unsigned int desired = p_state->engaged ?
+    uint32_t desired = p_state->engaged ?
         APP_DOWNHILL_REDUCED_PERCENT : 100U;
     if (p_state->scale_percent > desired)
     {
-        unsigned int const gap = p_state->scale_percent - desired;
+        uint32_t const gap = p_state->scale_percent - desired;
         p_state->scale_percent -= (gap > DOWNHILL_SCALE_STEP) ?
             DOWNHILL_SCALE_STEP : gap;
     }
     else if (p_state->scale_percent < desired)
     {
-        unsigned int const gap = desired - p_state->scale_percent;
+        uint32_t const gap = desired - p_state->scale_percent;
         p_state->scale_percent += (gap > DOWNHILL_SCALE_STEP) ?
             DOWNHILL_SCALE_STEP : gap;
     }
