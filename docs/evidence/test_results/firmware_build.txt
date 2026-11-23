@@ -1,0 +1,21 @@
+# G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 PICO_SDK_PATH=$HOME/pico/pico-sdk-2.2.0 ./build_uf2.sh   (2026-11-23 14:38 +08)
+Using Pico SDK 2.2.0 from ~/pico/pico-sdk-2.2.0
+Application standard checks: 117 files, 0 errors.
+CONTROLLED BENCH PROFILE: boots STOPPED. Start only from MQTT.
+Network loss triggers a software STOP. Keep physical power stop ready.
+Build rules: restored 0 missing subdir.mk; preserved 67 existing
+Prepared 72 build output directories; source/config/credentials unchanged
+G7 build cache: verified firmware inputs unchanged
+python3 ../tools/check_app_standard.py
+Application standard checks: 117 files, 0 errors.
+PASS: verified G7DIAG-V7-9-RECONNECT-20261102 in linked ELF used to produce UF2.
+G7 build cache: verified source fingerprint recorded
+PASS: mqtt_utk_poll linked into active CYW43 firmware.
+Created: <repo>/out/g7-improve-movement-mqtt.uf2
+Console: usb_cdc; barcode result ACK owned by telemetry.
+WiFi join deadline: 10 seconds; motion/IR starts independently.
+Obstacle and collision stops follow APP_OBSTACLE_ENABLED / APP_COLLISION_ENABLED in app_config.h.
+Live MQTT Start/Stop ON: boots held, requires mapping,
+fresh IR/IMU and broker. Link loss requests local STOP.
+Do not share this UF2: Wi-Fi/MQTT secrets may be embedded in the image.
+exit=0
