@@ -114,6 +114,47 @@ $(error WIFI_UDP=1 needs config/udp_test_config.h; copy it from config/udp_test_
 endif
 endif
 
+# Isolated live Buddy 1 profile. Existing phase TCP test profile unchanged.
+WIFI_MQTT ?= 0
+ifneq ($(filter $(WIFI_MQTT),0 1),$(WIFI_MQTT))
+$(error WIFI_MQTT must be 0 or 1)
+endif
+B1_PROVISIONAL_ODOMETRY ?= 0
+B1_BARCODE_BENCH_ACK ?= 0
+B1_LIVE_COMMANDS ?= 0
+# 1 builds the barcode data-collection image: motors and obstacle off,
+# a raw waveform dump after every pass and automatic re-arm.
+B1_BARCODE_TEST ?= 0
+ifneq ($(filter $(B1_BARCODE_TEST),0 1),$(B1_BARCODE_TEST))
+$(error B1_BARCODE_TEST must be 0 or 1)
+endif
+ifneq ($(filter $(B1_LIVE_COMMANDS),0 1),$(B1_LIVE_COMMANDS))
+$(error B1_LIVE_COMMANDS must be 0 or 1)
+endif
+ifeq ($(B1_LIVE_COMMANDS),1)
+ifneq ($(WIFI_MQTT),1)
+$(error B1_LIVE_COMMANDS=1 requires WIFI_MQTT=1)
+endif
+endif
+ifeq ($(WIFI_MQTT),1)
+ifneq ($(WIFI),cyw43)
+$(error WIFI_MQTT=1 requires WIFI=cyw43)
+endif
+ifneq ($(WIFI_JOIN),1)
+$(error WIFI_MQTT=1 requires WIFI_JOIN=1)
+endif
+ifneq ($(WIFI_NETIF),1)
+$(error WIFI_MQTT=1 requires WIFI_NETIF=1)
+endif
+ifneq ($(WIFI_DHCP),1)
+$(error WIFI_MQTT=1 requires WIFI_DHCP=1)
+endif
+ifneq ($(WIFI_TCP),0)
+$(error WIFI_MQTT=1 requires WIFI_TCP=0 to suppress Phase-7 TCP echo)
+endif
+endif
+WIFI_TCP_STACK := $(if $(filter 1,$(WIFI_TCP) $(WIFI_MQTT)),1,0)
+
 # Phase-7 gate: connect an lwIP raw-TCP client to a LAN echo peer, exchange a
 # deterministic record series over the byte stream, and prove an orderly
 # bidirectional close with the pcb released.
@@ -234,6 +275,12 @@ LFLAGS := -mcpu=cortex-m0plus -mthumb -ffreestanding \
 
 LNKFILE := "../etc/linker/pico_rp2040/tkernel_map.ld"
 
+# Terrain roll/pitch use the toolchain's software floating-point math.
+# Nano's errno state avoids pulling unused host stdio/syscall dependencies.
+# The kernel continues to own allocation and console I/O.
+LFLAGS += --specs=nano.specs
+LDLIBS += -lm
+
 # Applied here, after CFLAGS/ASFLAGS are assigned with ':=', which would
 # otherwise discard anything appended above.
 ifeq ($(SMP),1)
@@ -268,7 +315,14 @@ endif
 # before any recipe executes.
 ################################################################################
 
-PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-bulk$(WIFI_TCPBULK)
+PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-mqtt$(WIFI_MQTT)-commands$(B1_LIVE_COMMANDS)-barcode$(B1_BARCODE_BENCH_ACK)-bctest$(B1_BARCODE_TEST)-bulk$(WIFI_TCPBULK)
+# Wi-Fi source files come from the selected external SDK. If the SDK path
+# changes, recompile all objects: otherwise the shared object tree can reuse
+# incompatible CYW43 objects from a different SDK. cksum is POSIX on macOS.
+ifeq ($(WIFI),cyw43)
+PROFILE_ID += -sdk$(shell printf '%s' '$(abspath $(PICO_SDK_PATH))' | cksum | cut -d' ' -f1)
+endif
+
 PROFILE_FILE := .build_profile
 
 ifneq ($(strip $(shell cat $(PROFILE_FILE) 2>/dev/null)),$(PROFILE_ID))
@@ -394,6 +448,9 @@ LWIP_SRCS := core/init.c core/def.c core/dns.c core/inet_chksum.c \
              netif/ethernet.c
 LWIP_OBJS := $(addprefix ./mtkernel_3/lwip/,$(LWIP_SRCS:.c=.o))
 LWIP_PORT_OBJS := ./mtkernel_3/lib/libnet/lwip/lwip_utk.o
+ifeq ($(WIFI_MQTT),1)
+LWIP_PORT_OBJS += ./mtkernel_3/lib/libnet/lwip/mqtt_utk.o
+endif
 ifneq ($(filter 1,$(WIFI_STATIC) $(WIFI_DHCP)),)
 LWIP_PORT_OBJS += ./mtkernel_3/lib/libnet/lwip/lwip_utk_ipv4.o
 endif
@@ -445,7 +502,7 @@ CFLAGS += -DTM_WIFI_CYW43=1 -DTM_WIFI_JOIN=$(WIFI_JOIN) \
           -DTM_WIFI_NETIF=$(WIFI_NETIF) -DCYW43_LWIP=$(WIFI_NETIF) \
           -DTM_WIFI_STATIC=$(WIFI_STATIC) -DTM_WIFI_DHCP=$(WIFI_DHCP) \
           -DTM_WIFI_DNS=$(WIFI_DNS) -DTM_WIFI_UDP=$(WIFI_UDP) \
-          -DTM_WIFI_TCP=$(WIFI_TCP) -DTM_WIFI_TCPBULK=$(WIFI_TCPBULK) \
+          -DTM_WIFI_TCP=$(WIFI_TCP_STACK) -DTM_WIFI_TCPBULK=$(WIFI_TCPBULK) \
           -DCYW43_ENABLE_BLUETOOTH=0 \
           -DCYW43_USE_OTP_MAC=1 -DPICO_CYW43_LOGGING_ENABLED=0 \
           -DPICO_RP2040=1 -DPICO_32BIT=1 -DPICO_ON_DEVICE=1 -DPICO_BUILD=1 \
@@ -457,6 +514,21 @@ CFLAGS += -DTM_WIFI_CYW43=1 -DTM_WIFI_JOIN=$(WIFI_JOIN) \
           -DCYW43_DEFAULT_PIN_WL_CLOCK=29u \
           -DCYW43_DEFAULT_PIN_WL_CS=25u \
           -DNDEBUG -ffunction-sections -fdata-sections $(WIFI_INCLUDES)
+ifeq ($(WIFI_MQTT),1)
+CFLAGS += -DB1_ROBOT_APP=1 -DB1_ENABLE_MQTT=1 -I"../app_program" -DPROHIBIT_DEF_SIZE_T -include stddef.h
+ifeq ($(B1_LIVE_COMMANDS),1)
+CFLAGS += -DB1_LIVE_COMMANDS=1
+endif
+ifeq ($(B1_BARCODE_TEST),1)
+CFLAGS += -DB1_BARCODE_TEST=1
+endif
+ifeq ($(B1_BARCODE_BENCH_ACK),1)
+CFLAGS += -DB1_BARCODE_BENCH_ACK=1
+endif
+ifeq ($(B1_PROVISIONAL_ODOMETRY),1)
+CFLAGS += -DB1_USE_PROVISIONAL_ODOMETRY=1
+endif
+endif
 ifeq ($(WIFI_NETIF),1)
 CFLAGS += -DCYW43_DEFAULT_IP_STA_ADDRESS=0 \
           -DCYW43_DEFAULT_IP_STA_GATEWAY=0 \

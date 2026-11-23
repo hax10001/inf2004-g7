@@ -9,11 +9,15 @@
 #include "cyw43.h"
 #include "cyw43_country.h"
 #include "cyw43_utk.h"
+#include "g7_wifi_scan_diag.h"
 
 #if TM_WIFI_NETIF
 #include "lwip/init.h"
 #include "lwip/netif.h"
 #include "lwip/timeouts.h"
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_NETIF
+#include "mqtt_utk.h"
+#endif
 #endif
 #if TM_WIFI_DHCP
 #include "lwip/dhcp.h"
@@ -39,7 +43,7 @@
 /* Bounded so a reader can never wedge if the writer is starved; an exhausted
  * budget returns the last copy and is visible through status_retries. */
 #define CYW43_STATUS_READ_ATTEMPTS 16
-#define CYW43_JOIN_TIMEOUT_US 30000000ULL
+#define CYW43_JOIN_TIMEOUT_US 10000000ULL
 #define CYW43_DHCP_TIMEOUT_US 30000000ULL
 #define CYW43_DNS_TIMEOUT_US  30000000ULL
 
@@ -103,6 +107,42 @@ static T_CYW43_UTK_STATUS radio_status = {
     .ping_send_result = -6,
     .ping_result = -3,
 };
+
+/* Fixed-size, read-only discovery log. Callback runs in the radio owner.
+ * Never call USB or any lwIP APIs from the scan callback. */
+static G7_WIFI_SCAN g7_scan;
+static volatile uint32_t g7_scan_seq;
+static uint8_t g7_scan_issued;
+
+static void g7_scan_begin(void)
+{
+    g7_scan_seq++;
+    mp_memory_barrir();
+}
+
+static void g7_scan_end(void)
+{
+    mp_memory_barrir();
+    g7_scan_seq++;
+}
+
+void g7_wifi_scan_snapshot(G7_WIFI_SCAN *out)
+{
+    unsigned attempt;
+    uint32_t before;
+    if(out == NULL) return;
+    for(attempt = 0U; attempt < 16U; attempt++) {
+        before = g7_scan_seq;
+        if((before & 1U) != 0U) continue;
+        mp_memory_barrir();
+        *out = g7_scan;
+        mp_memory_barrir();
+        if(before == g7_scan_seq) return;
+    }
+    /* On contention return a clearly incomplete status, not torn SSIDs. */
+    out->complete = 0U;
+    out->stored = 0U;
+}
 
 static void status_publish_begin(void)
 {
@@ -436,12 +476,41 @@ void cyw43_utk_link_state_changed(int up)
 static int scan_result(void *env, const cyw43_ev_scan_result_t *result)
 {
     T_CYW43_UTK_STATUS *status = env;
+    unsigned n, i;
+    G7_WIFI_AP *ap;
 
     if(result == NULL) return 0;
     status->scan_count++;
     if(result->rssi > status->strongest_rssi) {
         status->strongest_rssi = result->rssi;
     }
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_JOIN
+    /* Copy only bounded, printable SSID bytes into a snapshot for USB.
+     * The radio owner remains the sole caller of cyw43_wifi_scan(). */
+    g7_scan_begin();
+    g7_scan.seen_total++;
+    n = result->ssid_len;
+    if(n > 32U) n = 32U;
+    if(n == sizeof(wifi_ssid) - 1U) {
+        bool same = true;
+        for(i = 0U; i < n; i++) {
+            if(result->ssid[i] != wifi_ssid[i]) same = false;
+        }
+        if(same) g7_scan.target_seen = 1U;
+    }
+    if(g7_scan.stored < G7_SCAN_MAX_APS) {
+        ap = &g7_scan.ap[g7_scan.stored++];
+        for(i = 0U; i < n; i++) {
+            uint8_t c = result->ssid[i];
+            ap->ssid[i] = (char)((c >= 32U && c <= 126U) ? c : '?');
+        }
+        ap->ssid[n] = '\0';
+        ap->rssi = result->rssi;
+        ap->channel = result->channel;
+        ap->auth = result->auth_mode;
+    }
+    g7_scan_end();
+#endif
     return 0;
 }
 
@@ -452,6 +521,7 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
     bool was_scanning;
 #if TM_WIFI_JOIN
     uint64_t join_started_us = 0;
+    uint64_t next_join_us = 0;
 #endif
 
     (void)stacd;
@@ -464,8 +534,13 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
 #endif
     cyw43_init(&cyw43_state);
     cyw43_thread_enter();
+    /* The robot is tested in Singapore; WORLDWIDE can restrict channels.
+     * Keep a build-time override for lawful deployments elsewhere. */
+#ifndef G7_WIFI_COUNTRY
+#define G7_WIFI_COUNTRY CYW43_COUNTRY_SINGAPORE
+#endif
     cyw43_wifi_set_up(&cyw43_state, CYW43_ITF_STA, true,
-                      CYW43_COUNTRY_WORLDWIDE);
+                      G7_WIFI_COUNTRY);
     if((cyw43_state.itf_state & (1u << CYW43_ITF_STA)) == 0) {
         /* cyw43_wifi_set_up() has a void API and otherwise hides its bus-init
          * error.  Report the underlying I/O class instead of letting scan()
@@ -474,8 +549,15 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
     } else {
         (void)cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA,
                                  radio_status.mac);
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_JOIN
+        /* For the robot's configured SSID, scanning is not a prerequisite.
+         * A failed/stalled scan used to prevent the first join forever.
+         * Only this owner task may issue the Wi-Fi join. */
+        result = 0;
+#else
         result = cyw43_wifi_scan(&cyw43_state, &options, &radio_status,
                                  scan_result);
+#endif
     }
     cyw43_thread_exit();
 
@@ -492,7 +574,12 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
 
     radio_status.init_result = result;
     radio_status.ready = (result == 0);
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_JOIN
+    radio_status.scan_active = 0;
+    radio_status.scan_complete = (result == 0);
+#else
     radio_status.scan_active = (result == 0);
+#endif
     mp_memory_barrir();
     radio_status.init_complete = 1;
 
@@ -502,6 +589,27 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
     if(result != 0) {
         for(;;) (void)tk_dly_tsk(1000);
     }
+
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_JOIN
+    /* Direct first join: no dependency on a completed discovery scan.
+     * Subsequent failed joins still use the bounded owner-task retry path. */
+    cyw43_thread_enter();
+    radio_status.join_started = 1;
+    radio_status.join_complete = 0;
+    radio_status.link_up = 0;
+    join_started_us = time_us_64();
+    result = cyw43_wifi_join(&cyw43_state,
+                             sizeof(wifi_ssid) - 1, wifi_ssid,
+                             sizeof(wifi_password) - 1, wifi_password,
+                             UTK_WIFI_AUTH, NULL, CYW43_CHANNEL_NONE);
+    radio_status.join_request_result = result;
+    if(result != 0) {
+        radio_status.join_result = result;
+        radio_status.join_complete = 1;
+        next_join_us = join_started_us + 3000000ULL;
+    }
+    cyw43_thread_exit();
+#endif
 
     for(;;) {
         was_scanning = radio_status.scan_active != 0;
@@ -524,7 +632,11 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
         }
         update_udp_status();
 #endif
-#if TM_WIFI_TCP
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_NETIF
+        /* Raw lwIP is restricted to the CYW43 owner. Never under a buddy mutex. */
+        mqtt_utk_poll(&cyw43_state.netif[CYW43_ITF_STA]);
+#endif
+#if TM_WIFI_TCP && !defined(B1_ENABLE_MQTT)
         /* Sequenced after UDP so one capture never overlaps two traffic
          * patterns, but deliberately not gated on the UDP *result*: TCP shares
          * no state with it, and a missing UDP peer must not hide the TCP
@@ -548,6 +660,15 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
 #endif
         radio_status.poll_count++;
         radio_status.scan_active = cyw43_wifi_scan_active(&cyw43_state);
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_JOIN
+        if(was_scanning && !radio_status.scan_active &&
+           g7_scan_issued) {
+            g7_scan_begin();
+            g7_scan.active = 0U;
+            g7_scan.complete = 1U;
+            g7_scan_end();
+        }
+#endif
         if(was_scanning && !radio_status.scan_active) {
             mp_memory_barrir();
             radio_status.scan_complete = 1;
@@ -594,6 +715,62 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
                 radio_status.join_result = -CYW43_ETIMEDOUT;
                 mp_memory_barrir();
                 radio_status.join_complete = 1;
+                next_join_us = now + 3000000ULL;
+            }
+        }
+#if defined(B1_ENABLE_MQTT)
+        /* One diagnostic discovery scan after the first failed association.
+         * Joining is never blocked at boot waiting for scan results. */
+        if(!g7_scan_issued && radio_status.join_complete &&
+           !radio_status.link_up &&
+           !radio_status.scan_active) {
+            g7_scan_issued = 1U;
+            g7_scan_begin();
+            g7_scan.generation++;
+            g7_scan.active = 0U;
+            g7_scan.complete = 0U;
+            g7_scan.request_rc = 0;
+            g7_scan.seen_total = 0U;
+            g7_scan.stored = 0U;
+            g7_scan.target_seen = 0U;
+            g7_scan_end();
+            result = cyw43_wifi_scan(&cyw43_state, &options,
+                                     &radio_status, scan_result);
+            g7_scan_begin();
+            g7_scan.request_rc = result;
+            g7_scan.active = (result == 0);
+            g7_scan.complete = (result != 0);
+            g7_scan_end();
+            radio_status.scan_active = (result == 0);
+            if(result == 0) {
+                /* No overlapping join while radio is scanning. */
+                next_join_us = time_us_64() + 13000000ULL;
+            }
+        }
+#endif
+        /* Keep attempting join even after an initial timeout or link loss.
+         * Only the CYW43 owner touches the radio, never an application task.
+         * A failed attempt is capped at 10 seconds and retried after 3 s. */
+        if(radio_status.join_started && radio_status.join_complete &&
+           !radio_status.link_up && !radio_status.scan_active) {
+            uint64_t now = time_us_64();
+            if(next_join_us == 0) next_join_us = now + 3000000ULL;
+            if(now >= next_join_us) {
+                radio_status.join_complete = 0;
+                radio_status.join_elapsed_ms = 0;
+                join_started_us = now;
+                next_join_us = now + 13000000ULL;
+                result = cyw43_wifi_join(&cyw43_state,
+                                         sizeof(wifi_ssid) - 1, wifi_ssid,
+                                         sizeof(wifi_password) - 1,
+                                         wifi_password, UTK_WIFI_AUTH,
+                                         NULL, CYW43_CHANNEL_NONE);
+                radio_status.join_request_result = result;
+                if(result != 0) {
+                    radio_status.join_result = result;
+                    radio_status.join_complete = 1;
+                    next_join_us = now + 3000000ULL;
+                }
             }
         }
 #endif
@@ -624,4 +801,35 @@ void cyw43_utk_get_status(T_CYW43_UTK_STATUS *status)
         status_read_retries++;
     }
     status->status_retries = status_read_retries;
+}
+
+/* Read-only USB boot diagnostic. No lwIP or CYW43 functions are invoked.
+ * This intentionally bypasses tm_printf(), which can fail independently.
+ * Output order: init_done, init_rc, join_started, join_request_rc,
+ * join_done, join_rc, link, dhcp, dhcp_rc, mqtt, IP octets 0..3. */
+void g7_usb_net_snapshot(int32_t out[14])
+{
+    T_CYW43_UTK_STATUS s;
+    cyw43_utk_get_status(&s);
+    out[0] = (int32_t)s.init_complete;
+    out[1] = s.init_result;
+    out[2] = (int32_t)s.join_started;
+    out[3] = s.join_request_result;
+    out[4] = (int32_t)s.join_complete;
+    out[5] = s.join_result;
+    out[6] = (int32_t)s.link_up;
+    out[7] = (int32_t)s.dhcp_complete;
+    out[8] = s.dhcp_result;
+#if defined(B1_ENABLE_MQTT) && TM_WIFI_NETIF
+    {
+        extern uint8_t b1_mqtt_connected(void);
+        out[9] = (int32_t)b1_mqtt_connected();
+    }
+#else
+    out[9] = -1;
+#endif
+    out[10] = (int32_t)s.dhcp_address[0];
+    out[11] = (int32_t)s.dhcp_address[1];
+    out[12] = (int32_t)s.dhcp_address[2];
+    out[13] = (int32_t)s.dhcp_address[3];
 }

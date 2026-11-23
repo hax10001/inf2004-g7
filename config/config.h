@@ -45,7 +45,7 @@
 #define CNF_MAX_SEMID		16	/* Semaphore */
 #define CNF_MAX_FLGID		16	/* Event flag */
 #define CNF_MAX_MBXID		4	/* Mailbox*/
-#define CNF_MAX_MTXID		4	/* Mutex */
+#define CNF_MAX_MTXID		8	/* Mutex: robot uses six */
 #define CNF_MAX_MBFID		4	/* Message buffer */
 #define CNF_MAX_MPLID		4	/* Memory pool */
 #define CNF_MAX_MPFID		4	/* Fixed size memory pool */
@@ -162,7 +162,7 @@
 /* Use Physical timer.
  *  1: Valid  0: Invalid
  */
-#define USE_PTMR		(0)	/* Use Physical timer */
+#define USE_PTMR		(1)	/* Use Physical timer */
 
 /*---------------------------------------------------------------------- */
 /* Use Sample device driver.

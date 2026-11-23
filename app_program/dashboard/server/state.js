@@ -1,0 +1,356 @@
+'use strict';
+const {decodeFrame,interpret}=require('./protocol');
+const {RouteTracker}=require('./route');
+const sourceNames=['motion','line','terrain','obstacle','mission'];
+const controllerFaults={2:'stale IR',3:'IR read failure',
+ 4:'controller clock failure',5:'obstacle sensor fault',6:'decode timeout',
+ 7:'no usable action or junction clearance',8:'turn timeout or angle limit',
+ 9:'downhill overspeed',10:'IMU unavailable',11:'stale downhill IMU',
+ 12:'scan handoff overflow',13:'unmapped barcode',
+ 14:'robot lifted off the floor'};
+const eventNames={1:'Barcode decoded',2:'Junction detected',3:'Hump detected',4:'Obstacle detected',5:'Bypass chosen',6:'Obstacle bypassed',7:'Safety fault',8:'Line lost',9:'Hump crossed',10:'Mission state',11:'IMU calibration requested (simulation)',12:'Navigation action queued',13:'Junction confirmed',14:'Turn started',15:'Turn completed',16:'Line reacquired',17:'Line following resumed',18:'Navigation safety stop',19:'Scan not queued',20:'Stopped at junction: waiting for barcode decode'};
+const scanFailureReasons=['Reason unavailable (firmware reported 0)',
+  'Invalid sensor input','Barcode element width mismatch','Capture buffer overflow',
+  'Capture timed out','Invalid encoder travel','Scan interrupted',
+  'Code 39 pattern did not validate','Scanner/result queue busy'];
+function scanFailureReason(code){return scanFailureReasons[code]||'Unknown decoder error';}
+const READINESS_REASONS=[
+  [1,'MQTT offline'],[2,'controller not in remote hold'],
+  [4,'Start/Stop pending'],[8,'IMU not calibrated'],
+  [16,'IR reading unavailable'],[32,'IR data stale'],
+  [64,'controller unavailable or obstacle sensor fault'],
+  [128,'barcode scanner not armed; wait for scanner ready']
+];
+function readinessReasons(mask){
+  if(mask==null)return [];
+  return READINESS_REASONS.filter(([bit])=>mask&bit).map(([,name])=>name);
+}
+class RobotState {
+  /* 130 mm = APP_NAV_TRACK_MM, the firmware's wheel track. */
+  constructor(trackWidthMm=130) {
+    this.trackWidthMm=trackWidthMm;this.logs=[];this.logSequence=0;
+    this.latestHumpMm=null;this.latestObstacleScan=null;this.reset();
+  }
+  log(category,message,level='info') {
+    const line={id:++this.logSequence,time:Date.now(),category,level,message:String(message).slice(0,280)};
+    this.logs.unshift(line);if(this.logs.length>300)this.logs.length=300;
+    return line;
+  }
+  /* Route state lives in the tracker; these keep the old field names. */
+  get pose(){return this.route.pose;}
+  get points(){return this.route.points;}
+  get lastMotionSeq(){return this.route.lastMotionSeq;}
+  get odomGaps(){return this.route.odomGaps;}
+  get uncertain(){return this.route.uncertain;}
+  reset(){this.session=null;this.lastSeq=null;this.ackSequences=new Set();this.wireGaps=0;this.frames=0;this.badFrames=0;
+    this.route=new RouteTracker(this.trackWidthMm);
+    this.obstacleScanSource=null;
+    this.events=[];
+    this.snapshot=null;this.robotStatus=null;this.controllerFault=null;this.routeMapping=null;this.sensor=null;this.barcodeDiag=null;this.scanOutcomes=[];this.serialSensor=null;this.serialBarcode=null;this.dropped=0;this.lastSeen=0;this.lastRobotMs=0;this.lastRobotClockAt=null;this.acks=[];this.mode='LIVE';}
+  recordScanOutcome(status, detail, options={}){
+    const now=Date.now();
+    const item={id:++this.logSequence,at:now,status,detail,letter:options.letter||null,
+      failureStatus:options.failureStatus??null,count:options.count||1,source:options.source||'LIVE',
+      pass:options.pass??null,eventId:options.eventId??null};
+    // The pass diagnostic carries a real decoded letter and can recover a
+    // dropped EVENT. Pair the two reports once, in either arrival order.
+    if(status==='success' && item.letter){
+      const match=this.scanOutcomes.find(x=>x.status==='success' &&
+        x.letter===item.letter && x.source===item.source && now-x.at<10000 &&
+        (item.pass!==null && x.pass===null && x.eventId!==null ||
+         item.eventId!==null && x.eventId===null && x.pass!==null));
+      if(match){
+        if(item.pass!==null)match.pass=item.pass;
+        if(item.eventId!==null)match.eventId=item.eventId;
+        return;
+      }
+    }
+    this.scanOutcomes.unshift(item);
+    if(this.scanOutcomes.length>30)this.scanOutcomes.length=30;
+    const level=status==='failed'?'warn':'info';
+    this.log('barcode',detail,level); // continuous telemetry view
+    this.log('scanner',detail,level); // important event in command monitor
+  }
+  ingestMeasurementLine(line,source){
+    const hump=/^HUMP DONE: peak_x10mm=(\d{1,4}) count=\d{1,3}(?: climb_x10mm=-?\d{1,5})?\s*$/.exec(line);
+    if(hump && Number(hump[1])>0){
+      this.latestHumpMm=Number(hump[1])/10;
+      return true;
+    }
+    // The object summary is logged once the planner has processed the scan.
+    const object=/\[OBS\] Object -?\d+\.\.-?\d+ deg, face \d+ mm ahead, width (\d{1,4}) mm\b/.exec(line);
+    // The scan was of something that then moved away (a hand): the robot
+    // carries on, so the last real obstacle's width stays on show.
+    if(line.includes('[OBS] Way ahead clear again')){
+      if(this.previousObstacleScan!==undefined){
+        this.latestObstacleScan=this.previousObstacleScan;
+        this.previousObstacleScan=undefined;
+      }
+      this.obstacleScanSource=null;
+      return true;
+    }
+    if(object){
+      this.previousObstacleScan=this.latestObstacleScan;
+      this.latestObstacleScan={widthMm:Number(object[1])||null,leftMm:null,rightMm:null};
+      this.obstacleScanSource=source;
+      return true;
+    }
+    if(this.obstacleScanSource===null || this.obstacleScanSource!==source)return false;
+    // The split follows the summary. Any other obstacle log closes this scan.
+    if(line.includes('[netlog] lost ')){
+      this.obstacleScanSource=null;
+      return false;
+    }
+    if(!line.includes('[OBS] '))return false;
+    this.obstacleScanSource=null;
+    const split=/\[OBS\] Front split: width=(\d{1,4}) mm left=(\d{1,4}) mm right=(\d{1,4}) mm\b(?: \((echo estimate)\))?(?!\s*\()/.exec(line);
+    if(!split)return false;
+    const [widthMm,leftMm,rightMm]=split.slice(1,4).map(Number);
+    if(widthMm===0 || leftMm+rightMm!==widthMm)return false;
+    this.latestObstacleScan={widthMm,leftMm,rightMm};
+    if(split[4])this.latestObstacleScan.echoEstimate=true;
+    return true;
+  }
+  ingestSerial(text){
+    const line=String(text||'').replace(/[\r\n]+/g,' ').trim().slice(0,280);
+    if(!line)return false;
+    this.ingestMeasurementLine(line,'serial');
+    const decoded=line.match(/\[BARCODE\]\s+Decoded:\s*([A-Z])\b/i)||
+      line.match(/\[BC RESULT\]\s+([A-Z])\b/i);
+    const matchSensor=line.match(/^\[SENS\] IR L=(\d+) R=(\d+) B=(\d+) roll_cd=(-?\d+) pitch_cd=(-?\d+) heading_cd=(\d+) hump=(\d+) sonar=(\d+) phase=(\d+) encL=(-?\d+) encR=(-?\d+) valid=(\d+)(?: lift=(\d+))?/);
+    if(matchSensor){
+      const v=matchSensor.slice(1,13).map(Number),mask=v[11];
+      const lift=matchSensor[13]===undefined?null:Number(matchSensor[13]);
+      this.serialSensor={valid:mask,ir:(mask&1)?v[0]|v[1]<<1|v[2]<<2:null,
+        rollDeg:(mask&2)?v[3]/100:null,pitchDeg:(mask&2)?v[4]/100:null,
+        headingDeg:(mask&16)?v[5]/100:null,ultrasonicCm:(mask&4)&&v[7]!==65535?v[7]:null,
+        humpMm:(mask&2)?v[6]:null,
+        liftMm:(mask&2)&&lift!==null&&lift!==1023?lift:null,lifted:null,
+        obstaclePhase:(mask&4)?v[8]:null,
+        leftEncoder:(mask&8)?v[9]:null,rightEncoder:(mask&8)?v[10]:null,
+        source:'USB SERIAL',received:Date.now()};
+      this.log('serial',line);
+    } else if(decoded){
+      const letter=decoded[1].toUpperCase();
+      this.serialBarcode={letter,at:Date.now(),source:'USB/UART SERIAL'};
+      this.log('barcode',`Barcode decoded: ${letter} (USB/UART serial)`, 'info');
+    } else this.log(line.startsWith('[NET]')?'network':line.startsWith('[CTRL]')?'mission':line.startsWith('[BC]')?'barcode':'serial',line);
+    return true;
+  }
+  ingest(buffer,origin='LIVE'){
+    let f,msg;try{f=decodeFrame(buffer);msg=interpret(f);}catch(e){this.badFrames++;this.log('network','Rejected binary telemetry: '+e.message,'error');return {error:e.message};}
+    if(this.session!==f.session){this.reset();this.session=f.session;this.log('mission',`Session ${f.session} opened (${origin})`);}
+    /* Firmware sends ACK ahead of queued telemetry. Accept that priority
+     * without moving the telemetry sequence watermark past older frames. */
+    const ackFrame=f.type===33;
+    if(ackFrame){
+      this.ackSequences.add(f.seq);
+      if(this.ackSequences.size>80)this.ackSequences.delete(this.ackSequences.values().next().value);
+    } else if(this.lastSeq!==null){
+      const delta=(f.seq-this.lastSeq)&65535;
+      if(delta===0 || delta>=32768){this.badFrames++;this.log('network',`Ignored duplicate or out-of-order frame ${f.seq}`,'warn');return {error:'duplicate/out-of-order'};}
+      let skippedAcks=0;
+      for(const seq of this.ackSequences){
+        const gap=(seq-this.lastSeq)&65535;
+        if(gap>0 && gap<delta){skippedAcks++;this.ackSequences.delete(seq);}
+      }
+      /* A lost frame of another type does not move the route; only an
+       * ODOM source-sequence gap does (see RouteTracker). */
+      if(delta-skippedAcks!==1){this.wireGaps++;
+        this.log('network',`Wire sequence gap: ${this.lastSeq} → ${f.seq}`,'warn');}
+    }
+    if(!ackFrame)this.lastSeq=f.seq;
+    this.frames++;this.lastSeen=Date.now();this.mode=origin;
+    /* EVENT and ODOM packets may be historical backlog. Their original
+     * timestamp must never move the command clock backwards. An ACK echoes
+     * the request clock, not the robot's current uptime either. */
+    if([1,5,6,7,8].includes(f.type) &&
+       (this.lastRobotClockAt==null ||
+        (((f.ms-this.lastRobotMs)>>>0)<0x80000000))){
+      this.lastRobotMs=f.ms;
+      this.lastRobotClockAt=this.lastSeen;
+    }
+    /* flags bit 0: the robot dropped a record at some point this boot.
+     * Shown as dropped frames; the route uses ODOM sequence numbers. */
+    this.robotDropFlag=!!(f.flags&1);
+    if(msg.kind==='status'){
+      if(msg.ready && msg.remoteHold)this.controllerFault=null;
+      /* A lift pause that resumed by itself is over. */
+      if(msg.running && this.controllerFault?.code===14)this.controllerFault=null;
+      const prev=this.robotStatus;
+      this.robotStatus={...msg,source:origin,received:Date.now(),
+        commandToken:f.ms>>>0,commandSession:f.session};
+      if(!prev || prev.mappingLoaded!==msg.mappingLoaded ||
+         prev.ready!==msg.ready || prev.running!==msg.running ||
+         prev.mission!==msg.mission ||
+         prev.barcodeMotorHold!==msg.barcodeMotorHold ||
+         ((prev.pwmLeft||0)>0)!==((msg.pwmLeft||0)>0) ||
+         ((prev.pwmRight||0)>0)!==((msg.pwmRight||0)>0)){
+        const blockers=readinessReasons(msg.readinessBlockers);
+        const note=msg.mission===4?'LIFTED — motors stopped; resumes line following once put back on the line':
+          msg.mission===5?'NAVIGATION SAFETY STOP — press STOP once to reset, then wait for READY before START':
+          msg.mission===7?'CONTROLLER FAULT — physical inspection and reboot required; STOP cannot reset':
+          !msg.mappingLoaded?'ROUTE MAPPING NOT LOADED; send mapping before Start':
+          msg.running?'Robot reports RUNNING':
+          msg.mission===6 && msg.remoteHold===false ?
+            'STOPPED but not in remote hold — send STOP and wait for applied HOLD status before START':
+          msg.ready?'Ready for START':
+          'START blocked: '+(blockers.length?blockers.join(', '):
+            'controller not ready (older firmware)');
+        const drive=(msg.pwmLeft==null)?'' :
+          `; barcode_hold=${msg.barcodeMotorHold?'YES':'NO'}`+
+          `; commanded_PWM_L=${msg.pwmLeft} R=${msg.pwmRight}`;
+        this.log('mission',`ROBOT STATUS: ${note}${drive} (source=${origin})`,
+          msg.ready?'info':'warn');
+      }
+      if(!msg.mappingLoaded && this.routeMapping?.state==='ACCEPTED' &&
+         Date.now()-this.routeMapping.at>1500){
+        this.routeMapping={...this.routeMapping,state:'INVALIDATED',note:'Robot reports mapping not loaded; send it again'};
+      }
+    } else if(msg.kind==='sensor'){
+      const wasLifted=!!this.sensor?.lifted;
+      this.sensor={...msg,source:origin,received:Date.now()};
+      if(!!msg.lifted!==wasLifted)this.log('imu',msg.lifted?
+        `ROBOT LIFTED about ${msg.liftMm} mm - motors stop while running`:
+        'Robot back on the floor','warn');
+      if(origin==='LIVE'){
+        const n=v=>v==null?'n/a':String(v);
+        const bits=msg.ir;
+        const d=msg.obstacleDiag;
+        const bypass=d?.active?` | side=${d.sideRangeMm<0?'NO ECHO':d.sideRangeMm+' mm'} `+
+          `seen=${d.sideHits}/2 clear=${d.clearHits}/3 travel=${d.travelSinceHitMm} mm `+
+          `returnWait=${d.waitReason}`:'';
+        this.log('telemetry',`IR L=${bits==null?'?':bits&1?1:0} R=${bits==null?'?':bits&2?1:0} B=${bits==null?'?':bits&4?1:0} | `+
+          `IMU roll=${n(msg.rollDeg)}° pitch=${n(msg.pitchDeg)}° heading=${n(msg.headingDeg)}° `+
+          `cal=${msg.imuCalibrated?1:0} hump=${n(msg.humpPhase)} `+
+          `lift=${n(msg.liftMm)} mm${msg.lifted?' LIFTED':''} | `+
+          `encL=${n(msg.leftEncoder)} encR=${n(msg.rightEncoder)} | `+
+          `sonar=${n(msg.ultrasonicCm)} cm obstaclePhase=${n(msg.obstaclePhase)}`+bypass);
+      }
+    } else if(msg.kind==='barcodeDiag'){
+      const previous=this.barcodeDiag;
+      this.barcodeDiag={...msg,source:origin,received:Date.now()};
+      const sc=msg.scanner,prevSc=previous?.scanner;
+      if(sc && (!prevSc || prevSc.state!==sc.state)){
+        const white=sc.state===2?` (white ${sc.whiteMean} ±${sc.whiteSigma})`:
+          sc.state===6?` (read ${sc.whiteMean}; place the sensor on white or press Recalibrate barcode)`:'';
+        this.log('barcode',`Scanner: ${sc.stateName}${white}`,sc.state===6?'warn':'info');
+      }
+      const passChanged=sc && (prevSc?sc.lastPass!==prevSc.lastPass:sc.lastPass!==0);
+      const delta=previous?(msg.rejected-previous.rejected)>>>0:msg.rejected;
+      const rejectedDelta=delta<0x80000000?delta:0;
+      if(passChanged){
+        const secs=(sc.lastProcessMs/1000).toFixed(1);
+        this.log('barcode',sc.lastValid?
+          `Pass ${sc.lastPass}: read ${sc.lastLetter} in ${secs} s`:
+          `Pass ${sc.lastPass}: no letter (${sc.lastReasonName}) after ${secs} s`,
+          sc.lastValid?'info':'warn');
+        if(sc.lastValid && sc.lastLetter){
+          this.recordScanOutcome('success',
+            `SCAN SUCCESS — decoded letter ${sc.lastLetter} (letter=${sc.lastLetter})`,
+            {letter:sc.lastLetter,pass:sc.lastPass,source:origin});
+        }else if(!sc.lastValid){
+          const reason=sc.lastReason===7?'No barcode pattern found in this capture':
+            sc.lastReason?sc.lastReasonName:scanFailureReason(msg.failureStatus);
+          this.recordScanOutcome('failed',
+            `SCAN FAILED — pass ${sc.lastPass}: ${reason} (${secs} s decoding)`,
+            {pass:sc.lastPass,count:rejectedDelta||1,
+              failureStatus:msg.failureStatus,source:origin});
+        }
+      }
+      /* Old firmware has only counters. Also recover failures already present
+       * when this dashboard first connects, without repeating a pass result. */
+      const reportedPass=sc && !sc.lastValid && this.scanOutcomes.some(x=>
+        x.status==='failed' && x.pass===sc.lastPass && x.source===origin);
+      if(rejectedDelta && !reportedPass){
+        this.recordScanOutcome('failed',
+          `SCAN FAILED ×${rejectedDelta} — ${scanFailureReason(msg.failureStatus)} (code ${msg.failureStatus})`,
+          {count:rejectedDelta,failureStatus:msg.failureStatus,source:origin});
+      }
+    } else if(msg.kind==='snapshot'){
+      if(this.snapshot && this.snapshot.mission!==msg.mission)this.log('mission',`Mission state ${this.snapshot.mission} → ${msg.mission}`);
+      if(this.snapshot && this.snapshot.line!==msg.line)this.log('movement',`Line detector state ${this.snapshot.line} → ${msg.line}`);
+      if(this.snapshot && this.snapshot.maxHumpMm!==msg.maxHumpMm && msg.maxHumpMm!==null)this.log('imu',`Maximum hump ${msg.maxHumpMm} mm`);
+      if(this.snapshot && this.snapshot.faults!==msg.faults && msg.faults)this.log('mission',`Fault mask 0x${msg.faults.toString(16)}`,'error');
+      this.snapshot=msg;
+    } else if(msg.kind==='odometry'){
+      if(this.route.odometry(msg,f.ms).gap)this.log('movement','Missing incremental wheel update; route segment approximate until the next distance checkpoint','warn');
+    } else if(msg.kind==='event') {
+      if(msg.eventKind===21){
+        this.controllerFault={code:msg.value,
+          reason:controllerFaults[msg.value]||`unknown fault ${msg.value}`,
+          ms:f.ms,source:origin};
+        if(msg.value===14)this.log('mission','LIFTED: motors stopped '+
+          '(robot lifted off the floor)','warn');
+        else this.log('mission',`SAFE STOP: ${this.controllerFault.reason}`,'error');
+      }
+      const name=eventNames[msg.eventKind]||`Event ${msg.eventKind}`;
+      const source=sourceNames[msg.source-1]||'unknown';
+      if(source==='mission')this.route.navEvent(msg.eventKind,msg.value,f.ms);
+      const event={id:msg.eventId,source,name,kind:msg.eventKind,value:msg.value,ms:f.ms,x:0,y:0,
+        locationMeaning:'robot pose at the event time (dead-reckoned)',positionValid:false};
+      this.route.place(event);
+      this.events.unshift(event);
+      if(this.events.length>200)this.events.pop();
+      const navNames=['Straight','Left','Right','U-turn'];
+      const detail=msg.eventKind===1 && msg.value<=25?`letter=${String.fromCharCode(65+msg.value)}`:
+        msg.eventKind===19 && msg.value===2?'letter not in current four-letter mapping, or mapping not loaded; ignored, robot continues':
+        msg.eventKind===19 && msg.value===3?'scan result lost (unread result overwritten); ignored, robot continues':
+        msg.eventKind===19 && msg.value===1?'navigation state rejected action or prior single-use action is pending':
+        msg.eventKind>=12&&msg.eventKind<=17&&msg.value<=3?`action=${navNames[msg.value]}`:
+        `value=${msg.value}`;
+      if(msg.eventKind===1 && msg.value<=25){
+        const letter=String.fromCharCode(65+msg.value);
+        this.recordScanOutcome('success',`SCAN SUCCESS — decoded letter ${letter} (letter=${letter})`,
+          {letter,eventId:msg.eventId,source:origin});
+      }else{
+        this.log(source==='terrain'?'imu':source==='motion'||source==='line'?'movement':
+          source==='obstacle'?'obstacle':'mission',`${name} · ${source} · ${detail}`,
+          msg.eventKind===7?'error':msg.eventKind===19?'warn':'info');
+      }
+    } else if(msg.kind==='checkpoint') {
+      const r=this.route.checkpoint(msg.cumulativeMm,f.ms);
+      if(r.missingMm>=20)this.log('movement',`Distance checkpoint: bridged ${Math.round(r.missingMm)} mm of lost wheel updates`,'warn');
+    } else if(msg.kind==='heartbeat'){
+      if(msg.dropped>this.dropped)this.log('network',`Firmware dropped ${msg.dropped-this.dropped} telemetry records`,'warn');
+      this.dropped=msg.dropped;
+    } else if(msg.kind==='ack'){
+      this.acks.unshift({...msg,received:Date.now()});this.acks=this.acks.slice(0,20);
+      const label=['','SET_MAPPING','START','STOP','SNAPSHOT','RECALIBRATE_IMU','RECALIBRATE_BARCODE'][msg.command]||`COMMAND ${msg.command}`;
+      const reason={1:'Invalid command',2:'BAD STATE: mapping not loaded or robot already running',
+        3:'Invalid mapping',4:'Duplicate command',5:'NOT READY: IR/IMU/controller safety gate',
+        6:'Command pending',7:'STALE COMMAND: latest robot STATUS token missing or expired'}[msg.result];
+      this.log('commands',`${label} #${msg.transaction}: ${msg.result===0?'accepted':
+        'REJECTED: '+(reason||'code '+msg.result)}; actuator completion is not implied`,
+        msg.result===0?'info':'warn');
+    }
+    return {frame:f,msg};
+  }
+  mappingRequested(letters,transaction){
+    this.routeMapping={letters:[...letters],transaction,session:this.session,state:'PENDING',
+      at:Date.now(),note:'Sent via MQTT; robot has not acknowledged'};
+  }
+  mappingResult(transaction,result){
+    if(!this.routeMapping || this.routeMapping.transaction!==transaction ||
+      this.routeMapping.session!==this.session)return false;
+    this.routeMapping={...this.routeMapping,state:result===0?'ACCEPTED':'REJECTED',
+      at:Date.now(),result,note:result===0?'Robot ACK accepted mapping':'Robot rejected mapping (code '+result+')'};
+    return true;
+  }
+  mappingTimeout(transaction){
+    if(!this.routeMapping || this.routeMapping.transaction!==transaction ||
+      this.routeMapping.state!=='PENDING')return;
+    this.routeMapping={...this.routeMapping,state:'TIMED_OUT',
+      at:Date.now(),note:'No robot ACK received; mapping not confirmed'};
+  }
+  view(){this.route.refreshWaiting();return {session:this.session,frames:this.frames,badFrames:this.badFrames,odomGaps:this.odomGaps,
+    wireGaps:this.wireGaps,turnCorrections:this.route.turnCorrections,bridgedMm:this.route.bridgedMm,trackWidthMm:this.trackWidthMm,
+    pose:this.pose,points:this.points,events:this.events,lastMotionSeq:this.lastMotionSeq,snapshot:this.snapshot,dropped:this.dropped,
+    lastSeen:this.lastSeen,lastRobotMs:this.lastRobotMs,
+    lastRobotClockAt:this.lastRobotClockAt,acks:this.acks,uncertain:this.uncertain,mode:this.mode,
+    logs:this.logs,robotStatus:this.robotStatus,controllerFault:this.controllerFault,routeMapping:this.routeMapping,serialBarcode:this.serialBarcode,sensor:this.sensor,barcodeDiag:this.barcodeDiag,scanOutcomes:this.scanOutcomes,
+    serialSensor:this.serialSensor,
+    latestHumpMm:this.mode==='LIVE'?this.latestHumpMm:null,
+    latestObstacleScan:this.mode==='LIVE'?this.latestObstacleScan:null};}
+}
+module.exports={RobotState,readinessReasons};

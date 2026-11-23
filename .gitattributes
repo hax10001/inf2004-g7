@@ -1,0 +1,6 @@
+# Keep BARR-C source formatting stable on Windows checkouts. The final blank
+# line is required by BARR-C 3.3.c, so it is intentional in these files.
+app_program/**/*.c text eol=lf whitespace=-blank-at-eof
+app_program/**/*.h text eol=lf whitespace=-blank-at-eof
+docs/templates/*.in text eol=lf whitespace=-blank-at-eof
+build_make/mtkernel_3/app_program/subdir.mk text eol=lf

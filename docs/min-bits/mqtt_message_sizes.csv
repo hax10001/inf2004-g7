@@ -1,0 +1,15 @@
+Message,Frames_replayed,Binary_payload_bytes,Binary_frame_bytes,Text_JSON_bytes_avg,Binary_vs_text_percent
+ACK (4 B payload),431,4,18,101,18%
+BARCODE_DIAG (42 B payload),13548,42,56,456,12%
+CHECKPOINT (4 B payload),23,4,18,86,21%
+EVENT (6 B payload),954,6,20,120,17%
+HEARTBEAT (4 B payload),6819,4,18,92,20%
+ODOM (6 B payload),32655,6,20,112,18%
+SENSOR (24 B payload),5420,24,38,356,11%
+SENSOR (26 B payload),8145,26,40,355,11%
+SNAPSHOT (13 B payload),46818,13,27,272,10%
+STATUS (14 B payload),13607,14,28,270,10%
+STATUS (5 B payload),57,5,19,270,7%
+STATUS (7 B payload),23,7,21,269,8%
+STATUS (9 B payload),92,9,23,268,9%
+ALL,128592,,3742306,31891619,12%

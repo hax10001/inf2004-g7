@@ -7,7 +7,10 @@ Release
 *.map
 *.o
 *.d
+*.bin
+*.hex
 build_make/tools/elf2uf2
+build_make/tools/elf2uf2.exe
 tools/elf2uf2/elf2uf2
 build_make/.build_profile
 
@@ -21,3 +24,21 @@ config/tcp_test_config.h
 # Python
 __pycache__/
 *.pyc
+
+# Local validation outputs and pre-refactor snapshots.
+/tmp/
+app_program/dashboard/recordings/
+
+# Canonical local network-owner MQTT secrets; never share.
+config/wifi_secrets.h
+app_program/modules/telemetry/buddy1_broker_local.h
+
+.venv-serial/
+
+# Private backups of local credentials
+.g7-wifi-private-backups/
+
+# macOS Finder metadata, local build output and installed dashboard packages.
+.DS_Store
+out/
+node_modules/

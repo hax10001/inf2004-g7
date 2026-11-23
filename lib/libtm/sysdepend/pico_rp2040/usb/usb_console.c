@@ -47,6 +47,161 @@ IMPORT void	tm_tusb_discard_input(void);
 #define USB_TX_SIZE		4096U
 #define USB_TX_MASK		(USB_TX_SIZE - 1U)
 #define USB_TX_CHUNK		64U
+/* Diagnostic marker is emitted by the USB owner, not tm_printf().
+ * If this arrives but normal [MAIN]/[NET] lines do not, USB itself works
+ * and the failure lies in firmware startup or its normal log pipeline.
+ * It is intentionally low-rate and only emitted after CDC enumeration. */
+#ifdef B1_BARCODE_TEST
+/* Quiet barcode test log: once every 10 minutes. */
+#define USB_SELFTEST_INTERVAL_US 600000000U
+#else
+#define USB_SELFTEST_INTERVAL_US 5000000U
+#endif
+static const char usb_selftest[] =
+    "\r\n[USB SELFTEST G7DIAG-V7-9-RECONNECT-20261102] CDC alive; BOOTNET below\r\n";
+
+#if defined(B1_ROBOT_APP) && TM_WIFI_CYW43
+#include "g7_wifi_scan_diag.h"
+/* Independent of USB console ring and application task scheduling. */
+IMPORT volatile unsigned int g7_usermain_stage;
+IMPORT volatile int g7_usermain_error;
+IMPORT void g7_usb_net_snapshot(W out[14]);
+
+LOCAL void diag_text(UB *line, UW *len, UW cap, const char *text)
+{
+    while(*text != '\0' && *len + 1U < cap) {
+        line[(*len)++] = (UB)*text++;
+    }
+}
+
+LOCAL void diag_number(UB *line, UW *len, UW cap, W number)
+{
+    UW value = (UW)number;
+    char digits[12];
+    UW count = 0U;
+    if(number < 0) {
+        diag_text(line, len, cap, "-");
+        value = 0U - (UW)number;
+    }
+    do {
+        digits[count++] = (char)('0' + (value % 10U));
+        value /= 10U;
+    } while(value != 0U && count < sizeof(digits));
+    while(count > 0U && *len + 1U < cap) {
+        line[(*len)++] = (UB)digits[--count];
+    }
+}
+
+LOCAL void usb_bootnet_selftest(void)
+{
+    static const char * const labels[] = {
+        " stage=", " init=", " init_rc=", " join_started=", " join_req=",
+        " join_done=", " join_rc=", " wifi=", " dhcp=", " dhcp_rc=",
+        " mqtt="
+    };
+    W result[14] = {0};
+    UB line[192];
+    UW len = 0U;
+    UW pos = 0U;
+    UW remaining;
+    unsigned available;
+
+    g7_usb_net_snapshot(result);
+    diag_text(line, &len, sizeof(line), "[BOOTNET]");
+    diag_text(line, &len, sizeof(line), labels[0]);
+    diag_number(line, &len, sizeof(line), (W)g7_usermain_stage);
+    diag_text(line, &len, sizeof(line), " app_rc=");
+    diag_number(line, &len, sizeof(line), (W)g7_usermain_error);
+    for(UW i = 0U; i < 10U; i++) {
+        diag_text(line, &len, sizeof(line), labels[i + 1U]);
+        diag_number(line, &len, sizeof(line), result[i]);
+    }
+    diag_text(line, &len, sizeof(line), " ip=");
+    for(UW i = 10U; i < 14U; i++) {
+        if(i != 10U) diag_text(line, &len, sizeof(line), ".");
+        diag_number(line, &len, sizeof(line), result[i]);
+    }
+    diag_text(line, &len, sizeof(line), "\r\n");
+    /* Never wait for USB output. This is only a diagnostic. */
+    while(pos < len) {
+        available = tm_tusb_write_available();
+        if(available == 0U) break;
+        remaining = len - pos;
+        if(available > remaining) available = (unsigned)remaining;
+        for(unsigned j = 0U; j < available; j++) {
+            tm_tusb_write_char((char)line[pos++]);
+        }
+        tm_tusb_write_flush();
+    }
+}
+#endif
+
+/* One reader over the existing CDC port: print discovered SSIDs once
+ * per completed scan, without touching the Wi-Fi radio from USB context. */
+#if defined(B1_ROBOT_APP) && TM_WIFI_CYW43
+LOCAL void usb_scan_diagnostics(void)
+{
+    static UW printed_generation;
+    static UW repeat_count;
+    G7_WIFI_SCAN scan;
+    UB line[128];
+    UW len;
+    UW i, j, pos;
+    unsigned available;
+
+    g7_wifi_scan_snapshot(&scan);
+    if(scan.generation == 0U || !scan.complete) return;
+    if(scan.generation == printed_generation) {
+        /* Reprint every ~30s: a terminal opened later still sees the scan. */
+        if(++repeat_count < 6U) return;
+    }
+    repeat_count = 0U;
+    printed_generation = scan.generation;
+
+    len = 0U;
+    diag_text(line, &len, sizeof(line), "[WIFI SCAN] rc=");
+    diag_number(line, &len, sizeof(line), scan.request_rc);
+    diag_text(line, &len, sizeof(line), " total=");
+    diag_number(line, &len, sizeof(line), (W)scan.seen_total);
+    diag_text(line, &len, sizeof(line), " shown=");
+    diag_number(line, &len, sizeof(line), (W)scan.stored);
+    diag_text(line, &len, sizeof(line), " Pookie_found=");
+    diag_number(line, &len, sizeof(line), (W)scan.target_seen);
+    diag_text(line, &len, sizeof(line), "\r\n");
+    for(pos = 0U; pos < len; ) {
+        available = tm_tusb_write_available();
+        if(available == 0U) break;
+        for(j = 0U; j < available && pos < len; j++) {
+            tm_tusb_write_char((char)line[pos++]);
+        }
+        tm_tusb_write_flush();
+    }
+
+    for(i = 0U; i < scan.stored && i < G7_SCAN_MAX_APS; i++) {
+        len = 0U;
+        diag_text(line, &len, sizeof(line), "[WIFI AP] ssid=\"");
+        diag_text(line, &len, sizeof(line), scan.ap[i].ssid);
+        diag_text(line, &len, sizeof(line), "\" ch=");
+        diag_number(line, &len, sizeof(line), scan.ap[i].channel);
+        diag_text(line, &len, sizeof(line), " rssi=");
+        diag_number(line, &len, sizeof(line), scan.ap[i].rssi);
+        diag_text(line, &len, sizeof(line), " auth=");
+        diag_number(line, &len, sizeof(line), scan.ap[i].auth);
+        diag_text(line, &len, sizeof(line), "\r\n");
+        for(pos = 0U; pos < len; ) {
+            available = tm_tusb_write_available();
+            if(available == 0U) break;
+            for(j = 0U; j < available && pos < len; j++) {
+                tm_tusb_write_char((char)line[pos++]);
+            }
+            tm_tusb_write_flush();
+        }
+    }
+}
+#endif
+
+static volatile UW const * const usb_timer_low =
+    (volatile UW const *)0x40054028U;
 
 LOCAL UB		tx_buffer[USB_TX_SIZE];
 LOCAL volatile UW	tx_head;
@@ -84,6 +239,52 @@ LOCAL void tx_lock_leave(UINT intsts)
 /* Bytes discarded because the ring was full.  Exposed so a test can assert
    that a run produced no loss rather than assuming it. */
 EXPORT volatile UW	tm_usb_dropped;
+
+#ifdef B1_ENABLE_MQTT
+/*
+ * Copy of the console output for the MQTT log topic, so the robot can be
+ * debugged without a USB cable.  Filled under the same lock as the USB ring
+ * and drained by the network owner through tm_netlog_take().  When the link
+ * is slower than the output the newest bytes are dropped and counted, as for
+ * USB; console output itself is never delayed by the network.
+ */
+#define NETLOG_SIZE		4096U
+#define NETLOG_MASK		(NETLOG_SIZE - 1U)
+LOCAL UB		netlog_buffer[NETLOG_SIZE];
+LOCAL UW		netlog_head;
+LOCAL UW		netlog_tail;
+LOCAL UW		netlog_dropped;
+
+/* Copy up to max queued bytes to out; *p_dropped receives (and clears) the
+   bytes lost since the previous call.  Returns the number copied. */
+EXPORT INT tm_netlog_take(UB *out, INT max, UW *p_dropped)
+{
+	UINT	intsts;
+	INT	n = 0;
+
+	tx_lock_enter(&intsts);
+	while((n < max) && (netlog_tail != netlog_head)) {
+		out[n++] = netlog_buffer[netlog_tail];
+		netlog_tail = (netlog_tail + 1U) & NETLOG_MASK;
+	}
+	*p_dropped = netlog_dropped;
+	netlog_dropped = 0U;
+	tx_lock_leave(intsts);
+	return n;
+}
+
+/* Queued bytes, without taking them. */
+EXPORT INT tm_netlog_pending(void)
+{
+	UINT	intsts;
+	UW	pending;
+
+	tx_lock_enter(&intsts);
+	pending = (netlog_head - netlog_tail) & NETLOG_MASK;
+	tx_lock_leave(intsts);
+	return (INT)pending;
+}
+#endif
 
 /*
  * Link state, for diagnostics that cannot rely on the console itself:
@@ -149,6 +350,7 @@ LOCAL void usb_service_task(INT stacd, void *exinf)
 	UB		chunk[USB_TX_CHUNK];
 	UW		count;
 	UINT		intsts;
+	UW		last_test_us = 0U;
 
 	(void)stacd;
 	(void)exinf;
@@ -182,6 +384,35 @@ LOCAL void usb_service_task(INT stacd, void *exinf)
 		   write_available() falls to zero and the loop simply stops --
 		   it never waits. */
 		if(tm_tusb_mounted()) {
+            /* Independently validate USB CDC even if usermain never starts.
+             * Never call tm_printf from the USB owner (would feed its own ring). */
+            UW now_us = *usb_timer_low;
+            if(last_test_us == 0U ||
+               (UW)(now_us - last_test_us) >= USB_SELFTEST_INTERVAL_US) {
+                unsigned required = (unsigned)(sizeof(usb_selftest) - 1U);
+                if(tm_tusb_write_available() >= required) {
+                    for(unsigned i = 0U; i < required; i++) {
+                        tm_tusb_write_char(usb_selftest[i]);
+                    }
+                    tm_tusb_write_flush();
+#if defined(B1_ROBOT_APP) && TM_WIFI_CYW43
+                    usb_bootnet_selftest();
+                    usb_scan_diagnostics();
+#else
+                    /* Explicitly identify a build lacking the expected
+                     * networking flags, rather than silently omitting it. */
+                    static const char no_net[] =
+                        "[BOOTNET] DISABLED_IN_BUILD\r\n";
+                    if(tm_tusb_write_available() >= sizeof(no_net) - 1U) {
+                        for(unsigned i=0U; i<sizeof(no_net)-1U; i++) {
+                            tm_tusb_write_char(no_net[i]);
+                        }
+                        tm_tusb_write_flush();
+                    }
+#endif
+                    last_test_us = now_us == 0U ? 1U : now_us;
+                }
+            }
 			available = tm_tusb_write_available();
 			while(available > 0) {
 				count = 0;
@@ -277,6 +508,21 @@ EXPORT void tm_usb_console_put(const UB *buf, INT size)
 	UINT	intsts;
 
 	tx_lock_enter(&intsts);
+#ifdef B1_ENABLE_MQTT
+	{
+		INT	i;
+
+		for(i = 0; i < size; i++) {
+			next = (netlog_head + 1U) & NETLOG_MASK;
+			if(next == netlog_tail) {
+				netlog_dropped++;
+				continue;
+			}
+			netlog_buffer[netlog_head] = buf[i];
+			netlog_head = next;
+		}
+	}
+#endif
 	while(size-- > 0) {
 		next = (tx_head + 1U) & USB_TX_MASK;
 		if(next == tx_tail) {		/* full: drop, and count it */
@@ -291,3 +537,5 @@ EXPORT void tm_usb_console_put(const UB *buf, INT size)
 }
 
 #endif /* USE_TMONITOR && TM_CONSOLE_USB_CDC */
+
+/* test changed source */

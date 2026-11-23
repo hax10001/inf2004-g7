@@ -1,0 +1,1037 @@
+TRIBUNAL 2: REQUIREMENT CHANGE AND DESIGN REVIEW
+
+Team ID: G7
+
+Member IDs: ___________________________________________
+
+Repo Link: https://github.com/hax10001/inf2004-g7 (branch nov19-smooth-follow-junction)
+
+DURATION: 1 hour
+
+
+INJECTED REQUIREMENT:
+If any part of the system fails or provides invalid data, the system must respond in a safe and predictable way.
+If a measurement becomes unavailable or invalid, the system shall not continue as though the value were correct. It shall have a defined response: continue with limited operation, stop the affected function, attempt recovery, or require intervention.
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+INSTRUCTIONS
+1. Review the injected requirement against the complete system.
+2. Identify what needs to change and what should remain unchanged.
+3. Suggestions may come from AI, a Buddy, or the team.
+4. For every suggestion, choose: Accept, Modify, Reject, or No Change.
+5. Explain the reason and provide engineering evidence.
+6. Add as many rows as necessary. Coverage is assessed.
+7. AI output is a suggestion, not engineering evidence.
+8. Submit this completed text file at the end of Tribunal 2. No separate report is required.
+
+
+DECISION MEANINGS
+Accept    - Use the suggestion as proposed.
+Modify    - Use the idea, but change the proposed solution.
+Reject    - Do not use the suggestion.
+No Change - The area was considered and the existing design should remain.
+
+
+ENGINEERING EVIDENCE MAY INCLUDE
+Requirement values, calculations, measurements, test results, source-code behaviour, interfaces, statecharts, block diagrams, hardware limits, RTOS behaviour, or datasheet specifications.
+
+Notes on evidence: file:line references are to the repo above (paths under app_program/ unless stated), checked on 23 Nov 2026.
+Speed used in calculations: 30 RPM target (motion.c:45), 70 mm wheel (board_config.h:30), so 219.9 mm/rev x 0.5 rev/s = about 110 mm/s.
+Buddy areas: Buddy 1 telemetry/MQTT/dashboard, Buddy 2 motion/encoders/controller/RTOS, Buddy 3 line IR and barcode, Buddy 4 IMU/terrain, Buddy 5 ultrasonic/servo/obstacle.
+
+
+========================================================================================================================
+TRIBUNAL 2 ANALYSIS TABLE
+========================================================================================================================
+
+
+#1
+Affected Requirement / Component: Whole system - definition of the safe state (FR16, NFR9)
+
+What needs to change?:
+Define one safe state that every failure response falls back to: both motors at zero commanded output and a controller state that cannot drive again by itself.
+
+Suggested by:
+Team
+
+Decision:
+No Change
+
+Why?:
+The design already has this. Every stop path ends in motion_apply(LINE_UNCERTAIN) or motion_stop_now(), and no state other than LINE_FOLLOWING, OBSTACLE, AT_JUNCTION and IDLE drives the wheels. The robot has no actuator that is hazardous when stopped, so zero output is always a valid fallback.
+
+Engineering Evidence:
+task_controller.c:27-38: nine controller states; STOPPED, NAV_SAFETY_STOP, ERROR, REMOTE_HOLD, LIFTED all call motion_apply(LINE_UNCERTAIN) every period (task_controller.c:813-838).
+motor.c:60-81 motor_stop() writes compare 0 to GP8, GP9, GP10, GP11 (coast).
+motor.c:47-50 motor_init() zeroes all four pins at boot; the live build boots in ROBOT_REMOTE_HOLD (task_controller.c:578).
+Response class mapping: STOPPED / NAV_SAFETY_STOP = stop affected function (operator STOP then START); ERROR = require intervention (latched until reset, task_controller.c:494); LIFTED = attempt recovery.
+
+
+------------------------------------
+
+
+#2
+Affected Requirement / Component: Motor driver - brake vs coast on stop (NFR9)
+
+What needs to change?:
+Requirement NFR9 says "every stop path writes zero to all motor pins". AI suggested making every stop a coast (all pins 0) to match the wording.
+
+Suggested by:
+AI
+
+Decision:
+Modify
+
+Why?:
+Braking is the safer response at junction stops and downhill faults because it stops in a shorter distance. The operator STOP already skips the brake. Keep both, and change the requirement wording to say what the code does.
+
+Engineering Evidence:
+motor.c:83-97 motor_brake() writes MOTOR_PWM_WRAP + 1 to all four pins, holding both H-bridge inputs high (short brake).
+APP_JUNCTION_BRAKE_MSEC = 200 ms (app_config.h:203), so the brake lasts 4 controller periods, then motor_stop().
+motion.c:471-485 motion_stop_now() clears g_brake_cycles and calls motor_stop() first: operator STOP is an immediate coast.
+New NFR9 wording: "Every stop path commands zero motor duty. A brake may hold both pins high for at most 200 ms before coasting. Operator and link-loss stops coast immediately."
+
+
+------------------------------------
+
+
+#3
+Affected Requirement / Component: RTOS - controller task hang (no hardware watchdog)
+
+What needs to change?:
+Enable the RP2040 hardware watchdog, fed only by the controller task at the end of each successful 50 ms cycle, timeout 250 ms.
+
+Suggested by:
+Buddy 2
+
+Decision:
+Accept
+
+Why?:
+A hung controller is the only failure that leaves the motors driving: the PWM slices keep outputting the last compare value. No software check can catch it because the checker is the thing that hung. A chip reset lands in the safe state.
+
+Engineering Evidence:
+The watchdog counter is never enabled. encoder.c:20 and :194-195 only write WATCHDOG TICK (0x4005802C) to clock the microsecond timer.
+Timeout choice: 5 x APP_CONTROLLER_PERIOD_MSEC (50 ms, app_config.h:31) = 250 ms, so normal jitter (relative tk_dly_tsk, task_controller.c:626) cannot trip it. Blind travel before reset at 110 mm/s = about 28 mm.
+Safe after reset: motor_init() zeroes pins (motor.c:47-50); RP2040 GPIO pads reset as inputs with pull-down enabled, so H-bridge inputs read low (coast) during reset; boot state is REMOTE_HOLD and needs a new START (require intervention).
+Feeding from a separate high-priority task is rejected: a hung controller would still be fed.
+Debug builds must pause the watchdog on debug, or breakpoints reset the board.
+
+
+------------------------------------
+
+
+#4
+Affected Requirement / Component: RTOS - shared data freshness (NFR2, IR snapshot)
+
+What needs to change?:
+Make sure the controller never steers from IR data that is missing or old.
+
+Suggested by:
+Buddy 3
+
+Decision:
+No Change
+
+Why?:
+Already implemented. Every IR snapshot carries a timestamp and a valid flag, and the controller checks both every period before using it. Invalid or stale data is a stop.
+
+Engineering Evidence:
+task_controller.c:978-989: if !reading.b_valid or age > APP_IR_MAX_AGE_MSEC (200 ms, app_config.h:32): motion_apply(LINE_UNCERTAIN), report_fault(2), return ROBOT_STOPPED.
+Calculation: 200 ms x 110 mm/s = 22 mm of blind travel, about one 18 mm line width.
+Margin against false trips: logged IR sample interval under Wi-Fi load is about 16 ms, so 200 ms is over 10 sample gaps.
+task_ir.c:57-69 prints "[IR] Task stalled" when the 1 ms loop gap reaches 100 ms (APP_IR_STALL_REPORT_MSEC, app_config.h:35), which separates CPU starvation from bad sensor data.
+
+
+------------------------------------
+
+
+#5
+Affected Requirement / Component: RTOS - priority inversion on shared mutexes
+
+What needs to change?:
+AI suggested replacing the remote and telemetry mutexes with lock-free queues to avoid priority inversion between the priority 9 telemetry task and the priority 6 controller.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+Priority inversion is already bounded. All application mutexes use priority inheritance, and the controller waits at most 2 ms. Replacing them adds risk for no measured problem.
+
+Engineering Evidence:
+TA_INHERIT on every application mutex: task_controller.c:305, ir_shared.c:70, motion.c:280, terrain.c:25, buddy1_rt.c:249 (TA_TFIFO | TA_INHERIT).
+Priorities (lower number = higher priority in uT-Kernel): IR 5, controller 6, obstacle 6, IMU 7 (app_config.h:17-23), telemetry 9 (buddy1_rt.c:250).
+Controller lock wait is bounded: tk_loc_mtx(g_remote_mutex, 2) (task_controller.c:515-516, APP_REMOTE_LOCK_WAIT_MSEC = 2).
+
+
+------------------------------------
+
+
+#6
+Affected Requirement / Component: RTOS - command mailbox unreadable (NFR3)
+
+What needs to change?:
+Stop the robot if the controller cannot read the STOP/START mailbox for several periods.
+
+Suggested by:
+Buddy 1
+
+Decision:
+No Change
+
+Why?:
+Already implemented. If the controller cannot read the mailbox it cannot see an operator STOP, so it must not keep driving. One miss is normal contention and does not stop.
+
+Engineering Evidence:
+task_controller.c:509-542 remote_take_requests(): 2 ms lock wait; after APP_REMOTE_LOCK_MISS_LIMIT = 4 consecutive misses (app_config.h:30), *p_stop = 1.
+Worst-case delay to stop: 4 x (50 + 2) ms = about 208 ms, about 23 mm at 110 mm/s.
+#error guard on the limit range: task_controller.c:499-501.
+
+
+------------------------------------
+
+
+#7
+Affected Requirement / Component: RTOS - controller loop timing and stack use (NFR3, NFR7)
+
+What needs to change?:
+Measure worst-case controller cycle time and task stack high-water marks on target, and publish them in the SENSOR frame.
+
+Suggested by:
+Buddy 2
+
+Decision:
+Modify
+
+Why?:
+Accept the measurement, but change the controller to an absolute-time period (or log the actual period) rather than redesign the loop now. The loop uses a relative delay, so overruns stretch the period rather than miss it; stack overflow would become a hard fault with motors at last duty (row #3 covers the consequence). We have no on-target evidence yet.
+
+Engineering Evidence:
+task_controller.c:623-627: for (;;) { controller_cycle(); tk_dly_tsk(APP_CONTROLLER_PERIOD_MSEC); } - real period = 50 ms + cycle time.
+APP_TASK_STACK_BYTES = 4096 per task (app_config.h:7); buddy1_rt.c:30 B1_TASK_STACK 4096.
+docs/min-bits/MINIMUM_BITS.md: "task stack high-water marks are not part of an ELF measurement" (no measurement exists).
+Proposed method: fill stacks with a known pattern at boot, report deepest use per task once per second (1 x uint16 per task).
+
+
+------------------------------------
+
+
+#8
+Affected Requirement / Component: Fault reporting interface - controller fault code field (FR16, Change Requirement 1)
+
+What needs to change?:
+New fault responses (rows #11, #13) need new fault codes. Widen the fault code field.
+
+Suggested by:
+Buddy 2
+
+Decision:
+Modify
+
+Why?:
+Use the one free code (15) for "line not found" now. Only widen the field when a second new code is needed, because widening is an interface change that the dashboard table must follow.
+
+Engineering Evidence:
+task_controller.c:61-71 g_control is exactly one 32-bit word: event:5 + value:4 + sequence:16 + fault:4 + 3 x 1-bit flags = 32 bits.
+Codes in use 2..14 (dashboard state.js:5-10). 4 bits represent 0..15, so code 15 is the only free value.
+The code also travels in value:4 (report_fault -> nav_report(NAV_EVENT_SAFE_STOP, reason), task_controller.c:130-136, 560-571), so a 5-bit code needs fault:5 and value:5 = 34 bits, i.e. two words (+4 B RAM) and a dashboard table change.
+
+
+------------------------------------
+
+
+#9
+Affected Requirement / Component: Readiness blockers (FR1) and STATUS message
+
+What needs to change?:
+AI suggested adding new readiness blockers (battery low, encoder fault) to the existing START blocker mask.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+The mask is full and bit 64 is already shared by three causes. Adding blockers means a wire format change for STATUS. Not needed for this requirement: boot-time sensor failures already block START through the existing bits. Revisit only if battery sensing is added (row #26).
+
+Engineering Evidence:
+task_controller.c:341-406 g7_controller_remote_blockers(): 8 bits all used: 1 MQTT offline, 2 not held, 4 STOP/START pending, 8 IMU uncalibrated/stale, 16 IR invalid, 32 IR stale, 64 controller unavailable / obstacle fault / PWM non-zero, 128 scanner not armed.
+Sent as 1 byte, STATUS payload[5] (buddy1.c:155). 9 causes would need 9 bits, i.e. 2 bytes.
+START is refused with B1_NOT_READY while any bit is set (task_controller.c:452-466).
+
+
+------------------------------------
+
+
+#10
+Affected Requirement / Component: Line IR sensors - stuck or disconnected digital sensor (FR4)
+
+What needs to change?:
+Detect a stuck IR sensor directly.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+Not possible from a single digital input: a broken wire, dead sensor or stuck output reads as a valid 0 or 1. The defined response is instead to bound the consequence through the line-loss search (stuck white) and navigation timeouts (stuck black).
+
+Engineering Evidence:
+ir.c:97-106 ir_read(): plain gpio_get_val() on GP6 (left) and GP2 (right) (board_config.h:7-8); no analog level to check.
+Stuck white -> lost-line search, motion.c:119-143: roll-steer after 50 mm (MOTION_SEARCH_ROLL_MM), pivot after 100 mm (MOTION_SEARCH_AFTER_MM), sweep 120 deg each way (MOTION_SEARCH_SWEEP_DEG), then stop (motion.c:848-866).
+Stuck black on both -> treated as a junction; a pivot that passes 135 deg faults (nav_core.h turn90 comment), reported as fault 8 (task_controller.c:1262-1263).
+
+
+------------------------------------
+
+
+#11
+Affected Requirement / Component: Motion - lost-line search gives up without reporting (FR4, FR16)
+
+What needs to change?:
+When the search gives up, the controller should enter ROBOT_STOPPED and report a fault, instead of the motion module silently holding the wheels at zero while the controller stays in LINE_FOLLOWING.
+
+Suggested by:
+Buddy 1
+
+Decision:
+Accept
+
+Why?:
+Today the robot stops safely but the operator cannot tell why, and the controller still believes it is following. That is not predictable from the operator's side.
+
+Engineering Evidence:
+motion.c:848-866: SEARCH_GAVE_UP -> stop_wheels(); drive_wheels(LINE_UNCERTAIN); return true. No report_fault() and no state change in task_controller.c.
+Fix: motion exposes a gave-up flag; controller returns ROBOT_STOPPED with report_fault(15) ("line not found"), the last free 4-bit code (row #8). Recovery: STOP, place on line, START (same as fault 2).
+Cost: no new state. line_search_t.phase:3 already holds SEARCH_GAVE_UP (motion.c:164, 170-181); the controller only needs a read accessor.
+
+
+------------------------------------
+
+
+#12
+Affected Requirement / Component: Encoders - broken A or B wire (FR7)
+
+What needs to change?:
+Limit how hard the speed controller can drive a wheel whose encoder reads zero.
+
+Suggested by:
+Buddy 2
+
+Decision:
+No Change
+
+Why?:
+Already bounded. A wheel that measures under 1 RPM while commanded gets at most +15 % stall duty, and the PI trim is clamped to 12 %, so a dead encoder cannot drive the motor to full power.
+
+Engineering Evidence:
+encoder.c:145-177 ISR: on each A edge adds +1/-1 from B. Pins pulled up (encoder.c:198-209 claim_input sets PUE).
+A wire off: pulled high, no edges, count frozen, RPM -> 0 (wheel_speed.c:48-53).
+B wire off: B reads 1, rising A gives +1, falling A gives -1, net count about 0, looks stopped.
+motion.c:74-82: MOTION_STALL_STEP_PERCENT 1 % per 50 ms, MOTION_STALL_MAX_PERCENT 15 % (reached after 15 periods = 750 ms).
+motion.c:68: MOTION_TRIM_MAX_PERCENT 12 %.
+
+
+------------------------------------
+
+
+#13
+Affected Requirement / Component: Encoders - dead encoder disables the lost-line search (FR4, FR7)
+
+What needs to change?:
+Add an encoder plausibility fault and a time-based backup for the lost-line search.
+
+Suggested by:
+Buddy 2
+
+Decision:
+Accept
+
+Why?:
+The lost-line search measures distance with the encoders. If the encoders are dead, its distance never grows, so the search never starts and the robot drives straight off the course. One sensor's failure silently disables another sensor's safety check. A second, independent source (the kernel clock) removes that dependency.
+
+Engineering Evidence:
+motion.c:809-826: g_search.white_counts += moved, where moved = search_travel() from encoder counts (motion.c:877-890). With moved = 0 the 50 mm / 100 mm thresholds are never reached.
+Proposed plausibility rule: stall boost at its 15 % cap (15 periods, 750 ms) AND that wheel's count unchanged AND the other wheel turning -> latched fault, ROBOT_ERROR. The existing "Wheel stalled" print at motion.c:1061-1071 marks this exact moment. Requiring the other wheel to turn avoids false trips on a tight curve, where the inner wheel is legitimately stopped (MOTION_STOP_RPM = 6 RPM, motion.c:61).
+Proposed time backup: both IR white for > 1500 ms while driving -> stop. 1.5 s x 110 mm/s = 165 mm, beyond the 100 mm search point, so it never fires before the normal search. Cost: one uint32 timestamp.
+ERROR not STOPPED: a broken wire does not heal, and junction confirmation, 134 mm centring, pivot angle and odometry all depend on encoder counts.
+
+
+------------------------------------
+
+
+#14
+Affected Requirement / Component: Downhill governor - overspeed and invalid IMU angles (FR18)
+
+What needs to change?:
+Stop the robot on a sustained runaway, and never let an invalid angle (NaN or out of range) drive the governor.
+
+Suggested by:
+Buddy 4
+
+Decision:
+No Change
+
+Why?:
+Already implemented. Overspeed is checked before the PI and stall rescue can add duty. Invalid angles are treated as stale, and 20 stale periods while moving latch a fault.
+
+Engineering Evidence:
+downhill.c:197-216: wheel > DOWNHILL_RUNAWAY_RPM (40, app_config.h:331) for DOWNHILL_OVERSPEED_COUNT 10 periods (500 ms) -> fault latched; controller reports fault 9 and goes to STOPPED (task_controller.c:731-742).
+motion.c:544-565: overspeed check runs first; comment line 549 "Fail closed before PI or stall rescue can increase duty".
+downhill.c:46-58: !(pitch >= -90 && pitch <= 90) also catches NaN; 20 periods (DOWNHILL_STALE_COUNT) -> fault 11.
+
+
+------------------------------------
+
+
+#15
+Affected Requirement / Component: Barcode - undecodable or unmapped letter (FR5, FR6)
+
+What needs to change?:
+AI suggested stopping the robot whenever a barcode fails to decode, so it never takes a wrong turn.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+A failed decode is a navigation problem, not a safety hazard. Crossing the junction straight keeps the robot on a line at normal speed with every other safety check active. Stopping mid-course on every bad print gives no safety benefit and makes runs fail. Defined response: continue with limited operation (one routing decision lost), and report it.
+
+Engineering Evidence:
+app_config.h:220-240: APP_NAV_STRAIGHT_DEFAULT 1 (junction with no usable action is crossed straight); APP_NAV_SCAN_FAIL_STOP 0; line 237 "A barcode that could not be decoded never stops the robot."
+task_controller.c:1140-1143: rejected scans are reported as EVENT 19 (scan not queued) with the reason.
+The stop option is kept as a compile-time switch (APP_NAV_SCAN_FAIL_STOP 1 -> faults 12/13, task_controller.c:1144-1157).
+
+
+------------------------------------
+
+
+#16
+Affected Requirement / Component: Barcode - junction reached while still decoding (FR6)
+
+What needs to change?:
+Bound the wait at a junction for a letter that is still decoding.
+
+Suggested by:
+Buddy 3
+
+Decision:
+No Change
+
+Why?:
+Already bounded. The robot stops at the junction and waits; if no letter arrives in time it is a recoverable navigation safety stop, not an indefinite wait.
+
+Engineering Evidence:
+APP_NAV_DECODE_WAIT_MSEC 8000, APP_NAV_DECODE_GRACE_MSEC 1500 (app_config.h:241-242): wait ends at 8 s or 1.5 s after the decoder goes idle.
+task_controller.c:1252-1264: navigation reason 5 "decode timeout" -> report_fault(6); controller returns ROBOT_NAV_SAFETY_STOP (task_controller.c:1302-1303).
+
+
+------------------------------------
+
+
+#17
+Affected Requirement / Component: Barcode sampling pipeline - ISR, queue and sampler stall (NFR2, NFR10)
+
+What needs to change?:
+Handle a stalled 2 ms sampler and a full sample queue without blocking the ISR or decoding from incomplete data.
+
+Suggested by:
+Buddy 3
+
+Decision:
+No Change
+
+Why?:
+Already implemented. The ISR never blocks; overflow is counted and the affected scan is invalidated; a stalled alarm chain is restarted automatically (attempt recovery).
+
+Engineering Evidence:
+bc_fastq.c:46-50: queue full -> ++g_drop_count, return (ISR does not wait). BC_FASTQ_CAPACITY 64.
+bc_fastq.c:74-79: next popped sample after a drop gets valid = 0, so the scan is rejected rather than decoded.
+bc_fast.c:254-281: no sample for 25 periods (BC_FAST_STALL_USEC = 25 x 2 ms = 50 ms) while armed -> bc_fast_stop(); bc_fast_arm(); logged.
+bc_wave.c:94: BC_WAVE_CAPTURE_WATCHDOG_USEC 20 s forces a stuck capture to DONE and re-arms (bc_wave.c:1555-1568).
+
+
+------------------------------------
+
+
+#18
+Affected Requirement / Component: Barcode - wrong white reference at boot (FR3, NFR6)
+
+What needs to change?:
+Prevent arming the barcode scanner with a white level learned while sitting on black.
+
+Suggested by:
+Buddy 5
+
+Decision:
+No Change
+
+Why?:
+Already implemented. An implausible white level is rejected and learning repeats; START is blocked until the scanner is armed (require intervention: place robot on white).
+
+Engineering Evidence:
+bc_wave.c:88-91: BC_WAVE_WHITE_MAX_DARKNESS 800; white normally reads about 150-250, ink 600-3900 (12-bit ADC, 0..4095).
+Readiness bit 128 "barcode scanner not armed" (task_controller.c:393-398) blocks START.
+
+
+------------------------------------
+
+
+#19
+Affected Requirement / Component: IMU - failure at boot and calibration validity (FR3)
+
+What needs to change?:
+Never start with an IMU that failed to initialise or calibrated while moving.
+
+Suggested by:
+Buddy 4
+
+Decision:
+No Change
+
+Why?:
+Already implemented. A dead IMU never calibrates, which blocks START (require intervention). Calibration rejects samples taken while moving or tilted.
+
+Engineering Evidence:
+task_imu.c:184-212: I2C open or lsm303_init failure -> task sleeps forever (tk_slp_tsk(TMO_FEVR)).
+task_imu.c:221-234: calibration retried every 500 ms (IMU_CALIBRATION_RETRY_MSEC).
+task_imu.c:358-381: 50 samples; each |g| must be 800..1200 mg and each axis within 50 mg of the first sample.
+Readiness bit 8 "IMU uncalibrated or stale" (task_controller.c:369-378) blocks START.
+
+
+------------------------------------
+
+
+#20
+Affected Requirement / Component: IMU - read failure or stale data while running (NFR4, FR16)
+
+What needs to change?:
+Define what happens when IMU data goes invalid mid-run.
+
+Suggested by:
+Buddy 4
+
+Decision:
+No Change
+
+Why?:
+Already implemented in two stages. Limited operation first: data older than 200 ms is simply not used (line following does not need the IMU). Stop after 1 s, because without the IMU the robot can no longer detect being lifted.
+
+Engineering Evidence:
+task_imu.c:424-480: each sample starts b_valid = false; set true only if the accel read and tilt computation succeed; an invalid sample resets the hump level count (line 478).
+task_controller.c:720-722: IMU used only if valid and <= 200 ms old.
+task_controller.c:745-752: following/obstacle with no fresh IMU for > 1000 ms -> motion_apply(LINE_UNCERTAIN), STOPPED, fault 10.
+1 s x 110 mm/s = 110 mm of travel without lift detection.
+
+
+------------------------------------
+
+
+#21
+Affected Requirement / Component: I2C bus / IMU driver timeout
+
+What needs to change?:
+Reduce the I2C transaction timeout and add bus recovery (9 SCL clocks, then re-initialise the LSM303) after repeated failures.
+
+Suggested by:
+Buddy 2
+
+Decision:
+Modify
+
+Why?:
+Accept the shorter timeout. Bus recovery is accepted as a later step only: it needs pin-level control of I2C0 outside the kernel device driver, and the existing 1 s controller rule already stops the robot if recovery fails. A 1000 ms timeout on a 20 ms task means one stuck transfer blocks the IMU task for a full second before anything is reported.
+
+Engineering Evidence:
+device/i2c/sysdepend/rp2040/i2c_cnf_sysdep.h:33: DEVCNF_I2C0_TMO 1000 (ms).
+IMU sample period IMU_SAMPLE_PERIOD_MSEC 20 (task_imu.c:17); each sample does 2 transactions (accel + mag, task_imu.c:409-421), so worst case about 2 s blocked.
+Proposed timeout 10 ms (2 sample periods). A 6-byte register read is under 1 ms at standard I2C clock rates.
+
+
+------------------------------------
+
+
+#22
+Affected Requirement / Component: IMU - jolts read as tilt, false humps (FR8)
+
+What needs to change?:
+Do not report a hump height from data that only looks like tilt.
+
+Suggested by:
+Buddy 4
+
+Decision:
+No Change
+
+Why?:
+Already implemented. There is no gyroscope, so a sideways shove looks like roll. Two filters treat that data as invalid: a gravity-magnitude check per sample and a minimum-climb check per hump. The response is "discard, do not report" rather than reporting a wrong height.
+
+Engineering Evidence:
+task_imu.c:545-553: |g| more than IMU_GRAVITY_TOLERANCE_MG (50 mg, line 41) from calibrated gravity -> sample counted as rejected (shoved).
+task_imu.c:54-61: HUMP_MIN_CLIMB_MM 5.0. Recorded 23 Nov: real humps climbed 8.4-16.4 mm, false ones 0.4-2.1 mm, so 5 mm lies in the gap.
+task_imu.c:729-740: climb < 5 mm -> "HUMP DISCARDED: no climb".
+
+
+------------------------------------
+
+
+#23
+Affected Requirement / Component: Lift detection and resume (FR17)
+
+What needs to change?:
+AI suggested latching the lift stop until operator STOP then START, like other safety stops.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+Lift is the one case where automatic recovery is the better defined response. Being put back down is a deliberate operator act, and the resume needs 1 s of continuous, verified floor contact. Latched behaviour is still available with one setting.
+
+Engineering Evidence:
+task_controller.c:754-790: lifted > APP_LIFT_STOP_HEIGHT_MM (40) with fresh IMU -> motion_stop_now(), obstacle_abort(), clear capture, ROBOT_LIFTED, fault 14.
+task_controller.c:848-898 lift_try_resume(): needs fresh IMU, floor contact, not lifted, height < 40 mm continuously for APP_LIFT_RESUME_MSEC 1000 ms; any break resets the timer (lines 851-855); line touches latched while carried are discarded (lines 882-891).
+app_config.h:301-302 APP_LIFT_RESUME_ENABLED 1; set 0 for a latched stop.
+
+
+------------------------------------
+
+
+#24
+Affected Requirement / Component: RECAL_IMU command (FR13)
+
+What needs to change?:
+Implement RECAL_IMU: accept only in REMOTE_HOLD with PWM zero, re-run the 50-sample calibration with the same checks, and keep the old reference if the new one fails.
+
+Suggested by:
+Buddy 4
+
+Decision:
+Modify
+
+Why?:
+The current response (refuse with NOT_READY) is already safe and predictable. Implementation is deferred; the requirement row is changed to state that RECAL_IMU is refused, so the documented behaviour matches. The design above is recorded for when it is implemented.
+
+Engineering Evidence:
+task_controller.c:478-479: "No live IMU re-baselining API is available in this version" -> return B1_NOT_READY.
+Calibration checks to reuse: task_imu.c:358-381 (800..1200 mg, 50 mg stability, 50 samples = 1 s at 20 ms).
+
+
+------------------------------------
+
+
+#25
+Affected Requirement / Component: Ultrasonic sensor - missing echoes (FR9, NFR5)
+
+What needs to change?:
+AI suggested treating a missing echo as "no obstacle" (maximum range) so the robot keeps driving.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+A missing echo means we know nothing, not that the path is clear. An unplugged sensor would otherwise look like an empty course forever. The design separates "out of range" (a pulse started, nothing came back in range: treated as clear) from "no echo" (no pulse at all: fault after 5 in a row).
+
+Engineering Evidence:
+ultrasonic.c:70-129: ECHO stuck high for OBS_ECHO_CLEAR_MSEC 50 ms -> NO_ECHO; no ticks in OBS_ECHO_TIMEOUT_MSEC 30 ms -> NO_ECHO ("wiring, power or sensor fault", line 124); ticks but no end / > 4000 mm -> OUT_OF_RANGE.
+obs_config.h:30-34: OBS_STOP_MM 250, OBS_NO_ECHO_LIMIT 5, OBS_FAILSAFE_NO_ECHO 1 ("Persistent missing echoes are unverified rather than free space").
+task_obstacle.c:205-248: 5 consecutive NO_ECHO -> OBS_FAULT_NO_ECHO; OUT_OF_RANGE stored as OBS_FAR_MM 4000.
+Detection time: worst case per ping 50 + 30 + 60 (OBS_PING_PERIOD_MSEC) = 140 ms, x 5 = 700 ms = 77 mm at 110 mm/s, less than the 250 mm stop distance.
+task_controller.c:991-999: fault -> stop, ROBOT_ERROR, fault 5.
+
+
+------------------------------------
+
+
+#26
+Affected Requirement / Component: Ultrasonic fault latch and recovery (FR16)
+
+What needs to change?:
+Allow STOP then START to clear the obstacle-sensor ERROR, but only after the sensor has returned 10 consecutive valid pings in REMOTE_HOLD.
+
+Suggested by:
+Buddy 5
+
+Decision:
+Accept
+
+Why?:
+Latching within a run is right (an intermittent connector will drop out again), but needing a power cycle when the sensor has demonstrably recovered is harsher than necessary. Verified recovery plus an operator action keeps it "require intervention".
+
+Engineering Evidence:
+The fault bit already clears itself when an echo returns (task_obstacle.c:226-227), but remote_reset_after_stop() keeps ROBOT_ERROR (task_controller.c:494).
+Cost: a 4-bit good-ping counter beside the monitor bit-fields next:2, filled:2, hits:2, no_echo:3 (task_obstacle.c:28-38, #error range guard at 36-38).
+
+
+------------------------------------
+
+
+#27
+Affected Requirement / Component: Servo - jammed or unplugged SG90 (FR10)
+
+What needs to change?:
+Detect a servo that did not move during a scan and raise OBS_FAULT_SERVO.
+
+Suggested by:
+Buddy 5
+
+Decision:
+Accept
+
+Why?:
+The SG90 is open loop and a stuck servo is not detected today: the scan takes every reading at the same angle and the planner believes it swept 130 deg. It currently fails safe only slowly (both sides look blocked, up to 10 rescans, then NO_ROUTE).
+
+Engineering Evidence:
+obs_state.h:36-41: OBS_FAULT_SERVO 0x08 (and OBS_FAULT_LINE_LOST 0x04) are defined but never raised anywhere in app_program/modules.
+Proposed rule: if every bearing in a sweep agrees within OBS_SCAN_AGREE_MM (50 mm, obs_config.h:135), including bearings at or beyond +/-60 deg, raise OBS_FAULT_SERVO. Zero new RAM: the bit is already reserved in the 5-bit fault mask.
+
+
+------------------------------------
+
+
+#28
+Affected Requirement / Component: Servo bearing bias from approach direction (FR10)
+
+What needs to change?:
+AI suggested switching to the two-way sweep (OBS_SCAN_DIRECTION 0) to cancel the servo settling error.
+
+Suggested by:
+AI
+
+Decision:
+No Change
+
+Why?:
+The bias is systematic, not random, and the current design turns it into a constant offset: every scan move arrives moving right. The two-way sweep doubles scan time. The residual offset is absorbed by the side-choice margin, and the side watch keeps pinging the box while passing, so the bias can pick a slightly worse side but cannot cause a collision.
+
+Engineering Evidence:
+obs_config.h:77-91: moves left first swing to the left limit and wait OBS_SERVO_SWING_SETTLE_MSEC 250 ms; OBS_SCAN_DIRECTION -1 (obs_config.h:126-128).
+obs_config.h:340: one-way scan 8-10 s, both ways 16-20 s.
+obs_config.h:53: OBS_SERVO_FRONT_USEC moved 1500 -> 1540 (about 4 deg) from 48 logged scans.
+Residual offset about 7 deg is listed as not yet verified (pre-tribunal notes).
+
+
+------------------------------------
+
+
+#29
+Affected Requirement / Component: Obstacle bypass cannot complete (FR11)
+
+What needs to change?:
+Bound every bypass so it cannot drive indefinitely.
+
+Suggested by:
+Buddy 5
+
+Decision:
+No Change
+
+Why?:
+Already implemented. Bypass phases raise TIMEOUT or NO_ROUTE when their limits are hit, the controller goes to ERROR, and a bypass without IR data stops immediately because the bypass ends by finding the line with those sensors.
+
+Engineering Evidence:
+obstacle.c raise_fault(.., OBS_FAULT_TIMEOUT) at lines 528, 700, 964, 1124 and OBS_FAULT_NO_ROUTE at 719, 1132, 1352, 1713, 2279.
+task_controller.c:1336-1341: drive.b_fault -> stop, abort, ROBOT_ERROR.
+task_controller.c:1319-1326: IR invalid or > 200 ms during bypass -> stop, obstacle_abort(), STOPPED.
+
+
+------------------------------------
+
+
+#30
+Affected Requirement / Component: MQTT link loss (FR15)
+
+What needs to change?:
+A Claude Code prompt in our notes proposed keeping the robot driving when MQTT drops (APP_STOP_ON_MQTT_LOSS 0) and buffering telemetry.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+The dashboard STOP is the operator's only remote stop. While MQTT is down it cannot arrive, so continuing would mean running with no operator override. Stopping the motion function (and never auto-resuming) is the defined safe response. All on-board checks run without the network, so the network is not needed for safety, only for operator control.
+
+Engineering Evidence:
+task_controller.c:642-675: following/obstacle/idle/junction/lifted and !b1_mqtt_connected() -> motion_stop_now(), clear letter, obstacle_abort(), nav_forget(), ROBOT_REMOTE_HOLD.
+task_controller.c:676-694: START needs REMOTE_HOLD + fresh START + MQTT connected + all blockers clear; reconnecting alone never moves.
+app_main.c:151-159: telemetry started last at priority 9; failure prints "MQTT offline; robot tasks remain running".
+README.md:9-11: dashboard STOP is not an emergency stop; physical cutoff required.
+
+
+------------------------------------
+
+
+#31
+Affected Requirement / Component: MQTT link-loss detection time (FR15, NFR9)
+
+What needs to change?:
+Detect a silent link loss faster than the old 45 s, and apply the motor stop before printing.
+
+Suggested by:
+Buddy 1
+
+Decision:
+Modify
+
+Why?:
+Detection: accepted and implemented as 5 s pings / 15 s silence, chosen from measured stalls so a healthy hotspot does not cause false stops. Ordering: the stop path prints before stopping, which breaks NFR9; reorder so motion_stop_now() runs first.
+
+Engineering Evidence:
+lib/libnet/lwip/mqtt_utk.c:126-132: B1_PING_PERIOD_MS 5000, B1_LINK_SILENCE_MS 15000; measured longest uplink stall on the phone hotspot 4.3 s over 11,800 frames (comment line 129-130).
+mqtt_utk.c:345-357: silence check at line 347; Wi-Fi link down (line 331) and TCP error (tcp_error, lines 178-185) are immediate.
+Worst case silent loss: 15 s + one 50 ms period, about 1.65 m at 110 mm/s, with all on-board stops still active.
+task_controller.c:649-650 tm_printf("MQTT lost ...") runs before motion_stop_now() at line 656. The IR-stale path already stops first (line 982 before 984).
+
+
+------------------------------------
+
+
+#32
+Affected Requirement / Component: Commands - stale, replayed or flooded commands (FR13)
+
+What needs to change?:
+Ensure an old or replayed START cannot run, and that STOP cannot be crowded out.
+
+Suggested by:
+Buddy 1
+
+Decision:
+No Change
+
+Why?:
+Already implemented: STATUS challenge for every command except STOP, queues flushed on link loss, separate STOP queue.
+
+Engineering Evidence:
+buddy1_rt.c:172-199 + buddy1.c:233-244: non-STOP commands must echo a STATUS timestamp from an 8-entry ring, at most 8000 ms old; otherwise ACK B1_STALE_COMMAND (7).
+mqtt_utk.c:166-177 discard(): rx and STOP queues emptied; line 174 "Never replay queued START on reconnect".
+mqtt_utk.c:283-295: STOP goes to stopq (2 slots), others to rxq (8 slots); line 290 "A saturated ordinary command ring cannot suppress STOP"; receive takes stopq first (mqtt_utk.c:50-55).
+
+
+------------------------------------
+
+
+#33
+Affected Requirement / Component: Binary frame validation - corrupted data on the wire (NFR13)
+
+What needs to change?:
+Reject corrupted or malformed frames on both robot and dashboard.
+
+Suggested by:
+Buddy 1
+
+Decision:
+No Change
+
+Why?:
+Already implemented. A rejected frame is never used; a rejected command never runs. The CRC is end-to-end (covers our own framing bugs and truncation), which TCP's per-hop checksum does not.
+
+Engineering Evidence:
+buddy1_protocol.c:16-29: CRC-8, polynomial 0x07 (x^8+x^2+x+1), init 0. Detects all single-bit errors, all bursts up to 8 bits, and all odd-weight errors (x+1 is a factor). Random undetected rate about 1/256.
+buddy1_protocol.c:44-55: reject if length < 14 or > 62 (B1_MAX_FRAME), magic != 0xB1, version != 1, payload > 48, length != 13 + payload + 1, or CRC mismatch.
+dashboard/server/protocol.js:18-23: same checks in the dashboard.
+
+
+------------------------------------
+
+
+#34
+Affected Requirement / Component: Reserved bits and sentinel values (NFR13, Change Requirement 1)
+
+What needs to change?:
+Check reserved bits in the header flags byte, as is already done for payloads.
+
+Suggested by:
+Team
+
+Decision:
+Accept
+
+Why?:
+Payload reserved bits are checked, but the header flags byte uses only bit 0 and its 7 reserved bits are not checked on either side. A frame with unknown flags should be rejected rather than silently misread.
+
+Engineering Evidence:
+Snapshot: 99 bits in 13 bytes (104 bits); top 5 bits must be zero, mask 0xF8 (buddy1_protocol.c:130-133, protocol.js:27).
+Mapping: four 5-bit letters = 20 bits in 3 bytes; top 4 bits must be zero, mask 0xF0; letters > 25 or duplicates rejected (buddy1_protocol.c:57-79).
+Sentinels: 1023 in 10-bit fields = unavailable, 31 in the 5-bit letter = none; dashboard converts to null (protocol.js:31-33).
+Header flags: out->flags = s->uncertain ? 1 : 0 (buddy1.c:141); decode copies bytes[3] with no check (buddy1_protocol.c:50, protocol.js:22). Fix: reject if (flags & 0xFE) != 0, one line each side.
+
+
+------------------------------------
+
+
+#35
+Affected Requirement / Component: Telemetry while offline / dropped frames (FR12, FR14, FR15)
+
+What needs to change?:
+Keep telemetry while offline in bounded memory and make every loss visible.
+
+Suggested by:
+Buddy 1
+
+Decision:
+No Change
+
+Why?:
+Implemented: limited operation for telemetry. Rings are only drained when the MQTT queue can accept a frame, overflow overwrites the oldest record and is counted, and staleness is flagged per source.
+
+Engineering Evidence:
+buddy1.h:9-10: 32 ODOM x 10 B = 320 B, 24 EVENT x 9 B = 216 B.
+buddy1.c:21-29: ring full -> oldest overwritten, dropped++, uncertain = 1 ("never pretend event history is complete"); dropped sent in HEARTBEAT every 2 s (buddy1.c:186-188).
+buddy1_rt.c:235-243: frames taken only while b1_mqtt_can_send().
+buddy1.c:121-133: any source not updated for 1500 ms sets its bit in the 5-bit stale mask of every SNAPSHOT.
+Dashboard draws the route dashed after an ODOM gap and re-anchors at the next 500 mm checkpoint (B1_CHECKPOINT_MM, buddy1.h:19).
+
+
+------------------------------------
+
+
+#36
+Affected Requirement / Component: Hardware wiring - ECHO level, shared pins
+
+What needs to change?:
+Add runtime detection of a missing 5 V to 3.3 V divider on the HC-SR04 ECHO line.
+
+Suggested by:
+AI
+
+Decision:
+Modify
+
+Why?:
+Not detectable in software: GP5 reads a valid high either way, and the damage is gradual. Change to a commissioning check (meter on GP5 before first run) and keep the existing wiring warnings in board_config.h.
+
+Engineering Evidence:
+board_config.h:33: "HC-SR04 ECHO is 5 V: fit a voltage divider before GP5." RP2040 GPIO are not 5 V tolerant (3.3 V IOVDD).
+board_config.h:16-23: GP0/GP1 are UART0 at boot (encoder takes them, so use CONSOLE=usb_cdc); GP28 is ADC2 and must be free of the VBAT-sense jumper or the right encoder B channel reads an analog level.
+
+
+------------------------------------
+
+
+#37
+Affected Requirement / Component: Power - brownout and battery voltage
+
+What needs to change?:
+Measure battery voltage and refuse START below a threshold.
+
+Suggested by:
+Buddy 2
+
+Decision:
+Reject
+
+Why?:
+GP28 (the usual VBAT sense pin) is used by the right encoder, and the readiness mask has no free bit (row #9). The existing behaviour is already safe: a supply dip that resets the RP2040 boots into REMOTE_HOLD with motors at zero and needs a new START (require intervention).
+
+Engineering Evidence:
+board_config.h:22-23: BOARD_ENC_RIGHT_B_PIN 28 ("must stay free of the VBAT-sense jumper").
+Reset path: motor_init() zeroes pins (motor.c:47-50); boot state REMOTE_HOLD (task_controller.c:578); app_main.c starts the controller only after motion, IR, IMU and obstacle init succeed (app_main.c:43-143).
+
+
+------------------------------------
+
+
+#38
+Affected Requirement / Component: Dashboard STOP as a safety function (NFR9)
+
+What needs to change?:
+AI suggested calling the dashboard STOP an emergency stop in the requirements.
+
+Suggested by:
+AI
+
+Decision:
+Reject
+
+Why?:
+It is a network request that depends on Wi-Fi, the broker and a 50 ms controller poll. It cannot be an emergency stop. The defined response for failures software cannot cover is human intervention with a physical cutoff.
+
+Engineering Evidence:
+README.md:9-11 warning.
+STOP path: dashboard -> broker -> mqtt_utk stopq -> telemetry task (priority 9, 50 ms loop, buddy1_rt.c:244) -> mailbox -> controller (50 ms, up to 4 missed reads). Silent link loss detection up to 15 s (row #31).
+
+
+------------------------------------
+
+
+#39
+Affected Requirement / Component: State machine - recovery rules (FR16)
+
+What needs to change?:
+Make sure STOP can clear only recoverable stops, and that no failure clears itself except lift.
+
+Suggested by:
+Team
+
+Decision:
+No Change
+
+Why?:
+Already enforced in one function, which makes recovery predictable: STOP never authorises movement, never clears ERROR, and always clears the queued action.
+
+Engineering Evidence:
+task_controller.c:482-495 remote_reset_after_stop(): obstacle_abort(), motion_reset_run(), nav_forget(), fault = 0; returns ERROR if prior state was ERROR, else REMOTE_HOLD.
+task_controller.c:813-838: STOPPED, NAV_SAFETY_STOP, ERROR, REMOTE_HOLD, LIFTED all hold zero output each period.
+Recovery classes: auto (LIFTED, barcode sampler/capture restart, MQTT reconnect with backoff mqtt_utk.c:175-176), operator STOP+START (faults 2, 6-11, 13-14, MQTT loss), reset only (ERROR: faults 3, 4, 5, bypass fault).
+
+
+------------------------------------
+
+
+#40
+Affected Requirement / Component: Verification / testing (NFR11)
+
+What needs to change?:
+Add host tests for every new or changed fault response, and on-target checks for the timing claims.
+
+Suggested by:
+Team
+
+Decision:
+Accept
+
+Why?:
+Coverage of the new requirement must be shown, not asserted. Existing tests cover link loss and START refusal; the new rows need their own.
+
+Engineering Evidence:
+Existing: tools/test_controller_handoff.c (link down while running -> REMOTE_HOLD, zero output, no resume; START refused while offline); dashboard reconnect.test.js, remote-hold.test.js, recovery-fault-sources.test.js, recovery-safety-stop.test.js. Last run: bash tools/run_host_tests.sh HOST PASS; npm test 96/96 (requirements_audit.md, NFR11).
+New host tests: encoder plausibility (row #13), line-search give-up fault 15 (row #11), header flag reject (row #34), stop-before-print order (row #31), obstacle verified recovery (row #26).
+On-target: watchdog trip by deliberately blocking the controller task (row #3); stop latency from MQTT drop (unplug broker, time to PWM 0 on a scope); IMU I2C unplug -> fault 10 within 1 s (row #20).
+
+
+------------------------------------
+
+
+FINAL COVERAGE CHECK
+Before submitting, check whether the team considered, where relevant:
+[x] Requirements                              (#1, #2, #8, #24, #31, #38)
+[x] Tasks / components                        (#4, #10-#29)
+[x] State machines                            (#1, #11, #23, #39)
+[x] Interfaces / messages                     (#8, #9, #32, #33, #34, #35)
+[x] Shared data / concurrency / interrupts    (#4, #5, #6, #12, #17)
+[x] Timing / performance                      (#3, #6, #7, #20, #21, #25, #31)
+[x] Memory / resources                        (#7, #8, #9, #26, #27, #35)
+[x] Safety / fault handling                   (#1-#3, #13-#16, #20, #25, #30, #38)
+[x] Hardware / software interaction           (#2, #3, #12, #21, #36, #37)
+[x] Recovery and safe resumption              (#17, #23, #26, #30, #39)
+[x] Verification / testing                    (#40)
+
+FINAL TEAM STATEMENT
+[x] We reviewed the injected requirement against the complete system. Areas marked No Change were deliberately considered rather than omitted.
