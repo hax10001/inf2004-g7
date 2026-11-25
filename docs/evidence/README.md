@@ -8,6 +8,9 @@ This folder collects the evidence for the Tribunal 2 requirements in one place.
 | Traceability and coverage | [`docs/tribunal2/requirements_traceability.md`](../tribunal2/requirements_traceability.md) |
 | Coding standard (BARR-C:2018) | [`docs/tribunal2/barr_c_compliance_notes.md`](../tribunal2/barr_c_compliance_notes.md) |
 | PID report | [`docs/pid/G7_PID_report.pdf`](../pid/G7_PID_report.pdf) |
+| MQTT documentation | [`docs/mqtt/G7_MQTT_documentation.pdf`](../mqtt/G7_MQTT_documentation.pdf) |
+| Motion accuracy evaluation | [`docs/motion/G7_motion_accuracy_evaluation.pdf`](../motion/G7_motion_accuracy_evaluation.pdf) |
+| Terrain analysis report | [`docs/terrain/G7_terrain_analysis_report.pdf`](../terrain/G7_terrain_analysis_report.pdf) |
 | Demo videos | [`videos/`](videos/) |
 | Latest test and build output | [`test_results/`](test_results/) |
 

@@ -17,7 +17,10 @@ loads the route mapping and sends START and STOP.
 [evidence and videos](docs/evidence/README.md) ·
 [BARR-C compliance](docs/tribunal2/barr_c_compliance_notes.md) ·
 [minimum-bit data](docs/min-bits/MINIMUM_BITS.md) ·
-[PID report](docs/pid/G7_PID_report.pdf)
+[PID report](docs/pid/G7_PID_report.pdf) ·
+[MQTT documentation](docs/mqtt/G7_MQTT_documentation.pdf) ·
+[motion accuracy](docs/motion/G7_motion_accuracy_evaluation.pdf) ·
+[terrain analysis](docs/terrain/G7_terrain_analysis_report.pdf)
 
 ---
 
@@ -69,7 +72,8 @@ lib/libnet/lwip/mqtt_utk.c   MQTT client (the only lwIP user)
 kernel/ include/ lib/ device/ config/   µT-Kernel 3.0 RP2040 SMP port
 build_make/     make build used by build_uf2.sh
 tools/          host tests, style checker, build helpers
-docs/           requirements, traceability, evidence, min-bits, PID report
+docs/           requirements, traceability, evidence, min-bits, PID, MQTT,
+                motion and terrain reports
 ```
 
 ## Build and flash
@@ -163,6 +167,9 @@ issues the tests found. Saved outputs are in [`docs/evidence/test_results/`](doc
 - **Coding standard:** [`docs/tribunal2/barr_c_compliance_notes.md`](docs/tribunal2/barr_c_compliance_notes.md). What was done for BARR-C:2018, how the build enforces it, and the formal deviation list.
 - **Minimum-bit data representation:** [`docs/min-bits/MINIMUM_BITS.md`](docs/min-bits/MINIMUM_BITS.md) (Change Requirement 1).
 - **PID report:** [`docs/pid/G7_PID_report.pdf`](docs/pid/G7_PID_report.pdf). Wheel speed controller design and tuning.
+- **MQTT documentation:** [`docs/mqtt/G7_MQTT_documentation.pdf`](docs/mqtt/G7_MQTT_documentation.pdf). Broker settings, topics, frame format, commands and ACKs, link-loss behaviour and measured performance (Buddy 1).
+- **Motion accuracy evaluation:** [`docs/motion/G7_motion_accuracy_evaluation.pdf`](docs/motion/G7_motion_accuracy_evaluation.pdf). Speed, wheel balance, turn repeatability and distance, measured from the car's telemetry (Buddy 2).
+- **Terrain analysis report:** [`docs/terrain/G7_terrain_analysis_report.pdf`](docs/terrain/G7_terrain_analysis_report.pdf). IMU noise, hump detection and height, motion events and lift stop, measured from the car's telemetry (Buddy 4).
 
 ## Contributors
 
