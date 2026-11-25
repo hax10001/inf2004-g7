@@ -8,6 +8,9 @@
 #define BC_PORT_ERROR_PATTERN 7U
 #define BC_PORT_ERROR_BUSY 8U
 #define BC_PORT_DIAG_SLOTS 4U
+#define BC_PORT_USEC_PER_MSEC 1000U     /* microseconds per millisecond */
+#define BC_PORT_QUALITY_VALUE_MASK 3U  /* 2-bit quality field */
+#define BC_PORT_ERROR_VALUE_MASK 15U   /* 4-bit error-code field */
 
 static ID gh_port_lock = 0;
 /* Runtime needs three checked thresholds and three flags only. The full
@@ -18,9 +21,9 @@ typedef struct
     uint16_t max_wheel_step_delta;
     uint16_t max_sample_travel_units;
     uint16_t max_sample_interval_msec;
-    unsigned char left_reverse:1;
-    unsigned char right_reverse:1;
-    unsigned char black_gpio_level:1;
+    uint8_t       left_reverse:1;
+    uint8_t       right_reverse:1;
+    uint8_t       black_gpio_level:1;
 } bc_port_runtime_config_t;
 static bc_port_runtime_config_t g_port_config;
 static bc_scan_t g_port_scan;
@@ -58,6 +61,7 @@ ER bc_port_nav_enable(uint8_t enable)
     return tk_sig_sem(gh_port_lock, 1);
 }
 
+/** @brief Open a navigation scan window at a capture time. */
 ER bc_port_nav_begin(uint32_t captured_msec)
 {
     if (gh_port_lock <= E_OK)
@@ -73,6 +77,7 @@ ER bc_port_nav_begin(uint32_t captured_msec)
     return tk_sig_sem(gh_port_lock, 1);
 }
 
+/** @brief Close the navigation scan window. */
 ER bc_port_nav_finish(void)
 {
     if (gh_port_lock <= E_OK)
@@ -85,15 +90,15 @@ ER bc_port_nav_finish(void)
         return error;
     }
     /* Ignored/non-barcode captures also terminate the transaction. */
-    if (g_navigation_slot.owned)
+    if (0U != g_navigation_slot.owned)
     {
         SYSTIM now = {0};
         if (tk_get_otm(&now) < E_OK)
         {
             g_navigation_slot.overflow = 1U;
         }
-        scan_handoff_finish(&g_navigation_slot, 31U, ++g_event_sequence,
-                            now.lo);
+        scan_handoff_finish(&g_navigation_slot, BC_CODE_LETTER_INVALID,
+                            ++g_event_sequence, now.lo);
     }
     return tk_sig_sem(gh_port_lock, 1);
 }
@@ -113,6 +118,7 @@ ER bc_port_nav_abort(void)
     return tk_sig_sem(gh_port_lock, 1);
 }
 
+/** @brief Mark that the scanner captured a pass in the window. */
 ER bc_port_nav_captured(uint32_t captured_msec)
 {
     if (gh_port_lock <= E_OK)
@@ -124,16 +130,17 @@ ER bc_port_nav_captured(uint32_t captured_msec)
     {
         return error;
     }
-    if (g_navigation_slot.owned)
+    if (0U != g_navigation_slot.owned)
     {
         g_navigation_slot.captured_msec = captured_msec;
     }
     return tk_sig_sem(gh_port_lock, 1);
 }
 
-ER bc_port_nav_take(scan_handoff_t *out)
+/** @brief Take the decoded result for navigation, if any. */
+ER bc_port_nav_take(scan_handoff_t *p_out)
 {
-    if (!out)
+    if (!p_out)
     {
         return E_PAR;
     }
@@ -146,7 +153,7 @@ ER bc_port_nav_take(scan_handoff_t *out)
     {
         return error;
     }
-    *out = g_navigation_slot;
+    *p_out = g_navigation_slot;
     g_navigation_slot.ready = 0U;
     return tk_sig_sem(gh_port_lock, 1);
 }
@@ -155,6 +162,7 @@ static ER bc_port_store (bc_code_result_t decoded, uint32_t timestamp,
                          uint8_t error_code, uint8_t event);
 
 
+/** @brief Convert microseconds to scanner ticks. */
 static uint8_t bc_port_ticks (int32_t left, int32_t right)
 {
     int64_t step_l;
@@ -291,7 +299,7 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
 {
     uint32_t now_msec;
     uint32_t const edge_age_limit = (uint32_t)
-        g_port_config.max_sample_interval_msec * 1000U;
+        g_port_config.max_sample_interval_msec * BC_PORT_USEC_PER_MSEC;
     ER error;
 
     if (gh_port_lock <= E_OK)
@@ -359,7 +367,7 @@ ER bc_port_sample_counts (uint8_t raw_gpio_level,
     {
         g_clock_usec += elapsed_usec;
     }
-    now_msec = (uint32_t)(g_clock_usec / 1000U);
+    now_msec = (uint32_t)(g_clock_usec / BC_PORT_USEC_PER_MSEC);
     g_last_time_usec = now_usec;
     gb_have_time = 1U;
 
@@ -399,6 +407,7 @@ ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec)
                                  left.edge_usec, right.edge_usec, 1U);
 }
 
+/** @brief Process queued barcode samples for the scanner. */
 ER bc_port_process (void)
 {
     uint32_t widths[BC_CODE_ELEMENTS] = {0U};
@@ -466,6 +475,7 @@ ER bc_port_process (void)
     return bc_port_store(decoded, timestamp, error_code, event);
 }
 
+/** @brief Store a decoded or rejected scan for telemetry. */
 static ER bc_port_store (bc_code_result_t decoded, uint32_t timestamp,
                          uint8_t error_code, uint8_t event)
 {
@@ -480,9 +490,9 @@ static ER bc_port_store (bc_code_result_t decoded, uint32_t timestamp,
     result.timestamp_msec = timestamp;
     result.info = (uint16_t)((0U != decoded.valid) ?
                              decoded.letter : BC_CODE_LETTER_INVALID);
-    result.info |= (uint16_t)((decoded.quality & 3U) <<
+    result.info |= (uint16_t)((decoded.quality & BC_PORT_QUALITY_VALUE_MASK) <<
                               BC_PORT_QUALITY_SHIFT);
-    result.info |= (uint16_t)((error_code & 15U) <<
+    result.info |= (uint16_t)((error_code & BC_PORT_ERROR_VALUE_MASK) <<
                               BC_PORT_ERROR_SHIFT);
     if (BC_SCAN_EVENT_READY == event)
     {
@@ -524,8 +534,8 @@ static ER bc_port_store (bc_code_result_t decoded, uint32_t timestamp,
         g_navigation_slot.overflow = 1U;
     }
     scan_handoff_finish(&g_navigation_slot,
-        decoded.valid ? decoded.letter : 31U, result.sequence,
-        navigation_now.lo);
+        decoded.valid ? decoded.letter : BC_CODE_LETTER_INVALID,
+        result.sequence, navigation_now.lo);
     if ((0U == b_busy) ||
         (0U == (g_port_result.info & BC_PORT_VALID_FLAG)))
     {
@@ -558,7 +568,7 @@ ER bc_port_publish_buffered (bc_code_result_t const * p_result,
                               uint32_t timestamp_msec)
 {
     if ((0 == p_result) || (0U == p_result->valid) ||
-        (p_result->letter >= 26U))
+        (p_result->letter >= BC_CODE_LETTERS))
     {
         return E_PAR;
     }

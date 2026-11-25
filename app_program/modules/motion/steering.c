@@ -8,17 +8,17 @@
 #include "steering.h"
 #include "app/app_config.h"
 
-/* PI steering (STEERING_OBSERVER 0): exactly the committed steering
- * (e98c3e5), the one barcodes were read well with. Steer for any
- * off-centre reading, and its growth per second. */
+/* PI steering (STEERING_OBSERVER 0): steer for any off-centre reading,
+ * and its growth per second.
+ */
 #define STEERING_KP 0.3f
 #define STEERING_KI 2.0f
 /* Fraction of the integral kept per centred period: lower recentres faster. */
 #define STEERING_DECAY 0.85f
-/* A touch that built less integral than this was a nudge on a straight, so
+/* A touch that built less integral than this is a nudge on a straight, so
  * the turn ends with it; keeping it would overshoot to the other edge. A
- * longer touch is a curve, and its turn is kept to carry through the bend.
- * At STEERING_KI 2.0 and 50 ms periods, 0.35 is about four periods.
+ * longer touch is a curve, and its turn is kept through the bend. At
+ * STEERING_KI 2.0 and 50 ms periods, 0.35 is about four periods.
  */
 #define STEERING_CURVE_INTEGRAL 0.35f
 /* Inside a bend the touches are short but keep coming from the same side.
@@ -42,19 +42,18 @@
 #define STEERING_BEND_MEMORY_PERIODS 25U
 /* Only a full turn whose sensor stayed on the line this many periods in a
  * row, about 0.3 s, restarts that window. Straight-line nudges last two or
- * three periods, so after a bend the window closes; letting resumed turns
- * restart it kept straights pivoting at every nudge.
+ * three periods, so after a bend the window closes.
  */
 #define STEERING_BEND_TOUCH_PERIODS 5U
 
 /* ---- Line observer (STEERING_OBSERVER) ---------------------------------
- * Geometry: the IR pair sits APP_NAV_IR_TO_AXLE_MM ahead of the axle, so a
- * turn of the robot swings it sideways by that lever; the wheels are
- * APP_NAV_TRACK_MM apart. Measure: LINE_TRACK_SENSOR_GAP_MM, centre to
- * centre of the two IR spots (26 assumed; the closed-loop model holds from
- * 20 to 34 mm with this value). */
+ * The IR pair sits APP_NAV_IR_TO_AXLE_MM ahead of the axle, so a turn of
+ * the robot swings it sideways by that lever; the wheels are
+ * APP_NAV_TRACK_MM apart. LINE_TRACK_SENSOR_GAP_MM is centre to centre of
+ * the two IR spots; the model tolerates 20 to 34 mm.
+ */
 #define LINE_TRACK_SENSOR_GAP_MM 26U
-#define LINE_TRACK_TAPE_MM 18U
+#define LINE_TRACK_TAPE_MM 18U /* Line tape width, mm. */
 #define LINE_TRACK_LEAD_MM ((float)APP_NAV_IR_TO_AXLE_MM)
 #define LINE_TRACK_TRACK_MM ((float)APP_NAV_TRACK_MM)
 /* Where each sensor sees the line: the line's centre within the tape's
@@ -64,10 +63,8 @@
 #define LINE_TRACK_OUTER_EDGE_MM \
     ((float)(LINE_TRACK_SENSOR_GAP_MM + LINE_TRACK_TAPE_MM) / 2.0f)
 /* PID gains: steer per mm of offset, per radian of heading across the line,
- * and per mm-mm of offset travelled (curves). Closed-loop model, 35-65 RPM,
- * sensor gaps 20-34 mm, tracks 110-135 mm, motor lags 0.07-0.15 s: 97.5 %
- * of runs completed (the PI steering 94.9 %), with straight-line wander of
- * 4.1 mm RMS against 8.0 (3.2 mm at 35 RPM, as the old steering did at 15).
+ * and per mm-mm of offset travelled (curves). Tuned in a closed-loop model
+ * over 35-65 RPM, 20-34 mm sensor gaps and 110-135 mm tracks.
  */
 #define LINE_TRACK_KP 0.06f
 #define LINE_TRACK_KD 0.5f

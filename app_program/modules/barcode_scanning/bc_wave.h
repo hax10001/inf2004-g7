@@ -1,5 +1,5 @@
 /** @file bc_wave.h
- * @brief Experimental buffered analog Code 39 decoder and comparison logs.
+ * @brief Buffered analog Code 39 capture, decoding and diagnostics.
  */
 #ifndef BC_WAVE_H
 #define BC_WAVE_H
@@ -14,18 +14,19 @@ void bc_wave_poll (void);
 
 /** @brief Diagnostic motor hold; always clear in live-control builds. */
 uint8_t bc_wave_motion_hold (void);
-/** Reports whether a completed capture is safe to rearm. */
+/** @brief Nonzero when a completed capture is safe to rearm. */
 uint8_t bc_wave_can_rearm (void);
-/** Armed with a learned white reference and no pending reset. */
+/** @brief Armed with a learned white reference and no pending reset. */
 uint8_t bc_wave_is_ready (void);
-/** Live scan window, used to lower wheel target temporarily. */
+/** @brief Capture in progress; navigation lowers wheel speed meanwhile. */
 uint8_t bc_wave_capture_active (void);
-/** Short scan/junction suppression window; bounded in navigation core. */
+/** @brief Short scan/junction guard window; bounded by navigation. */
 uint8_t bc_wave_navigation_guard_active(void);
+/** @brief Ask the scanner to rearm after a pass. */
 void bc_wave_request_rearm (void);
-/* Worker-owned cancellation; preserves the learned white reference. */
+/** @brief Cancel the capture; keeps the learned white reference. */
 void bc_wave_request_cancel(void);
-/** Drop the capture now running as not a barcode (junction tape); the
+/** @brief Drop the running capture as not a barcode (junction tape); the
  *  scanner stays armed. No effect unless a capture is running. */
 void bc_wave_request_drop(void);
 /** @brief While nonzero, no new capture starts (e.g. obstacle bypass). A
@@ -50,14 +51,14 @@ typedef struct
     /* One barcode task constructs this diagnostic copy. Seven scanner
      * states and eight reasons require 3 bits each; letters + invalid
      * sentinel 31 require 5 bits. Do not serialize this native layout. */
-    unsigned int state:3;        /**< BC_WAVE_STATE_*: 0..6. */
-    unsigned int last_valid:1;
-    unsigned int last_letter:5;  /**< 0..25, or 31 when none. */
-    unsigned int last_reason:3;  /**< BC_LAYOUT_* or IGNORED (7). */
+    uint32_t     state:3;        /**< BC_WAVE_STATE_*: 0..6. */
+    uint32_t     last_valid:1;
+    uint32_t     last_letter:5;  /**< 0..25, or 31 when none. */
+    uint32_t     last_reason:3;  /**< BC_LAYOUT_* or IGNORED (7). */
     uint8_t white_rejects;
     /* Raw ADC readings have 12-bit range; the diagnostic unit is a copy. */
-    unsigned int white_mean:12;
-    unsigned int white_sigma:12;
+    uint32_t     white_mean:12;
+    uint32_t     white_sigma:12;
     uint16_t sequence;          /**< Last finished pass number. */
     uint16_t last_process_ms;
 } bc_wave_status_t;

@@ -15,6 +15,12 @@
 #include "drivers/encoder.h"
 #include <tm/tmonitor.h>
 
+#define BC_SETUP_REPORT_USEC 1000000U /* one diagnostic report per second */
+#define BC_SETUP_LINE_LEN 384        /* frame-report line buffer bytes */
+#define BC_SETUP_DIGITS_LEN 10       /* decimal digits of a uint32_t */
+#define BC_SETUP_DECIMAL_BASE 10U    /* base for width printing */
+#define BC_SETUP_CONSOLE_READY 2U    /* console_state(): USB configured */
+
 #if BC_CAL_READY
 #define BC_MEASURE_LOG_USEC 500000U
 
@@ -59,6 +65,7 @@ static uint32_t g_input_report_usec;
 static uint32_t g_reported_event;
 static uint32_t g_frame_report_usec;
 
+/** @brief Log the sample frame timing statistics. */
 static void bc_setup_frame_report (bc_port_stats_t const * p_stats,
                                    uint32_t now)
 {
@@ -66,9 +73,9 @@ static void bc_setup_frame_report (bc_port_stats_t const * p_stats,
     {
         g_reported_event = p_stats->last_event;
         if ((BC_SCAN_ERROR_INPUT != p_stats->last_error) ||
-            ((uint32_t)(now - g_frame_report_usec) >= 1000000U))
+            ((uint32_t)(now - g_frame_report_usec) >= BC_SETUP_REPORT_USEC))
         {
-            char line[384] = {0};
+            char line[BC_SETUP_LINE_LEN] = {0};
             uint32_t used = 0U;
             g_frame_report_usec = now;
             tm_printf((UB *)"[BC FRAME] event=%u capture_error=%u "
@@ -80,13 +87,14 @@ static void bc_setup_frame_report (bc_port_stats_t const * p_stats,
             for (uint32_t i = 0U;
                  (i < p_stats->last_runs) && (i < BC_CODE_ELEMENTS); ++i)
             {
-                char digits[10] = {0};
+                char digits[BC_SETUP_DIGITS_LEN] = {0};
                 uint32_t count = 0U;
                 uint32_t value = p_stats->last_widths[i];
                 do
                 {
-                    digits[count++] = (char)('0' + value % 10U);
-                    value /= 10U;
+                    digits[count++] =
+                        (char)('0' + value % BC_SETUP_DECIMAL_BASE);
+                    value /= BC_SETUP_DECIMAL_BASE;
                 } while (value > 0U);
                 if (used + count + 1U >= sizeof(line))
                 {
@@ -110,6 +118,7 @@ static void bc_setup_frame_report (bc_port_stats_t const * p_stats,
 #endif
 
 #if APP_BARCODE_ANALOG_ENABLED
+/** @brief Log the barcode ADC range statistics. */
 static void bc_setup_adc_report (void)
 {
     bc_fast_adc_stats_t adc = {0};
@@ -128,6 +137,7 @@ static void bc_setup_adc_report (void)
 #endif
 
 #if !APP_BARCODE_ANALOG_ENABLED || !APP_BARCODE_BUFFERED_ENABLED
+/** @brief Log the barcode input statistics. */
 static void bc_setup_input_report (void)
 {
     uint32_t now = encoder_now_usec();
@@ -137,7 +147,7 @@ static void bc_setup_input_report (void)
         return;
     }
     bc_setup_frame_report(&stats, now);
-    if ((uint32_t)(now - g_input_report_usec) >= 1000000U)
+    if ((uint32_t)(now - g_input_report_usec) >= BC_SETUP_REPORT_USEC)
     {
         g_input_report_usec = now;
 #if APP_BARCODE_ANALOG_ENABLED
@@ -162,6 +172,7 @@ static void bc_setup_input_report (void)
 }
 #endif
 
+/** @brief Report a barcode setup failure. */
 static void bc_setup_fail (ER error)
 {
     g_setup_error = error;
@@ -181,6 +192,7 @@ static uint32_t bc_measure_step (int32_t count, int32_t previous)
     return (size > UINT32_MAX) ? UINT32_MAX : (uint32_t)size;
 }
 
+/** @brief Read one sample for the measurement mode. */
 static void bc_measure_sample (bc_fastq_sample_t const * p_sample)
 {
     if (0U == g_measure.ready)
@@ -247,6 +259,7 @@ static void bc_measure_sample (bc_fastq_sample_t const * p_sample)
     g_measure.time_usec = p_sample->time_usec;
 }
 
+/** @brief Poll the measurement mode and log a row. */
 static void bc_measure_poll (void)
 {
     bc_fastq_sample_t sample = {0};
@@ -309,12 +322,14 @@ static void bc_measure_poll (void)
     }
 }
 
+/** @brief Diagnostic task: periodic barcode statistics. */
 static void bc_setup_diag_task (INT start_code, void * p_context)
 {
     (void)start_code;
     (void)p_context;
     for (INT attempt = 0;
-         (attempt < APP_USB_WAIT_ATTEMPTS) && (console_state() < 2U);
+         (attempt < APP_USB_WAIT_ATTEMPTS) &&
+         (console_state() < BC_SETUP_CONSOLE_READY);
          ++attempt)
     {
         tk_dly_tsk(APP_USB_WAIT_PERIOD_MSEC);
@@ -458,7 +473,7 @@ ER bc_setup_poll (void)
 #if APP_BARCODE_ANALOG_ENABLED && APP_BARCODE_BUFFERED_ENABLED
         bc_wave_poll();
         uint32_t now = encoder_now_usec();
-        if ((uint32_t)(now - g_input_report_usec) >= 1000000U)
+        if ((uint32_t)(now - g_input_report_usec) >= BC_SETUP_REPORT_USEC)
         {
             g_input_report_usec = now;
             bc_setup_adc_report();

@@ -24,7 +24,7 @@ typedef struct
     uint8_t flags; /**< Bit 0 capture validity, bit 1 ADC validity. */
 } bc_trace_row_t;
 
-/* 4096 x 16 bytes = 64 KiB, preserving the eight-second trace window. */
+/* 4096 x 16 bytes = 64 KiB: about eight seconds at 2 ms per sample. */
 static bc_trace_row_t g_trace[BC_TRACE_CAPACITY];
 static uint32_t g_write;
 static uint32_t g_count;

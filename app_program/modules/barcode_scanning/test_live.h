@@ -3,8 +3,9 @@
  */
 #ifndef TEST_LIVE_H
 #define TEST_LIVE_H
+#include <stdint.h>
 
-int test_live_run (char const * p_case);
+int32_t test_live_run(char const * p_case);
 
 #endif /* TEST_LIVE_H */
 

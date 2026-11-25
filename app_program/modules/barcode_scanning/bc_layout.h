@@ -40,18 +40,18 @@ typedef void (* bc_layout_read_t)(uint32_t index, uint32_t * p_units,
 
 typedef struct
 {
-    /* Single decoder task owns this result; 0/1 flags and seven refusal
-     * states use minimum-bit storage. Keep byte-sized invalid letter 255. */
-    unsigned char valid:1;
-    unsigned char reverse:1;
-    unsigned char variant:1; /**< 0 centre, 1 sensor distance. */
-    unsigned char reason:3;  /**< BC_LAYOUT_* 0..6. */
+    /* Owned by the single decoder task. Letters stay byte-wide so 255 can
+     * mean invalid. */
+    uint8_t       valid:1;
+    uint8_t       reverse:1;
+    uint8_t       variant:1; /**< 0 centre, 1 sensor distance. */
+    uint8_t       reason:3;  /**< BC_LAYOUT_* 0..6. */
     uint8_t letter;          /**< 0..25 or 255 invalid. */
     uint8_t runner;        /**< Runner-up letter in the group, or 255. */
     uint8_t other;         /**< Disagree/ambiguous: other letter, or 255. */
-    unsigned char bars:7; /**< 0..96 candidate bars, max raw buffer. */
+    uint8_t       bars:7; /**< 0..96 candidate bars, max raw buffer. */
     uint16_t err_centi;    /**< Wide-bar fit error, modules x100. */
-    unsigned int module_x10:10; /**< Accepted module 30..100 x10, or 0. */
+    uint32_t     module_x10:10; /**< Accepted module 30..100 x10, or 0. */
     uint16_t gap_permille; /**< Model misfit gap to the runner-up. */
 } bc_layout_result_t;
 

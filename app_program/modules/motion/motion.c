@@ -18,9 +18,8 @@
 #include "drivers/motor.h"
 #include <tm/tmonitor.h>
 
-/* Open-loop duty percent that gives MOTION_CAL_RPM. Measured on the track:
- * the speed loop settled near 21 and 22 percent at 40 RPM, so the trim
- * keeps headroom for steering instead of sitting at its limit.
+/* Open-loop duty percent that gives MOTION_CAL_RPM, as measured on the
+ * track, so the trim keeps headroom for steering.
  */
 #define MOTION_LEFT_SPEED 21.0f
 #define MOTION_RIGHT_SPEED 22.0f
@@ -28,20 +27,17 @@
  * speed is interpolated from it, so MOTION_TARGET_RPM can change freely.
  */
 #define MOTION_CAL_RPM 40.0f
-/* Deadband: the duty a wheel needs before it turns at all.
- * WARNING: Uncalibrated. With APP_SPEED_CONTROL_ENABLED 0, lower the
- * matching speed above until that wheel stops, then use the last duty
- * that still turned it. Must stay below that wheel's speed.
+/* Deadband: duty percent a wheel needs before it turns at all. Must stay
+ * below that wheel's MOTION_*_SPEED.
  */
 #define MOTION_LEFT_MIN_DUTY 8.0f
 #define MOTION_RIGHT_MIN_DUTY 8.0f
-#define MOTION_MAX_PERCENT 100.0f
+#define MOTION_MAX_PERCENT 100.0f /* Full duty, percent. */
 
-/* Driving speed on a straight. 40 RPM is about 140 mm/s. The steering
- * scales with it (STEERING_REF_RPM), so it can be raised: the closed-loop
- * model follows curves and 90 degree corners at 35-65 RPM. */
+/* Driving speed on a straight, RPM (40 RPM is about 140 mm/s). Steering
+ * scales with it (STEERING_REF_RPM). Higher speeds miss barcodes.
+ */
 #ifndef MOTION_TARGET_RPM
-/* 21 Nov: 30, from 35: the last barcode on the course was missed at 35. */
 #define MOTION_TARGET_RPM 30.0f
 #endif
 /* Largest change in the base speed per period, when starting or stopping. */
@@ -55,16 +51,16 @@
  */
 #define MOTION_CURVE_SLOWDOWN 0.6f
 /* Targets below this stop the wheel: a fifth of the driving speed, so only
- * the inner wheel of a turn near full steer gets this low. Driving it there
- * gave about 15 RPM instead of 4 at 40 RPM.
+ * the inner wheel near full steer gets this low. The motor cannot hold
+ * such a low speed and would be dragged along instead.
  */
 #define MOTION_STOP_RPM (0.2f * MOTION_TARGET_RPM)
 /* Duty percent per RPM of error, and per RPM-second of accumulated error. */
 #define MOTION_KP 0.1f
 #define MOTION_KI 0.5f
-/* Bound drive/brake effort changes on descent and during its handoff. */
+/* Largest duty change per period (percent) on a descent and its handoff. */
 #define MOTION_DESCENT_DUTY_STEP 2.0f
-/* Bounds the trim so a miscalibrated target cannot run away. */
+/* Trim bound, percent, so a miscalibrated target cannot run away. */
 #define MOTION_TRIM_MAX_PERCENT 12.0f
 /* Below this target the deadband dominates and the inner wheel of a hard turn
  * is dragged along, so the learned offset would be wrong at normal speed.
@@ -72,28 +68,28 @@
 #define MOTION_INTEGRATE_MIN_RPM 15.0f
 #define MOTION_PERIOD_SEC ((float)APP_CONTROLLER_PERIOD_MSEC / 1000.0f)
 /* Stall rescue (see wheel_command): a wheel commanded to turn but measured
- * below MOTION_STALL_RPM gets this much more duty every period (1 % per
- * 50 ms, so +10 % after 0.5 s), up to the maximum; once it turns the boost
- * is removed at the decay rate. 15 % on top of ~13 % stays well short of
- * full power, so a jammed wheel is not driven hard. */
+ * below MOTION_STALL_RPM gains MOTION_STALL_STEP_PERCENT duty per period up
+ * to the maximum; once it turns the boost decays. The 15 % cap keeps a
+ * jammed wheel well short of full power.
+ */
 #define MOTION_STALL_RPM 1.0f
 #define MOTION_STALL_STEP_PERCENT 1.0f
 #define MOTION_STALL_MAX_PERCENT 15.0f
 #define MOTION_STALL_DECAY_PERCENT 0.5f
-#define MOTION_LOG_EVERY 10U
+#define MOTION_LOG_EVERY 10U /* Periods between status log slots. */
 #define MOTION_PI 3.14159265f
 /* Wheel travel per encoder count: a 70 mm wheel over 1056 counts. */
 #define MOTION_MM_PER_COUNT \
     ((MOTION_PI * BOARD_WHEEL_DIAMETER_MM) / (float)BOARD_ENC_COUNTS_PER_REV)
 /* Junction pivots: wheels in opposite directions, each wheel's duty
- * stepped every period so it moves MOTION_PIVOT_COUNTS per period whatever
- * the floor grip (16 counts per 50 ms is ~70 degrees/s: a U-turn ~2.6 s,
- * slow enough for the line sensors to catch the 18 mm tape). Angle, line
- * reacquisition and time limits are nav_core's. PWM counts of 12499. */
+ * stepped every period to hold MOTION_PIVOT_COUNTS per period whatever the
+ * floor grip (~70 degrees/s, slow enough for the line sensors to catch the
+ * 18 mm tape). Angle and time limits are nav_core's. PWM counts of 12499.
+ */
 #define MOTION_PIVOT_COUNTS 16
 #define MOTION_PIVOT_PWM_START 1250U /* 10 %, just above the deadband */
-#define MOTION_PIVOT_PWM_STEP 125U
-#define MOTION_PIVOT_PWM_MIN 750U
+#define MOTION_PIVOT_PWM_STEP 125U /* 1 % per period. */
+#define MOTION_PIVOT_PWM_MIN 750U  /* 6 %. */
 #define MOTION_PIVOT_PWM_MAX 3750U   /* 30 % */
 /* Ramp (downhill) wheel effort limits, percent of full PWM: negative
  * effort is bounded short-brake, never reverse. The integral is clamped
@@ -104,8 +100,8 @@
 /* An IMU snapshot older than this does not drive the downhill governor. */
 #define MOTION_IMU_FRESH_MSEC 200U
 /* Nonzero while pivoting: the larger wheel duty (motion_brake reads it).
- * Pivot duties stay within MOTION_PIVOT_PWM_MIN..MAX, so 16 bits hold
- * them. */
+ * Pivot duties stay within MOTION_PIVOT_PWM_MIN..MAX, so 16 bits hold them.
+ */
 #if (MOTION_PIVOT_PWM_MAX + MOTION_PIVOT_PWM_STEP) > 65535U
 #error Pivot PWM no longer fits 16 bits
 #endif
@@ -126,26 +122,22 @@ static uint8_t g_brake_cycles = 0U;
 
 /* Lost-line search. Two sensors that straddle the line both read white
  * whether the line is between them or has been left behind, so travel
- * alone tells them apart: after MOTION_SEARCH_AFTER_MM with no sensor on
- * the line, the robot pivots on the spot towards where it last saw it, up
- * to MOTION_SEARCH_SWEEP_DEG, then the same past the start the other way,
- * and stops if it still has not found it. A sharp corner is the usual
- * cause: the inside sensor crosses the new arm for one tape width, which
- * looks like a nudge, and the robot drove on straight (closed-loop model:
- * 0 % of sharp 90 degree corners before, 70-95 % with the search). On a
- * straight the line is still between the sensors, so a pivot finds it
- * within a few degrees. Uses the junction pivot (MOTION_PIVOT_*). */
+ * tells them apart: after MOTION_SEARCH_AFTER_MM with no sensor on the
+ * line, the robot pivots towards where it last saw it, up to
+ * MOTION_SEARCH_SWEEP_DEG, then the same past the start the other way, and
+ * stops if it still has not found it. A sharp corner is the usual cause:
+ * the inside sensor crosses the new arm for only one tape width. Uses the
+ * junction pivot (MOTION_PIVOT_*).
+ */
 #define MOTION_SEARCH_AFTER_MM 100U
 #define MOTION_SEARCH_SWEEP_DEG 120U
 /* Rolling check before that pivot. On a straight the line is usually
- * still between the sensors (26 mm apart over 18 mm tape, so only ~4 mm
- * clear each side), and stopping to pivot made the robot halt and jitter
- * for nothing: logged 19 Nov, 23 of 29 searches found the line within
- * 5 degrees. After MOTION_SEARCH_ROLL_MM with no sensor on the line the
- * robot keeps driving and steers gently towards where it last saw the
- * line; a sensor touches the tape within a few mm and following simply
- * continues. Only if it has still not seen the line by
- * MOTION_SEARCH_AFTER_MM does it stop and pivot (a missed corner). */
+ * still between the sensors (26 mm apart over 18 mm tape, ~4 mm clear each
+ * side), so stopping to pivot would only make the robot jitter. After
+ * MOTION_SEARCH_ROLL_MM (mm) with no sensor on the line the robot keeps
+ * driving and steers by MOTION_SEARCH_ROLL_STEER towards the line's last
+ * side; only at MOTION_SEARCH_AFTER_MM does it stop and pivot.
+ */
 #ifndef MOTION_SEARCH_ROLL_MM
 #define MOTION_SEARCH_ROLL_MM 50U
 #endif
@@ -166,13 +158,30 @@ static uint8_t g_brake_cycles = 0U;
     ((2U * MOTION_SEARCH_SWEEP_COUNTS) > 65535U)
 #error Lost-line search counts no longer fit 16 bits
 #endif
+/* Lost-line search phases (line_search_t.phase). */
 #define SEARCH_FOLLOWING 0U
 #define SEARCH_FIRST_SWEEP 1U
 #define SEARCH_SWEEP_BACK 2U
 #define SEARCH_GAVE_UP 3U
 #define SEARCH_ROLLING 4U
+/* Pivot directions for pivot_step(). */
 #define PIVOT_LEFT 1U
 #define PIVOT_RIGHT 2U
+#define PIVOT_UTURN 3U
+/* Pivot duty eases off above the target count plus a quarter of it. */
+#define MOTION_PIVOT_SLACK_DIV 4
+/* Degrees in one APP_NAV_TURN90_COUNTS pivot. */
+#define MOTION_TURN90_DEG 90U
+/* Largest uint16_t value. */
+#define MOTION_U16_MAX 65535U
+/* Unit conversions for status and the debug CSV. */
+#define MOTION_SEC_PER_MIN 60.0f
+#define MOTION_USEC_PER_MSEC 1000U
+#define MOTION_PERCENT_SCALE 100.0f
+#define MOTION_X10 10.0f
+/* motion_downhill_fault() values: stale/invalid IMU, overspeed. */
+#define MOTION_DOWNHILL_FAULT_IMU 1U
+#define MOTION_DOWNHILL_FAULT_OVERSPEED 2U
 
 /* Controller-task only, like the rest of this module's state. */
 typedef struct
@@ -180,12 +189,12 @@ typedef struct
     int32_t      last_count[ENCODER_WHEEL_COUNT]; /**< At the last period. */
     uint16_t     white_counts; /**< Travel with no line seen (saturates). */
     uint16_t     swept_counts; /**< Pivoted in the current sweep. */
-    signed int   side:2;       /**< Line last seen: +1 left, -1 right, 0 no. */
-    signed int   seen_now:2;   /**< This period: one sensor's side, else 0. */
-    unsigned int b_black:1;    /**< A sensor saw black this period. */
-    unsigned int b_observed:1; /**< motion_line_seen() ran this period. */
-    unsigned int phase:3;      /**< SEARCH_*. */
-    unsigned int b_counts:1;   /**< last_count holds a reading. */
+    int32_t      side:2;       /**< Line last seen: +1 left, -1 right, 0 no. */
+    int32_t      seen_now:2;   /**< This period: one sensor's side, else 0. */
+    uint32_t     b_black:1;    /**< A sensor saw black this period. */
+    uint32_t     b_observed:1; /**< motion_line_seen() ran this period. */
+    uint32_t     phase:3;      /**< SEARCH_*. */
+    uint32_t     b_counts:1;   /**< last_count holds a reading. */
 } line_search_t;
 
 static line_search_t g_search = {{0, 0}, 0U, 0U, 0, 0, 0U, 0U, 0U, 0U};
@@ -196,11 +205,11 @@ typedef struct
     float         integral;   /**< Learned duty offset, kept while stopped. */
     float         stall_boost; /**< Extra duty while commanded but stuck. */
     float         target_rpm; /**< Target actually commanded. */
-    /* Controller-owned. Signed PWM -3124..12499 needs 15 bits. These
-     * fields occupy the old boolean's word, adding no wheel storage. */
-    signed int    effort_pwm:15;
-    unsigned int  b_running:1;
-    unsigned int  b_regulating:1;
+    /* Controller-owned. Signed PWM -3124..12499 needs 15 bits; the flags
+     * share the same word. */
+    int32_t       effort_pwm:15;
+    uint32_t      b_running:1;
+    uint32_t      b_regulating:1;
 } motion_wheel_t;
 
 static motion_wheel_t g_wheels[ENCODER_WHEEL_COUNT];
@@ -218,7 +227,7 @@ static downhill_governor_t g_downhill = {0};
 /* A bounded brake pulse, never indefinite H-bridge shorting on a fault. */
 static struct
 {
-    unsigned int remaining:3;
+    uint32_t     remaining:3;
 } g_downhill_brake = {0};
 #if MOTION_BRAKE_CYCLES > 7U
 #error Downhill brake counter requires at most 3 bits
@@ -327,7 +336,7 @@ void motion_line_seen (bool b_left, bool b_right)
     g_search.seen_now   = (b_left == b_right) ? 0 : (b_left ? 1 : -1);
 }
 
-void motion_line_hint (int side)
+void motion_line_hint (int32_t side)
 {
     if (0 != side)
     {
@@ -343,7 +352,7 @@ void motion_line_hint (int side)
 
 void motion_apply (line_follow_action_t action)
 {
-    if (g_downhill.fault)
+    if (0U != g_downhill.fault)
     {
         downhill_fault_stop();
         return;
@@ -372,12 +381,9 @@ void motion_apply (line_follow_action_t action)
         return;
     }
 
-/* Barcode processing never owns the motor; only an explicit STOP,
- * safety fault, or controller navigation state may inhibit movement. */
+    /* Barcode processing never owns the motor; only an explicit STOP, a
+     * safety fault or the navigation state may inhibit movement. */
     g_turn_pwm = 0U;
-    /* UB views the same string bytes; tm_printf does not modify them. */
-    /* tm_printf((UB *)"[MOTOR REQUEST] Action=%s\n", line_follow_text(action));
-     */
 
     /* Drive at MOTION_TARGET_RPM. Barcode capture and diagnostics never
      * change it: sensor sampling uses encoder distance, not velocity. */
@@ -408,8 +414,7 @@ void motion_apply (line_follow_action_t action)
                             MOTION_MM_PER_COUNT));
             }
 #else
-            /* The committed PI steering, unchanged (one period at a time,
-             * no speed scaling). */
+            /* PI steering, one period at a time, no speed scaling. */
             g_steer = limit_steer(
                 g_steer,
                 steering_update(&g_steering, action, MOTION_PERIOD_SEC,
@@ -455,8 +460,8 @@ void motion_apply (line_follow_action_t action)
     p_left->target_rpm  = speed_rpm * (1.0f - g_steer);
     p_right->target_rpm = speed_rpm * (1.0f + g_steer);
 
-    /* Equal multiplicative governor after steering preserves left/right
-     * wheel proportions. No other task can write the motor duty. */
+    /* The governor scales both targets equally after steering, keeping
+     * the left/right ratio. No other task writes the motor duty. */
     downhill_scale_pair(&g_downhill, p_left->target_rpm,
                         p_right->target_rpm, &p_left->target_rpm,
                         &p_right->target_rpm);
@@ -479,7 +484,7 @@ void motion_brake (void)
 
 void motion_stop_now(void)
 {
-    /* Operator STOP has priority over a previous timed brake pulse too. */
+    /* Operator STOP also overrides a timed brake pulse in progress. */
     motor_stop();
     search_forget();
     g_brake_cycles = 0U;
@@ -495,7 +500,7 @@ void motion_stop_now(void)
 
 void motion_drive (float left_rpm, float right_rpm)
 {
-    if (g_downhill.fault)
+    if (0U != g_downhill.fault)
     {
         downhill_fault_stop();
         return;
@@ -610,7 +615,7 @@ static void drive_wheels (line_follow_action_t action)
                                 p_left->target_rpm, status.left_rpm);
         float rp = wheel_command(p_right, right_feedforward,
                                 p_right->target_rpm, status.right_rpm);
-        /* Preserve the existing gross-runaway inhibit before its latch. */
+        /* A wheel well over target brakes before the overspeed latch. */
         if (downhill_wheel_over_target(&g_downhill,
                     p_left->target_rpm, status.left_rpm))
         {
@@ -623,26 +628,23 @@ static void drive_wheels (line_follow_action_t action)
         }
         status.left_pwm = speed_to_pwm(lp < 0.0f ? -lp : lp);
         status.right_pwm = speed_to_pwm(rp < 0.0f ? -rp : rp);
-        p_left->effort_pwm = lp < 0.0f ? -(int)status.left_pwm :
-                                         (int)status.left_pwm;
-        p_right->effort_pwm = rp < 0.0f ? -(int)status.right_pwm :
-                                          (int)status.right_pwm;
-        /* Positive regulated PWM is the existing forward pin pattern.
-         * Keep bounded braking available while returning to level too. */
+        p_left->effort_pwm = lp < 0.0f ? -(int32_t)status.left_pwm :
+                                         (int32_t)status.left_pwm;
+        p_right->effort_pwm = rp < 0.0f ? -(int32_t)status.right_pwm :
+                                          (int32_t)status.right_pwm;
+        /* Positive PWM drives forward; negative is bounded braking,
+         * also available while returning to level. */
         motor_set_regulated(lp < 0.0f ? -(int32_t)status.left_pwm :
                                               (int32_t)status.left_pwm,
                                 rp < 0.0f ? -(int32_t)status.right_pwm :
                                               (int32_t)status.right_pwm);
     }
 
-    /* PWM counts are at most 12499, within INT; UB preserves string bytes.
-    tm_printf((UB *)"[MOTOR REQUEST] LEFT=%d RIGHT=%d\n", (INT)status.left_pwm,
-               (INT)status.right_pwm);*/
-
     float const mm_per_rev = MOTION_PI * BOARD_WHEEL_DIAMETER_MM;
 
     status.speed_mm_per_sec =
-        ((status.left_rpm + status.right_rpm) * 0.5f * mm_per_rev) / 60.0f;
+        ((status.left_rpm + status.right_rpm) * 0.5f * mm_per_rev) /
+        MOTION_SEC_PER_MIN;
     status.left_count     = left.count;
     status.right_count    = right.count;
     status.timestamp_usec = now;
@@ -653,27 +655,18 @@ static void drive_wheels (line_follow_action_t action)
     /* Columns: CSV,ms,action,steer%,targetL,targetR,rpmL x10,rpmR x10,
      * pwmL,pwmR. INT truncation is for display; UB preserves the bytes.
      */
-    tm_printf((UB *)"CSV,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)(now / 1000U),
-              (INT)action, (INT)(g_steer * 100.0f),
+    tm_printf((UB *)"CSV,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+              (INT)(now / MOTION_USEC_PER_MSEC),
+              (INT)action, (INT)(g_steer * MOTION_PERCENT_SCALE),
               (INT)status.left_target_rpm, (INT)status.right_target_rpm,
-              (INT)(status.left_rpm * 10.0f), (INT)(status.right_rpm * 10.0f),
+              (INT)(status.left_rpm * MOTION_X10),
+              (INT)(status.right_rpm * MOTION_X10),
               (INT)status.left_pwm, (INT)status.right_pwm);
 #endif
 
     if (0U == g_log_countdown)
     {
         g_log_countdown = (uint8_t)MOTION_LOG_EVERY;
-        /* STEER is in percent. Truncation to INT is for display only;
-         * UB preserves the string bytes.
-         */
-        /*
-        tm_printf((UB *)"[MOTOR SPEED] RPM L=%d R=%d TARGET L=%d R=%d "
-                        "STEER=%d COUNT L=%d R=%d MM/S=%d\n",
-                  (INT)status.left_rpm, (INT)status.right_rpm,
-                  (INT)status.left_target_rpm, (INT)status.right_target_rpm,
-                  (INT)(g_steer * 100.0f), (INT)left.count, (INT)right.count,
-                  (INT)status.speed_mm_per_sec);
-                  */
     }
 
     g_log_countdown--;
@@ -688,7 +681,7 @@ void motion_apply_maneuver (uint8_t mapped_action)
 
 static void pivot_step (uint8_t mapped_action)
 {
-    if (g_downhill.fault)
+    if (0U != g_downhill.fault)
     {
         downhill_fault_stop();
         return;
@@ -705,7 +698,7 @@ static void pivot_step (uint8_t mapped_action)
     motor_stop();
     return;
 #endif
-    if (mapped_action < 1U || mapped_action > 3U)
+    if (mapped_action < PIVOT_LEFT || mapped_action > PIVOT_UTURN)
     {
         g_turn_pwm = 0U;
         motor_stop();
@@ -734,7 +727,8 @@ static void pivot_step (uint8_t mapped_action)
                 g_pivot_pwm[w] =
                     (uint16_t)(g_pivot_pwm[w] + MOTION_PIVOT_PWM_STEP);
             }
-            else if (m > MOTION_PIVOT_COUNTS + (MOTION_PIVOT_COUNTS / 4))
+            else if (m > MOTION_PIVOT_COUNTS +
+                     (MOTION_PIVOT_COUNTS / MOTION_PIVOT_SLACK_DIV))
             {
                 g_pivot_pwm[w] =
                     (uint16_t)(g_pivot_pwm[w] - MOTION_PIVOT_PWM_STEP);
@@ -757,7 +751,7 @@ static void pivot_step (uint8_t mapped_action)
                                            (uint16_t)right_pwm;
     /* Left and U-turn spin anticlockwise (left wheel back), right turns
      * clockwise (right wheel back). */
-    if (mapped_action == 2U)
+    if (mapped_action == PIVOT_RIGHT)
     {
         right_pwm = -right_pwm;
     }
@@ -781,7 +775,7 @@ static bool search_step (line_follow_action_t action)
 
     if (0 == STEERING_OBSERVER)
     {
-        /* The committed PI steering had no lost-line search. */
+        /* PI steering has no lost-line search. */
         return false;
     }
     bool const     b_turning =
@@ -828,7 +822,7 @@ static bool search_step (line_follow_action_t action)
             /* Both wheels' counts over APP_NAV_TURN90_COUNTS per 90; the
              * sweep is at most 2 x 120 degrees, so UINT holds it. */
             tm_printf((UB *)"[MOTOR] Line found after a %u deg search\n",
-                      (UINT)((g_search.swept_counts * 90U) /
+                      (UINT)((g_search.swept_counts * MOTION_TURN90_DEG) /
                              APP_NAV_TURN90_COUNTS));
         }
 
@@ -932,11 +926,9 @@ static uint32_t search_travel (void)
                 (delta > (uint32_t)INT32_MAX) ? (0U - delta) : delta;
 
             moved += size;
-            /* Size only, as the obstacle odometry uses: on the robot the
-             * left encoder counts DOWN when driving forward (logged 22:27:
-             * encL=-53231, encR=49602), and line following only drives
-             * forward. The signed count made the observer see the robot
-             * spinning on the spot. Bounded to 16 bits. */
+            /* Size only: the left encoder counts down when driving
+             * forward, and line following only drives forward, so a
+             * signed count would look like spinning. Bounded to 16 bits. */
             g_period_counts[w] =
                 (int16_t)((size > (uint32_t)INT16_MAX) ? INT16_MAX : size);
         }
@@ -966,9 +958,10 @@ static uint16_t add_saturating (uint16_t total, uint32_t amount)
     uint32_t const sum = (uint32_t)total + amount;
 
     /* Bounded to the 16-bit limit before narrowing. */
-    return (sum > 65535U) ? 65535U : (uint16_t)sum;
+    return (sum > MOTION_U16_MAX) ? MOTION_U16_MAX : (uint16_t)sum;
 }
 
+/** @brief Log downhill engage, release and fault changes. */
 static void report_downhill_change (uint32_t before,
                                     uint32_t fault_before)
 {
@@ -1007,6 +1000,7 @@ void motion_downhill_reset (void)
     g_downhill_brake.remaining = 0U;
 }
 
+/** @brief Clear speed-controller state for a new run. */
 void motion_reset_run(void)
 {
     motion_downhill_reset();
@@ -1020,7 +1014,8 @@ void motion_reset_run(void)
     }
 }
 
-void motion_observe_terrain(terrain_snapshot const *s, uint32_t now)
+/** @brief Feed a terrain snapshot to the downhill governor. */
+void motion_observe_terrain(terrain_snapshot_t const *s, uint32_t now)
 {
     bool fresh = s->b_valid &&
         (uint32_t)(now - s->timestamp_msec) <= MOTION_IMU_FRESH_MSEC;
@@ -1032,9 +1027,12 @@ void motion_observe_terrain(terrain_snapshot const *s, uint32_t now)
     report_downhill_change(before, fault_before);
 }
 
+/** @brief Return the downhill fault: 0 none, 1 IMU, 2 overspeed. */
 uint8_t motion_downhill_fault(void)
 {
-    return g_downhill.fault ? (g_downhill.overspeed >= 10U ? 2U : 1U) : 0U;
+    return g_downhill.fault ?
+        (g_downhill.overspeed >= DOWNHILL_OVERSPEED_COUNT ?
+         MOTION_DOWNHILL_FAULT_OVERSPEED : MOTION_DOWNHILL_FAULT_IMU) : 0U;
 }
 
 ER motion_get_status (motion_status_t * p_output)
@@ -1065,7 +1063,7 @@ ER motion_get_status (motion_status_t * p_output)
 static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
                             float target_rpm, float measured_rpm)
 {
-    bool const ramp_control = g_downhill.scale_percent < 100U;
+    bool const ramp_control = g_downhill.scale_percent < DOWNHILL_FULL_PERCENT;
     if (target_rpm < MOTION_STOP_RPM)
     {
         /* Keep the integral: it is this motor's learned offset. */
@@ -1087,12 +1085,10 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
         return base_percent + p_wheel->integral + p_wheel->stall_boost;
     }
 
-    /* Stall rescue. On a tight curve the outer wheel is asked for ~12 RPM
-     * with the inner wheel stopped; that is below the integrating range,
-     * so its ~13 % duty could sit there forever without turning it (logged:
-     * both encoders frozen ~7 s on a curve, still "following"). While a
-     * commanded wheel is not turning, raise its duty step by step until it
-     * moves; once it turns, the boost is taken back off gradually. */
+    /* Stall rescue. On a tight curve the outer wheel may be asked for a
+     * speed below the integrating range, where its feedforward duty alone
+     * may not turn it. While a commanded wheel is not turning, raise its
+     * duty step by step; once it turns, take the boost off gradually. */
     if (measured_rpm < MOTION_STALL_RPM && target_rpm >= MOTION_STOP_RPM)
     {
         p_wheel->stall_boost += MOTION_STALL_STEP_PERCENT;
@@ -1122,9 +1118,9 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
 
     if (ramp_control)
     {
-        /* At 65% of 15 RPM the old >=15 RPM gate disabled integration.
-         * Negative effort uses bounded short-brake/coast PWM, not reverse.
-         * Conditional integration prevents saturation windup. */
+        /* Integrates at any target speed on a descent. Negative effort is
+         * bounded short-brake, never reverse. Integrating only when not
+         * saturated (or when unwinding) prevents windup. */
         float candidate = p_wheel->integral +
                           MOTION_KI * error * MOTION_PERIOD_SEC;
         float effort = base_percent + MOTION_KP * error + candidate;
@@ -1146,7 +1142,7 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
             effort = MOTION_RAMP_EFFORT_MAX;
         }
         p_wheel->b_regulating = true;
-        return step_towards((float)p_wheel->effort_pwm * 100.0f /
+        return step_towards((float)p_wheel->effort_pwm * MOTION_PERCENT_SCALE /
                              (float)MOTOR_PWM_WRAP,
                              effort, MOTION_DESCENT_DUTY_STEP);
     }
@@ -1164,7 +1160,7 @@ static float wheel_command (motion_wheel_t * p_wheel, float base_percent,
            p_wheel->stall_boost;
     if (p_wheel->b_regulating)
     {
-        float const prior = (float)p_wheel->effort_pwm * 100.0f /
+        float const prior = (float)p_wheel->effort_pwm * MOTION_PERCENT_SCALE /
                              (float)MOTOR_PWM_WRAP;
         float const change = effort - prior;
         p_wheel->b_regulating = change > MOTION_DESCENT_DUTY_STEP ||
@@ -1179,9 +1175,7 @@ static float feedforward (float target_rpm, float min_duty,
 {
     if (target_rpm < MOTION_STOP_RPM)
     {
-        /* Too slow to hold: the inner wheel of a hard turn is dragged
-         * along at about 15 RPM instead, so stop it and pivot instead.
-         */
+        /* Too slow to hold: the wheel would be dragged along instead. */
         return 0.0f;
     }
 
@@ -1268,7 +1262,7 @@ static uint32_t speed_to_pwm (float speed_percent)
         speed_percent = MOTION_MAX_PERCENT;
     }
 
-    /* Truncation matches the original tested PWM counts. */
+    /* Truncation gives the calibrated PWM counts. */
     return (uint32_t)(((float)MOTOR_PWM_WRAP * speed_percent) /
                       MOTION_MAX_PERCENT);
 }

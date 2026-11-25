@@ -6,7 +6,6 @@
 #include "ir_shared.h"
 #include "app/app_config.h"
 
-/* Only this module can directly access these variables. */
 static ID volatile gh_ir_mutex = 0;
 
 static ir_shared_snapshot_t volatile g_latest_ir = {.left           = 0U,
@@ -15,10 +14,9 @@ static ir_shared_snapshot_t volatile g_latest_ir = {.left           = 0U,
                                                     .timestamp_msec = 0U,
                                                     .b_valid        = false};
 
-/* Four latched observations and the saturating 0..2 gap count are
- * stored in six bits. Every read/modify/write occurs under gh_ir_mutex;
- * no ISR accesses this state. Unlike independent bool variables, this
- * does not allocate one byte (or word) per application flag. */
+/* Four latched observations and the saturating 0..2 gap count, packed
+ * into six bits. Every read/modify/write occurs under gh_ir_mutex; no ISR
+ * accesses this state. */
 #define IR_LATCH_JUNCTION 0x01U
 #define IR_LATCH_LEFT 0x02U
 #define IR_LATCH_RIGHT 0x04U
@@ -36,6 +34,7 @@ static ir_shared_diag_t volatile g_diag = {0U, 0U, 0U, 0U};
  */
 #define IR_SHARED_CTX_RETRIES 4U
 
+/** @brief Lock the IR snapshot mutex, retrying briefly. */
 static ER ir_shared_lock_retry (TMO timeout)
 {
     ER error = E_CTX;
@@ -49,6 +48,7 @@ static ER ir_shared_lock_retry (TMO timeout)
     return error;
 }
 
+/** @brief Unlock the IR snapshot mutex, retrying briefly. */
 static ER ir_shared_unlock_retry (void)
 {
     ER error = E_CTX;
@@ -102,9 +102,9 @@ ER ir_shared_publish (uint32_t left, uint32_t right, uint32_t barcode)
     error = ir_shared_lock_retry(TMO_FEVR);
 
     /* E_ILUSE: this task already holds the mutex because an earlier unlock
-     * failed (rare E_CTX seen under heavy console output). Continue and
-     * unlock below rather than failing every cycle with the lock held,
-     * which left the controller's IR data stale for good. */
+     * failed (rare E_CTX under heavy console output). Continue and unlock
+     * below; failing here would keep the lock held and the controller's
+     * IR data stale. */
     if (E_ILUSE == error)
     {
         error = E_OK;
@@ -301,21 +301,6 @@ ER ir_shared_get_latest (ir_shared_snapshot_t * p_output)
 
     *p_output = g_latest_ir;
 
-    return ir_shared_unlock_retry();
-}
-
-ER ir_shared_lock (TMO timeout)
-{
-    if (gh_ir_mutex <= E_OK)
-    {
-        return E_OBJ;
-    }
-
-    return ir_shared_lock_retry(timeout);
-}
-
-ER ir_shared_unlock (void)
-{
     return ir_shared_unlock_retry();
 }
 

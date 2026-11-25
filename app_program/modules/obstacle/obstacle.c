@@ -35,6 +35,24 @@
 #include "modules/motion/motion.h"
 #include <tm/tmonitor.h>
 
+/* Servo commands are limited to +-90 degrees from FRONT. */
+#define OBS_SERVO_CLAMP_DEG 90
+/* Side-ping log buckets: hit, no echo, own body, beyond line, other. */
+#define OBS_LOG_HIT 0U
+#define OBS_LOG_NO_ECHO 1U
+#define OBS_LOG_SELF 2U
+#define OBS_LOG_BEYOND 3U
+#define OBS_LOG_OTHER 4U
+#define OBS_LOG_KINDS 5U
+/* Further than this either side of the line, the rejoin search starts
+ * towards the line rather than back towards the passing side. */
+#define OBS_REJOIN_SIDE_MM 3.0F
+/* Millimetres per centimetre, and half of it for rounding. */
+#define OBS_MM_PER_CM 10
+#define OBS_MM_PER_CM_HALF 5
+/* Percent to fraction divisor. */
+#define OBS_PERCENT_SCALE 100.0F
+
 #define MM_PER_CM 10
 #define DDEG_PER_DEG 10
 #define HALF 2
@@ -47,15 +65,27 @@
 /* <math.h> clashes with the kernel's size_t, so use the compiler's names
  * for the libm functions directly; -lm is already linked.
  */
-#define OBS_COSF(x) __builtin_cosf(x)
-#define OBS_SINF(x) __builtin_sinf(x)
-#define OBS_ATAN2F(y, x) __builtin_atan2f((y), (x))
+/** @brief Cosine (libm cosf). */
+static inline float obs_cosf (float x)
+{
+    return __builtin_cosf(x);
+}
+
+/** @brief Sine (libm sinf). */
+static inline float obs_sinf (float x)
+{
+    return __builtin_sinf(x);
+}
+
+/** @brief Four-quadrant arctangent (libm atan2f). */
+static inline float obs_atan2f (float y, float x)
+{
+    return __builtin_atan2f(y, x);
+}
 #define OBS_PI 3.14159265F
-/* No servo angle can equal this, so the next aim is always sent. */
 /* No servo angle requested yet: outside the +-90 degree servo range and
- * inside int8_t. */
+ * inside int8_t, so the next aim is always sent. */
 #define OBS_AIM_NONE 127
-/* Saturating 8-bit counter step (counts only compared to small limits). */
 /* Store a bounded value in a 16-bit field; values are within range by
  * the configured limits, the clamp only makes that explicit. */
 static int16_t clamp_i16 (int32_t value)
@@ -67,10 +97,18 @@ static int16_t clamp_i16 (int32_t value)
 /* Servo angles are within +-90 degrees. */
 static int8_t clamp_servo (int32_t deg)
 {
-    return (int8_t)((deg > 90) ? 90 : (deg < -90) ? -90 : deg);
+    return (int8_t)((deg > OBS_SERVO_CLAMP_DEG) ? OBS_SERVO_CLAMP_DEG
+                    : (deg < -OBS_SERVO_CLAMP_DEG) ? -OBS_SERVO_CLAMP_DEG
+                                                   : deg);
 }
 
-#define SAT_INC8(count) ((uint8_t)(((count) < 255U) ? ((count) + 1U) : 255U))
+#define OBS_U8_MAX 255U
+
+/** @brief Increment an 8-bit counter, saturating at 255. */
+static inline uint8_t sat_inc8 (uint32_t count)
+{
+    return (uint8_t)((count < OBS_U8_MAX) ? (count + 1U) : OBS_U8_MAX);
+}
 /* Body side beyond the wheel centre: the corner a pivot must clear. */
 #define OBS_BODY_PAST_WHEEL_MM                                                 \
     ((OBS_ROBOT_WIDTH_MM / HALF) - (OBS_TRACK_WIDTH_MM / HALF))
@@ -94,48 +132,48 @@ typedef struct
 {
     /* Controller-owned decisions/counters; no cross-task bitfield writes.
      * Widths cover the zero/reset state and every configured limit. */
-    unsigned int b_active:1;
-    unsigned int phase:4;       /**< OBS_PHASE_IDLE..FAULT (0..13). */
-    unsigned int b_planned:1;
-    signed int side:2;          /**< 0, +1 left, -1 right. */
-    unsigned int b_seen:1;
-    unsigned int side_hits:2;   /**< Saturates at two. */
-    unsigned int clear_hits:3;  /**< Saturates at five. */
-    unsigned int miss_hits:3;   /**< Side pings since a hit; saturates at 5. */
-    unsigned int b_default_end:1; /**< Pass ended on OBS_PASS_DEFAULT_MM. */
-    unsigned int side_skip:1;
-    unsigned int resume_phase:4;
-    signed int turn_dir:2;
-    signed int search_side:2;
-    unsigned int b_seeking:1;
-    unsigned int seek_legs:3;   /**< 0..4. */
-    unsigned int b_approaching:1;  /**< Creeping closer before the scan. */
-    unsigned int b_approached:1;   /**< Already crept for this obstacle. */
-    unsigned int approach_misses:2; /**< Front pings in a row without it. */
-    unsigned int b_black_seen:1;
+    uint32_t     b_active:1;
+    uint32_t     phase:4;       /**< OBS_PHASE_IDLE..FAULT (0..13). */
+    uint32_t     b_planned:1;
+    int32_t    side:2;          /**< 0, +1 left, -1 right. */
+    uint32_t     b_seen:1;
+    uint32_t     side_hits:2;   /**< Saturates at two. */
+    uint32_t     clear_hits:3;  /**< Saturates at five. */
+    uint32_t     miss_hits:3;   /**< Side pings since a hit; saturates at 5. */
+    uint32_t     b_default_end:1; /**< Pass ended on OBS_PASS_DEFAULT_MM. */
+    uint32_t     side_skip:1;
+    uint32_t     resume_phase:4;
+    int32_t    turn_dir:2;
+    int32_t    search_side:2;
+    uint32_t     b_seeking:1;
+    uint32_t     seek_legs:3;   /**< 0..4. */
+    uint32_t     b_approaching:1;  /**< Creeping closer before the scan. */
+    uint32_t     b_approached:1;   /**< Already crept for this obstacle. */
+    uint32_t     approach_misses:2; /**< Front pings in a row without it. */
+    uint32_t     b_black_seen:1;
     /* Line sensors this period, and which of them crossed the line while
      * straightening up (ALIGN). b_line_past: the line was seen on the way
      * in, so the sensors started ALIGN beyond it. */
-    unsigned int b_ir_left:1;
-    unsigned int b_ir_right:1;
-    unsigned int b_align_left:1;
-    unsigned int b_align_right:1;
-    unsigned int b_line_past:1;
-    unsigned int b_align_check:1; /**< Main-return ALIGN: check crossings. */
+    uint32_t     b_ir_left:1;
+    uint32_t     b_ir_right:1;
+    uint32_t     b_align_left:1;
+    uint32_t     b_align_right:1;
+    uint32_t     b_line_past:1;
+    uint32_t     b_align_check:1; /**< Main-return ALIGN: check crossings. */
     /** ALIGN went past the straight-ahead heading looking for the line. */
-    unsigned int b_align_more:1;
+    uint32_t     b_align_more:1;
     /** Handed back next to the line: +1 it is on the left, -1 right. */
-    signed int   rejoin_hint:2;
+    int32_t      rejoin_hint:2;
     /** Scans in a row that found both sides blocked (0..15). */
-    unsigned int no_route_scans:4;
+    uint32_t     no_route_scans:4;
     /** Pinging ahead after a first scan, before committing to its plan. */
-    unsigned int b_rechecking:1;
-    unsigned int recheck_clear:2; /**< Clear front pings in a row, 0..3. */
-    unsigned int recheck_pings:3; /**< Front pings taken, 0..7. */
+    uint32_t     b_rechecking:1;
+    uint32_t     recheck_clear:2; /**< Clear front pings in a row, 0..3. */
+    uint32_t     recheck_pings:3; /**< Front pings taken, 0..7. */
     /** Turn-out peek: 0 first side, 1 second side, 2 done or not used.
      *  While it samples, b_rechecking is set and the two recheck counters
      *  count its pings and face echoes (they are idle after the scan). */
-    unsigned int peek_state:2;
+    uint32_t     peek_state:2;
     uint32_t          enter_msec;
     int32_t           last_left;
     int32_t           last_right;
@@ -152,7 +190,8 @@ typedef struct
     int16_t           depth_guess_mm;
     int8_t            look_deg;   /**< Servo angle of the side watch. */
     int8_t            aim_deg;    /**< Servo angle last requested. */
-    uint8_t           log_n[5];   /**< Side pings by kind since last log. */
+    /** Side pings by kind (OBS_LOG_*) since the last log. */
+    uint8_t           log_n[OBS_LOG_KINDS];
     int16_t           log_min_mm; /**< Nearest side echo since last log. */
     float             log_x_mm;   /**< Pose x of the last side summary. */
     int16_t           turn_target_ddeg; /**< -1800..1800. */
@@ -278,10 +317,6 @@ static void run_pass_side (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                            uint32_t now_msec);
 /** @brief Extra axle travel required by the swept body on the return arc. */
 static float return_clearance_mm (obstacle_seq_t const * p_seq);
-/** @brief The side watch cannot confirm the end and the sensor is
- *  OBS_PASS_DEFAULT_MM past the front face: take the default end there.
- *  @param b_confirmed The side watch has confirmed the end.
- */
 /** @brief Depth assumed past the front face when the side watch cannot
  *  confirm the end: OBS_PASS_DEFAULT_MM, or the scanned width if larger.
  */
@@ -292,6 +327,10 @@ static float body_past_mm (float clearance_mm);
 /** @brief Measured rear (never nearer than the assumed depth) and the
  *  turn-in point from it. */
 static void set_measured_end (obstacle_seq_t * p_seq);
+/** @brief The side watch cannot confirm the end and the sensor is
+ *  OBS_PASS_DEFAULT_MM past the front face: take the default end there.
+ *  @param b_confirmed The side watch has confirmed the end.
+ */
 static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed);
 /** @brief Log how the straight leg ended and how far past the face.
  *  @param event PASS_LOG_END_FOUND, PASS_LOG_TURN_BACK or PASS_LOG_LINE.
@@ -629,8 +668,8 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
                 float const turn_gain =
                     (((float)OBS_TRACK_WIDTH_MM / (float)HALF) *
-                     (1.0F - OBS_COSF((float)heading * OBS_RAD_PER_DDEG)) *
-                     (float)gain_pct) / 100.0F;
+                     (1.0F - obs_cosf((float)heading * OBS_RAD_PER_DDEG)) *
+                     (float)gain_pct) / OBS_PERCENT_SCALE;
 
                 aim_at_object(p_seq);
                 set_straight(p_out, heading, p_seq->side * p_seq->out_ddeg);
@@ -692,7 +731,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                 side_log_report(p_seq);
                 set_straight(p_out, heading, offset_heading(p_seq));
                 p_seq->line_hits =
-                    line_near(p_seq, b_black) ? SAT_INC8(p_seq->line_hits) : 0U;
+                    line_near(p_seq, b_black) ? sat_inc8(p_seq->line_hits) : 0U;
 
                 if ((now_msec - p_seq->side_sample_msec) >
                     OBS_SIDE_MAX_AGE_MSEC)
@@ -744,7 +783,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
             case OBS_PHASE_TURN_BACK:
                 p_seq->line_hits =
-                    return_black(p_seq, b_black) ? SAT_INC8(p_seq->line_hits)
+                    return_black(p_seq, b_black) ? sat_inc8(p_seq->line_hits)
                                                  : 0U;
 
                 if (p_seq->line_hits >= OBS_LINE_CONFIRM_CYCLES)
@@ -778,11 +817,11 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
                     ((float)p_seq->search_side) * p_seq->pose.y_mm;
                 float const turn_at =
                     ((float)OBS_TRACK_WIDTH_MM / (float)HALF) *
-                    (1.0F - OBS_COSF(p_seq->pose.heading_rad));
+                    (1.0F - obs_cosf(p_seq->pose.heading_rad));
 
                 set_straight(p_out, heading, p_seq->search_ddeg);
                 p_seq->line_hits =
-                    return_black(p_seq, b_black) ? SAT_INC8(p_seq->line_hits)
+                    return_black(p_seq, b_black) ? sat_inc8(p_seq->line_hits)
                                                  : 0U;
 
                 if ((!p_seq->b_black_seen) &&
@@ -923,7 +962,7 @@ static void run_phase (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
 
             case OBS_PHASE_VERIFY:
                 p_out->b_line_follow = true;
-                p_seq->verify_cycles = SAT_INC8(p_seq->verify_cycles);
+                p_seq->verify_cycles = sat_inc8(p_seq->verify_cycles);
                 p_seq->b_black_seen = p_seq->b_black_seen || b_black;
 
                 /* Another object ahead is left to the normal front monitor
@@ -977,10 +1016,11 @@ static float return_clearance_mm (obstacle_seq_t const * p_seq)
                           ((float)OBS_TRACK_WIDTH_MM / (float)HALF);
     float const past_mm = ((float)(OBS_BODY_PAST_WHEEL_MM +
                                   OBS_SAFETY_MARGIN_MM) -
-                            gap_mm * OBS_COSF(ret_rad)) / OBS_SINF(ret_rad);
+                            gap_mm * obs_cosf(ret_rad)) / obs_sinf(ret_rad);
     return past_mm > 0.0F ? past_mm : 0.0F;
 }
 
+/** @brief Return true when the assumed obstacle end is reached. */
 static bool default_end_due (obstacle_seq_t const * p_seq, bool b_confirmed)
 {
     float const sensor_x = p_seq->pose.x_mm + (float)OBS_SENSOR_TO_AXLE_MM;
@@ -999,7 +1039,7 @@ static float body_past_mm (float clearance_mm)
 {
     /* The whole body past the rear before turning in: the robot's rear
      * (OBS_ROBOT_REAR_MM behind the axle) plus the margin. The swept-arc
-     * clearance alone let it start turning while still beside the box. */
+     * clearance alone can start the turn while still beside the box. */
     float const body = (float)(OBS_ROBOT_REAR_MM + OBS_SAFETY_MARGIN_MM);
 
     return (clearance_mm > body) ? clearance_mm : body;
@@ -1012,13 +1052,10 @@ static void set_measured_end (obstacle_seq_t * p_seq)
     p_seq->rear_x_mm = (p_seq->clear_rear_mm > p_seq->hit_rear_mm)
                            ? p_seq->clear_rear_mm : p_seq->hit_rear_mm;
 
-    /* A flat side face beside the path barely echoes at the side watch's
-     * angle: logged 19 Nov 14:0x, two front-corner hits then silence
-     * "confirmed" the end before the sensor passed the face, and the robot
-     * turned back into the box; and re-confirming on the final straight
-     * pulled the turn 60 mm earlier again. Never take the rear nearer than
-     * the depth assumed when the end cannot be confirmed (the scanned
-     * width, at least OBS_PASS_DEFAULT_MM). */
+    /* A flat side face barely echoes at the side watch's angle, so a few
+     * front-corner hits then silence can look like the end before the
+     * sensor has passed the face. Never take the rear nearer than the
+     * assumed depth (the scanned width, at least OBS_PASS_DEFAULT_MM). */
     float const min_rear = p_seq->face_x_mm + default_depth_mm(p_seq);
 
     if (p_seq->rear_x_mm < min_rear)
@@ -1181,12 +1218,12 @@ static bool side_ping_update (obstacle_seq_t * p_seq)
         /* Where the echo came from, in the line frame. */
         float const sensor_x =
             p_seq->pose.x_mm +
-            ((float)OBS_SENSOR_TO_AXLE_MM * OBS_COSF(heading));
+            ((float)OBS_SENSOR_TO_AXLE_MM * obs_cosf(heading));
         float const sensor_y =
             p_seq->pose.y_mm +
-            ((float)OBS_SENSOR_TO_AXLE_MM * OBS_SINF(heading));
-        float const hit_x = sensor_x + ((float)range_mm * OBS_COSF(ray));
-        float const hit_y = sensor_y + ((float)range_mm * OBS_SINF(ray));
+            ((float)OBS_SENSOR_TO_AXLE_MM * obs_sinf(heading));
+        float const hit_x = sensor_x + ((float)range_mm * obs_cosf(ray));
+        float const hit_y = sensor_y + ((float)range_mm * obs_sinf(ray));
         /* Gap from the robot's centre line to the echo, towards the line,
          * and how far the echo is from the line on the bypass side.
          */
@@ -1295,7 +1332,7 @@ static bool side_ping_update (obstacle_seq_t * p_seq)
             /* Intersect the current empty ray with the nearest measured
              * object-side line. A ray pointing away cannot prove clearance.
              * Heading matters: the offset correction can yaw the robot. */
-            float const towards = -side * OBS_SINF(ray);
+            float const towards = -side * obs_sinf(ray);
             float const to_side = p_seq->beside_mm +
                                   side * (sensor_y - p_seq->pose.y_mm);
             if (towards <= 0.0F || to_side <= 0.0F)
@@ -1304,13 +1341,15 @@ static bool side_ping_update (obstacle_seq_t * p_seq)
                 return false;
             }
             float const rear_bound = sensor_x +
-                (to_side * OBS_COSF(ray) / towards);
+                (to_side * obs_cosf(ray) / towards);
             if (0U == p_seq->clear_hits)
             {
                 p_seq->clear_rear_mm = rear_bound;
             }
             else if (rear_bound < p_seq->clear_rear_mm)
+            {
                 p_seq->clear_rear_mm = rear_bound;
+            }
             if (p_seq->clear_hits < OBS_SIDE_CLEAR_HITS)
             {
                 p_seq->clear_hits++;
@@ -1331,7 +1370,7 @@ static bool line_near (obstacle_seq_t const * p_seq, bool b_black)
     /* Where the IR sensors are, across the line. */
     float const ir_y =
         p_seq->pose.y_mm +
-        ((float)OBS_IR_TO_AXLE_MM * OBS_SINF(p_seq->pose.heading_rad));
+        ((float)OBS_IR_TO_AXLE_MM * obs_sinf(p_seq->pose.heading_rad));
 
     return b_black && (ir_y < (float)OBS_LINE_NEAR_MM) &&
            (ir_y > -(float)OBS_LINE_NEAR_MM);
@@ -1343,7 +1382,7 @@ static void pass_further (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
     float const ahead_x =
         p_seq->pose.x_mm +
         ((float)(OBS_SENSOR_TO_AXLE_MM + obs_state_front_range_get()) *
-         OBS_COSF(p_seq->pose.heading_rad));
+         obs_cosf(p_seq->pose.heading_rad));
 
     p_seq->replans++;
 
@@ -1395,30 +1434,30 @@ static void side_log_count (obstacle_seq_t * p_seq, int32_t range_mm,
                             bool b_hit, bool b_absent, bool b_valid)
 {
     /* 0 hit, 1 no echo, 2 own body (too near), 3 beyond line, 4 other. */
-    uint32_t kind = 4U;
+    uint32_t kind = OBS_LOG_OTHER;
 
     if (b_hit)
     {
-        kind = 0U;
+        kind = OBS_LOG_HIT;
     }
     else if ((range_mm < 0) || (range_mm >= OBS_FAR_MM))
     {
-        kind = 1U;
+        kind = OBS_LOG_NO_ECHO;
     }
     else if (!b_valid)
     {
-        kind = 2U;
+        kind = OBS_LOG_SELF;
     }
     else if (b_absent)
     {
-        kind = 3U;
+        kind = OBS_LOG_BEYOND;
     }
     else
     {
         /* Valid echo neither in the corridor nor beyond the line. */
     }
 
-    p_seq->log_n[kind] = SAT_INC8(p_seq->log_n[kind]);
+    p_seq->log_n[kind] = sat_inc8(p_seq->log_n[kind]);
 
     if ((range_mm >= 0) &&
         ((p_seq->log_min_mm < 0) || (range_mm < p_seq->log_min_mm)))
@@ -1436,9 +1475,11 @@ static void side_log_report (obstacle_seq_t * p_seq)
         tm_printf((UB *)"[OBS] side x=%d look=%d hit=%d none=%d self=%d "
                         "beyond=%d other=%d min=%d seen=%d clear=%d\n",
                   (INT)p_seq->pose.x_mm, (INT)p_seq->look_deg,
-                  (INT)p_seq->log_n[0], (INT)p_seq->log_n[1],
-                  (INT)p_seq->log_n[2], (INT)p_seq->log_n[3],
-                  (INT)p_seq->log_n[4], (INT)p_seq->log_min_mm,
+                  (INT)p_seq->log_n[OBS_LOG_HIT],
+                  (INT)p_seq->log_n[OBS_LOG_NO_ECHO],
+                  (INT)p_seq->log_n[OBS_LOG_SELF],
+                  (INT)p_seq->log_n[OBS_LOG_BEYOND],
+                  (INT)p_seq->log_n[OBS_LOG_OTHER], (INT)p_seq->log_min_mm,
                   (INT)p_seq->b_seen, (INT)p_seq->clear_hits);
         side_log_reset(p_seq);
     }
@@ -1446,7 +1487,7 @@ static void side_log_report (obstacle_seq_t * p_seq)
 
 static void side_log_reset (obstacle_seq_t * p_seq)
 {
-    for (uint32_t index = 0U; index < 5U; index++)
+    for (uint32_t index = 0U; index < OBS_LOG_KINDS; index++)
     {
         p_seq->log_n[index] = 0U;
     }
@@ -1459,12 +1500,12 @@ static void aim_at_object (obstacle_seq_t * p_seq)
 {
     float const heading = p_seq->pose.heading_rad;
     float const sensor_x =
-        p_seq->pose.x_mm + ((float)OBS_SENSOR_TO_AXLE_MM * OBS_COSF(heading));
+        p_seq->pose.x_mm + ((float)OBS_SENSOR_TO_AXLE_MM * obs_cosf(heading));
     float const sensor_y =
-        p_seq->pose.y_mm + ((float)OBS_SENSOR_TO_AXLE_MM * OBS_SINF(heading));
+        p_seq->pose.y_mm + ((float)OBS_SENSOR_TO_AXLE_MM * obs_sinf(heading));
     /* The middle of the object's front face sits on the line. */
     float bearing =
-        OBS_ATAN2F(-sensor_y, p_seq->face_x_mm - sensor_x) - heading;
+        obs_atan2f(-sensor_y, p_seq->face_x_mm - sensor_x) - heading;
 
     while (bearing > OBS_PI)
     {
@@ -1640,7 +1681,7 @@ static void line_found (obstacle_seq_t * p_seq, uint32_t now_msec)
     /* The IR sensors sit on y = 0, well ahead of the axle. */
     p_seq->b_black_seen = true;
     p_seq->pose.y_mm =
-        -(float)OBS_IR_TO_AXLE_MM * OBS_SINF(p_seq->pose.heading_rad);
+        -(float)OBS_IR_TO_AXLE_MM * obs_sinf(p_seq->pose.heading_rad);
     if (p_seq->pose.y_mm < 0.0F)
     {
         p_seq->search_side = -1;
@@ -1688,13 +1729,13 @@ static bool guard_tripped (obstacle_seq_t * p_seq, bool b_to_line)
             float const hit_y =
                 p_seq->pose.y_mm +
                 ((float)(OBS_SENSOR_TO_AXLE_MM + range_mm) *
-                 OBS_SINF(p_seq->pose.heading_rad));
+                 obs_sinf(p_seq->pose.heading_rad));
 
             b_near = (((float)p_seq->search_side) * hit_y) >
                      (float)(-OBS_GUARD_BEYOND_LINE_MM);
         }
 
-        p_seq->guard_hits = b_near ? SAT_INC8(p_seq->guard_hits) : 0U;
+        p_seq->guard_hits = b_near ? sat_inc8(p_seq->guard_hits) : 0U;
     }
 
     return p_seq->guard_hits >= OBS_GUARD_HITS;
@@ -1755,8 +1796,8 @@ static void pose_update (obstacle_seq_t * p_seq, int32_t left_count,
 
     p_seq->last_left  = left_count;
     p_seq->last_right = right_count;
-    p_seq->pose.x_mm += travel * OBS_COSF(mid);
-    p_seq->pose.y_mm += travel * OBS_SINF(mid);
+    p_seq->pose.x_mm += travel * obs_cosf(mid);
+    p_seq->pose.y_mm += travel * obs_sinf(mid);
     p_seq->pose.heading_rad += turn;
 }
 
@@ -1923,10 +1964,10 @@ static bool peek_step (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         float const   heading_rad = p_seq->pose.heading_rad;
         float const   sensor_x    =
             p_seq->pose.x_mm +
-            ((float)OBS_SENSOR_TO_AXLE_MM * OBS_COSF(heading_rad));
+            ((float)OBS_SENSOR_TO_AXLE_MM * obs_cosf(heading_rad));
         float const   sensor_y    =
             p_seq->pose.y_mm +
-            ((float)OBS_SENSOR_TO_AXLE_MM * OBS_SINF(heading_rad));
+            ((float)OBS_SENSOR_TO_AXLE_MM * obs_sinf(heading_rad));
         /* Square to the face: back along the line, in whole aim steps. */
         int32_t const step = OBS_AIM_STEP_DEG * DDEG_PER_DEG;
         int32_t       deg  = (((heading < 0) ? (heading - (step / HALF))
@@ -2220,8 +2261,8 @@ static void finish_bypass (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
     /* The line runs along y = 0: a robot left of it (y > 0) finds it on its
      * right. Right on it, look back towards the side it came from. */
     p_out->line_hint = (0 != p_seq->rejoin_hint)    ? p_seq->rejoin_hint
-                       : (p_seq->pose.y_mm > 3.0F)  ? -1
-                       : (p_seq->pose.y_mm < -3.0F) ? 1
+                       : (p_seq->pose.y_mm > OBS_REJOIN_SIDE_MM)  ? -1
+                       : (p_seq->pose.y_mm < -OBS_REJOIN_SIDE_MM) ? 1
                        : (p_seq->side > 0)           ? 1
                                                      : -1;
 }
@@ -2263,10 +2304,9 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
     else if ((SCAN_PLAN_ROUTE != result) &&
              (p_seq->no_route_scans + 1U < OBS_NO_ROUTE_RESCANS))
     {
-        /* Both sides blocked: often a person or a bag half a metre away
-         * (logged 19 Nov 14:44: blockers at 0.49 and 0.57 m), which made
-         * a controller fault needing a reboot. Stay stopped and scan again
-         * until a side clears. */
+        /* Both sides blocked, often by something temporary such as a
+         * person nearby: stay stopped and scan again until a side clears,
+         * rather than raising a fault. */
         p_seq->no_route_scans++;
         tm_printf((UB *)"[OBS] No clear side (%d of %d): waiting, then "
                         "scanning again\n",
@@ -2284,7 +2324,7 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         float const   face_x =
             p_seq->pose.x_mm +
             ((float)(OBS_SENSOR_TO_AXLE_MM + near_mm) *
-             OBS_COSF(p_seq->pose.heading_rad));
+             obs_cosf(p_seq->pose.heading_rad));
 
         /* Mid-bypass the rescan was told to keep this side. */
         if (!p_seq->b_planned)
@@ -2316,12 +2356,9 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         p_seq->push_ddeg   = 0U;
         {
             /* Depth is not measured: assume the object is about as deep as
-             * its beam-corrected scanned width (close to its real size).
-             * The padded planning width (capped at 300 mm) made the robot
-             * run ~230 mm past a 15 cm box before turning back (17:44
-             * log). A deeper object is still caught by the front guard on
-             * the way back. Capped at the largest obstacle on the course
-             * (OBS_OBJECT_MAX_MM). */
+             * its beam-corrected scanned width, not the padded planning
+             * width, capped at OBS_OBJECT_MAX_MM. A deeper object is still
+             * caught by the front guard on the way back. */
             int32_t depth = scan_plan_width_cm(&plan) * MM_PER_CM;
 
             if (depth < 0)
@@ -2344,7 +2381,15 @@ static void handle_plan (obstacle_seq_t * p_seq, obstacle_drive_t * p_out,
         p_seq->search_side   = p_seq->side;
         obs_state_set_route((p_seq->side > 0) ? OBS_ROUTE_LEFT
                                               : OBS_ROUTE_RIGHT);
-        obs_state_set_width_cm(scan_plan_width_cm(&plan));
+        {
+            /* Telemetry only: the reported width correction. */
+            int32_t const width_cm = scan_plan_width_cm(&plan);
+
+            obs_state_set_width_cm((width_cm > 0)
+                ? (width_cm + ((OBS_WIDTH_REPORT_ADD_MM + OBS_MM_PER_CM_HALF) /
+                              OBS_MM_PER_CM))
+                : width_cm);
+        }
         /* Values fit INT on the 32-bit target; UB preserves string bytes. */
         tm_printf((UB *)"[OBS] Bypass %s: out %d deg, offset %d mm, face at "
                         "%d mm\n",

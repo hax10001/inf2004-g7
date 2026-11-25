@@ -103,8 +103,8 @@ int main(void)
         for(int deg=0;deg<=OBS_RETURN_DEG;deg++)
         {
             float const rad=(float)deg*OBS_RAD_PER_DEG;
-            float const clearance=past*OBS_SINF(rad) +
-                ((float)gap-OBS_TRACK_WIDTH_MM/2)*OBS_COSF(rad);
+            float const clearance=past*obs_sinf(rad) +
+                ((float)gap-OBS_TRACK_WIDTH_MM/2)*obs_cosf(rad);
             assert(clearance+0.001F>=OBS_BODY_PAST_WHEEL_MM+
                                       OBS_SAFETY_MARGIN_MM);
         }

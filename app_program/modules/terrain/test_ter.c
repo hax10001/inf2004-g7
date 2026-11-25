@@ -1,5 +1,5 @@
 /** @file test_ter.c
- * @brief Pure arithmetic checks; no change to the dormant IMU task.
+ * @brief On-target arithmetic checks of the IMU magnitude calculation.
  */
 #include "test_ter.h"
 #include "terrain.h"

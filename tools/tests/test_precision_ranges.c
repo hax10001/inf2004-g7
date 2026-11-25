@@ -10,7 +10,7 @@ int main(void)
     steering_t steer = {0};
     bc_match_result_t match = {0};
     bc_layout_result_t layout = {0};
-    terrain_calibration calibration = {0};
+    terrain_calibration_t calibration = {0};
     steer.last_side = -1;
     steer.bend_side = 1;
     match.support = 6;

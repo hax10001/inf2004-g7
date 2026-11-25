@@ -1,5 +1,5 @@
 /** @file motor.c
- * @brief Preserve the tested motor wiring and BSP operation sequence.
+ * @brief Motor PWM output through the BSP PWM API.
  */
 #include "motor.h"
 #include "board/board_config.h"
@@ -15,15 +15,15 @@ static volatile uint32_t g_last_right_pwm;
  * 50 ms while stopped, and blocking USB prints disturb encoder timing. */
 static bool g_b_stopped = false;
 
-void motor_last_command (uint16_t * left, uint16_t * right)
+void motor_last_command (uint16_t * p_left, uint16_t * p_right)
 {
-    if (left != NULL)
+    if (p_left != NULL)
     {
-        *left = (uint16_t)g_last_left_pwm;
+        *p_left = (uint16_t)g_last_left_pwm;
     }
-    if (right != NULL)
+    if (p_right != NULL)
     {
-        *right = (uint16_t)g_last_right_pwm;
+        *p_right = (uint16_t)g_last_right_pwm;
     }
 }
 
@@ -107,7 +107,7 @@ void motor_set_forward (uint32_t left_pwm, uint32_t right_pwm)
     g_b_stopped = false;
     g_last_left_pwm = left_pwm;
     g_last_right_pwm = right_pwm;
-    /* WARNING: The tested robot drives the left wheel through its B pin. */
+    /* WARNING: the left motor's forward input is its B pin. */
     pwm_set_cc(BOARD_MOTOR_LEFT_A_PIN, 0U);
     pwm_set_cc(BOARD_MOTOR_LEFT_B_PIN, left_pwm);
     pwm_set_cc(BOARD_MOTOR_RIGHT_A_PIN, right_pwm);
@@ -129,7 +129,7 @@ void motor_set_directional (int32_t left_pwm, int32_t right_pwm)
     g_b_stopped = false;
     g_last_left_pwm = left;
     g_last_right_pwm = right;
-    /* Preserve original tested forward polarity: L on B, R on A.
+    /* Forward polarity: left on B, right on A.
      * Reverse uses the opposite H-bridge input on the same motor. */
     pwm_set_cc(BOARD_MOTOR_LEFT_A_PIN, left_pwm < 0 ? left : 0U);
     pwm_set_cc(BOARD_MOTOR_LEFT_B_PIN, left_pwm >= 0 ? left : 0U);

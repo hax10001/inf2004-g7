@@ -8,7 +8,7 @@ by the dashboard. The commands to regenerate each table are at the end.
 | Deliverable | Result | Detail |
 | --- | --- | --- |
 | 1. Data representation table | 616 record fields and 265 static instances inventoried from the compiled ARM sources | [Section 1](#1-data-representation-table), [`application_fields.csv`](application_fields.csv), [`application_globals.csv`](application_globals.csv) |
-| 2. RAM usage comparison | **33,996 B less static RAM** (103,594 → 69,598 B across application instances); 629 B less per instance set of the 66 records | [Section 2](#2-ram-usage-comparison), [`record_sizes.csv`](record_sizes.csv) |
+| 2. RAM usage comparison | **33,996 B less static RAM** (103,594 → 69,598 B across application instances); 649 B less per instance set of the 66 records | [Section 2](#2-ram-usage-comparison), [`record_sizes.csv`](record_sizes.csv) |
 | 3. Message size comparison | MQTT binary frames are **12 %** of the same data as text (3.7 MB vs 31.9 MB over 128,592 real frames); queue records 9–10 B | [Section 3](#3-message-size-comparison), [`mqtt_message_sizes.csv`](mqtt_message_sizes.csv) |
 | 4. Correctness and performance | Full host suite passes (140 checks incl. bit-boundary tests), 96 dashboard tests, telemetry cadence unchanged | [Section 4](#4-correctness-and-performance), [`telemetry_timing.txt`](telemetry_timing.txt) |
 
@@ -24,7 +24,7 @@ tasks touch them without a lock.
 
 | Area | Field | Valid range | Bits | Representation |
 | --- | --- | --- | --- | --- |
-| **1. Motion / encoders** | ODOM queue record (time, left/right travel, sequence) | ms clock; ±32,767 mm; modulo 65,536 | 32+16+16+16 | `B1_OdomRecord`: 10-byte array, explicit little-endian packing (no padding, no unaligned access) |
+| **1. Motion / encoders** | ODOM queue record (time, left/right travel, sequence) | ms clock; ±32,767 mm; modulo 65,536 | 32+16+16+16 | `b1_odom_record_t`: 10-byte array, explicit little-endian packing (no padding, no unaligned access) |
 | | Downhill governor percent / engaged / fault / pitch | 0 or 65..100 / 0..1 / 0..2 / −900..900 deci-deg | 7 / 1 / 2 / 11 | `motion_status_t` bit-fields under the motion mutex |
 | | Lost-line search phase / last line side | 0..4 / −1..1 | 3 / 2 | `line_search_t` bit-fields, controller task only |
 | | Travel since line last seen / pivot swept | 0..65,535 counts (saturating) | 16 / 16 | `uint16_t`, saturating add |
@@ -50,7 +50,7 @@ tasks touch them without a lock.
 | | Side-watch, guard, line, verify counters | compared to limits ≤ 10 | 8 | `uint8_t`, saturating increment |
 | | Front monitor index / fill / hits / no-echo | 0..2 / 0..3 / 0..3 / 0..5 | 2 / 2 / 2 / 3 | `monitor_t` bit-fields with `#error` range guards |
 | | Heading off the line (shared, controller → scanner) | −250..250 deci-deg, sentinel unknown | 10 (in 16) | One aligned `int16_t`: a single store and load, no lock needed |
-| **4. Hump estimation** | Current / last / maximum hump height | 0..127 mm (saturating) | 7 each | `terrain_snapshot` bit-fields under the terrain mutex |
+| **4. Hump estimation** | Current / last / maximum hump height | 0..127 mm (saturating) | 7 each | `terrain_snapshot_t` bit-fields under the terrain mutex |
 | | Lift height / lifted flag | 0..1022 mm (1023 = unknown) / 0..1 | 10 / 1 | Same 32-bit word as the hump heights |
 | | Hump phase / level count / tilt count / filter ready / on hump / lifted during hump / travel during hump | 0..2 / 0..15 / 0..3 / 0..1 ×3 / 0..63 mm | 2 / 4 / 2 / 1 ×3 / 6 | `hump_state_t` bit-fields, IMU task only; gravity in 11 bits |
 | | Lift estimator start / still / floor counts | 0..3 / 0..25 / 0..5 | 2 / 5 / 3 | `lift_math_state_t` bit-fields |
@@ -62,8 +62,8 @@ tasks touch them without a lock.
 | **6. ISR / task shared** | Encoder count and edge time | 32-bit counters | 32 | ISR writes whole aligned words, readers copy them; no packed read-modify-write |
 | | Barcode fast-queue sample | ADC 12 bits + flags | packed | Single-producer single-consumer ring between the ADC ISR and the barcode task |
 | | Terrain / motion / IR snapshots | as above | as above | Packed fields only written and read with the owning mutex held |
-| **7. Inter-task queues** | Telemetry event record | time32, id16, value16, source 3, kind 5 | 72 | `B1_Event`: 9 bytes instead of 12, 24-entry ring |
-| | Odometry record | see area 1 | 80 | `B1_OdomRecord`: 10 bytes instead of 20, 32-entry ring |
+| **7. Inter-task queues** | Telemetry event record | time32, id16, value16, source 3, kind 5 | 72 | `b1_event_t`: 9 bytes instead of 12, 24-entry ring |
+| | Odometry record | see area 1 | 80 | `b1_odom_record_t`: 10 bytes instead of 20, 32-entry ring |
 | | Barcode sample queue | as above | packed | `bc_fastq_sample_t`: 24 bytes, 64 entries |
 | **8. MQTT** | Snapshot payload | mission 3, line 3, IR 3, letter 5, action 2+1, hump 10, max hump 10, obstacle 10, side 2, bypass 8, faults 8, wheel speeds 12+12, source and stale masks 5+5 | 99 bits | 13 bytes, explicit bit writer (no C structs on the wire) |
 | | Route mapping command | four letters 0..25 | 5 each = 20 | 3 bytes |
@@ -104,18 +104,18 @@ out without bit-fields (each field at its declared type, natural alignment).
 
 | Record | Unpacked (B) | Packed (B) | Saved (B) |
 | --- | ---: | ---: | ---: |
-| `obstacle_seq_t` (bypass sequencer) | 228 | 112 | 116 |
+| `obstacle_seq_t` (bypass sequencer) | 232 | 112 | 120 |
 | `nav_controller_t` (navigation) | 168 | 104 | 64 |
 | `scan_plan_sides_t` (scan report) | 88 | 40 | 48 |
-| `hump_state_t` | 72 | 36 | 36 |
+| `hump_state_t` | 80 | 36 | 44 |
 | `downhill_governor_t` | 36 | 8 | 28 |
-| `B1_Store` (telemetry store) | 764 | 736 | 28 |
-| `terrain_snapshot` | 40 | 20 | 20 |
+| `b1_store_t` (telemetry store) | 764 | 736 | 28 |
+| `terrain_snapshot_t` | 44 | 20 | 24 |
 | `line_search_t` | 36 | 16 | 20 |
 | `scan_handoff_t` | 24 | 12 | 12 |
 | `bc_wave_row_t` (× 8,192) | 12 | 8 | 4 per row |
 | `scan_plan_point_t` (× 39 per scan) | 12 | 4 | 8 per point |
-| **All 66 application records** | **3,018** | **2,389** | **629** |
+| **All 66 application records** | **3,042** | **2,393** | **649** |
 
 ### Static RAM by instance
 
@@ -169,8 +169,8 @@ bits), START / STOP / other 3 B, each in the same 14-byte envelope.
 
 | Record | Unpacked (B) | Packed (B) | Entries |
 | --- | ---: | ---: | ---: |
-| Odometry (`B1_OdomRecord`) | 20 | 10 | 32 |
-| Event (`B1_Event`) | 12 | 9 | 24 |
+| Odometry (`b1_odom_record_t`) | 20 | 10 | 32 |
+| Event (`b1_event_t`) | 12 | 9 | 24 |
 | Scan point (`scan_plan_point_t`) | 12 | 4 | 39 per scan |
 | Barcode hand-off (`scan_handoff_t`) | 24 | 12 | 1 |
 

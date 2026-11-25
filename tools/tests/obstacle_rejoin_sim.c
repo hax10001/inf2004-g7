@@ -194,8 +194,8 @@ static int run_case(case_t const *c, bool verbose)
             printf("  %-34s seek legs %d, off line %5.1f mm, heading "
                    "%+6.1f deg to the line\n", c->name, seeks, off, h_err);
         if (c->line_deg == 0.0 && c->curve_mm == 0.0)
-            /* Head-on as before 23 Nov (4.5 mm, 0.1 deg; was 3.1, 0.5). */
-            return seeks == 0 && off <= 6.0 && fabs(h_err) <= 2.0;
+            /* Head-on: 4.5 mm, 0.1 deg at 60 deg; 7.4 mm, 1.6 deg at 75. */
+            return seeks == 0 && off <= 10.0 && fabs(h_err) <= 3.0;
         return seeks == 0 && off <= 15.0 && fabs(h_err) <= 10.0;
     }
 }

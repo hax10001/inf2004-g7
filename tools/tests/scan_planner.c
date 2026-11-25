@@ -415,8 +415,14 @@ int main(void)
             printf("  150 mm face %s: reported width %d mm\n",
                    k?"offset 40 mm":"centred",(int)w);
             assert(w>=105 && w<=195);
-            /* The log's mm width and the plan's cm width agree (rounding). */
-            assert((int)sides.width_mm>=w-5 && (int)sides.width_mm<=w+5);
+            /* The log's mm width is the plan's cm width (rounding) plus
+             * the report-only OBS_WIDTH_REPORT_ADD_MM; the plan itself
+             * keeps the measured width. */
+            {
+                int32_t const shown=w+OBS_WIDTH_REPORT_ADD_MM;
+                assert((int)sides.width_mm>=shown-5 &&
+                       (int)sides.width_mm<=shown+5);
+            }
         }
         puts("PASS reported width corrects for the ultrasonic beam spread");
     }

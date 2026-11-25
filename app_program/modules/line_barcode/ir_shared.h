@@ -12,10 +12,10 @@ typedef struct
 {
     /* Digital GPIO values and validity are single-bit measurements.
      * All reads/writes of the published snapshot hold its RTOS mutex. */
-    unsigned int left:1;
-    unsigned int right:1;
-    unsigned int barcode:1;
-    unsigned int b_valid:1;
+    uint32_t     left:1;
+    uint32_t     right:1;
+    uint32_t     barcode:1;
+    uint32_t     b_valid:1;
     uint32_t timestamp_msec;
 } ir_shared_snapshot_t;
 
@@ -58,14 +58,6 @@ ER ir_shared_take_both_gap (bool * p_b_gap);
  * Intended for the single controller consumer.
  */
 ER ir_shared_take_diag (ir_shared_diag_t * p_diag);
-
-/** @brief Internal subsystem lock shared with the barcode mailbox.
- * No hardware, logging, or nested snapshot calls while held. A zero
- * timeout lets barcode sampling skip contention without delaying IR.
- */
-ER ir_shared_lock (TMO timeout);
-/** @brief Release a successful ir_shared_lock(). */
-ER ir_shared_unlock (void);
 
 #endif /* IR_SHARED_H */
 

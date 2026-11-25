@@ -6,6 +6,7 @@
 
 #include <tk/tkernel.h>
 
+/** @brief Obstacle worker task: pings, scans and side watch. */
 void task_obstacle_task (INT start_code, void * p_context);
 
 #endif /* TASK_OBSTACLE_H */

@@ -63,8 +63,8 @@ static const char usb_selftest[] =
 #if defined(B1_ROBOT_APP) && TM_WIFI_CYW43
 #include "g7_wifi_scan_diag.h"
 /* Independent of USB console ring and application task scheduling. */
-IMPORT volatile unsigned int g7_usermain_stage;
-IMPORT volatile int g7_usermain_error;
+IMPORT volatile uint32_t g_usermain_stage;
+IMPORT volatile int32_t g_usermain_error;
 IMPORT void g7_usb_net_snapshot(W out[14]);
 
 LOCAL void diag_text(UB *line, UW *len, UW cap, const char *text)
@@ -109,9 +109,9 @@ LOCAL void usb_bootnet_selftest(void)
     g7_usb_net_snapshot(result);
     diag_text(line, &len, sizeof(line), "[BOOTNET]");
     diag_text(line, &len, sizeof(line), labels[0]);
-    diag_number(line, &len, sizeof(line), (W)g7_usermain_stage);
+    diag_number(line, &len, sizeof(line), (W)g_usermain_stage);
     diag_text(line, &len, sizeof(line), " app_rc=");
-    diag_number(line, &len, sizeof(line), (W)g7_usermain_error);
+    diag_number(line, &len, sizeof(line), (W)g_usermain_error);
     for(UW i = 0U; i < 10U; i++) {
         diag_text(line, &len, sizeof(line), labels[i + 1U]);
         diag_number(line, &len, sizeof(line), result[i]);

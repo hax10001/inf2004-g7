@@ -1,5 +1,5 @@
 /** @file test_barc.c
- * @brief Deterministic Code 39 and distance-capture regression tests.
+ * @brief Deterministic Code 39 decoder and distance-capture tests.
  */
 #include "test_barc.h"
 #include "bc_code.h"
@@ -12,9 +12,10 @@
 #define TEST_END_GAP 80U
 #define TEST_MAX_DISTANCE 900U
 
-static int g_failures = 0;
-static int g_assertions = 0;
+static int32_t g_failures = 0;
+static int32_t g_assertions = 0;
 
+/** @brief Count one assertion and print its label on failure. */
 static void test_check (uint8_t b_condition, char const * p_label)
 {
     ++g_assertions;
@@ -25,6 +26,7 @@ static void test_check (uint8_t b_condition, char const * p_label)
     }
 }
 
+/** @brief Expand a nine-bit symbol pattern into element widths. */
 static void test_symbol (uint16_t bits, uint32_t * p_width)
 {
     for (uint8_t i = 0U; i < 9U; ++i)
@@ -34,6 +36,7 @@ static void test_symbol (uint16_t bits, uint32_t * p_width)
     }
 }
 
+/** @brief Build the 29 widths of *letter* for one letter code. */
 static void test_make (uint8_t code, uint32_t * p_width)
 {
     bc_code_pattern_t pattern = {0U};
@@ -46,6 +49,7 @@ static void test_make (uint8_t code, uint32_t * p_width)
     test_symbol(0x94U, &p_width[20U]);
 }
 
+/** @brief Feed widths through the scanner as simulated travel. */
 static uint32_t test_feed (bc_scan_t * p_scan,
                             uint32_t const * p_width,
                             uint32_t step_ticks, uint8_t b_reverse)
@@ -100,6 +104,7 @@ static uint32_t test_feed (bc_scan_t * p_scan,
     return msec;
 }
 
+/** @brief Every letter decodes forwards and backwards. */
 static void test_letters (void)
 {
     for (uint8_t letter = 0U; letter < 26U; ++letter)
@@ -143,6 +148,7 @@ static void test_letters (void)
     }
 }
 
+/** @brief Malformed and out-of-range inputs are rejected. */
 static void test_invalid (void)
 {
     bc_code_pattern_t pattern = {0U};
@@ -184,9 +190,10 @@ static void test_invalid (void)
                "encoder fault during scan");
 }
 
+/** @brief Widths sampled from the supplied A, F and Z drawings decode. */
 static void test_sampled_pdfs (void)
 {
-    /* Widths extracted from a horizontal scan of the uploaded A, F, Z
+    /* Widths extracted from a horizontal scan of the supplied A, F, Z
      * barcode drawings, rounded to whole PDF page pixels. These fixtures
      * are independent of the lookup table in bc_code.c.
      */
@@ -212,9 +219,10 @@ static void test_sampled_pdfs (void)
     }
 }
 
+/** @brief A recorded reverse pass over A decodes. */
 static void test_recorded_reverse_a (void)
 {
-    /* Actual complete COM8 frame supplied by the user, 2026-10-29.
+    /* Complete frame recorded from the robot over serial.
      * Independent of the symbol lookup table; narrow widths span 35..118.
      */
     uint32_t const recorded[BC_CODE_ELEMENTS] = {
@@ -253,6 +261,7 @@ static void test_recorded_reverse_a (void)
     test_check(!result.valid, "ambiguous wide/narrow separation rejected");
 }
 
+/** @brief Decoding tolerates variation in narrow widths. */
 static void test_narrow_variation (void)
 {
     uint32_t const narrow[20] = {
@@ -282,6 +291,7 @@ static void test_narrow_variation (void)
     }
 }
 
+/** @brief Capture tolerates pauses and uneven wheel travel. */
 static void test_pauses_and_tilt (void)
 {
     bc_scan_t capture;
@@ -316,9 +326,10 @@ static void test_pauses_and_tilt (void)
                "interrupted scan rejected");
 }
 
+/** @brief A recorded pass over Z decodes. */
 static void test_recorded_z (void)
 {
-    /* User-confirmed Z: black/white widths have different baselines. */
+    /* Recorded Z: black and white widths have different baselines. */
     uint32_t widths[BC_CODE_ELEMENTS] = {
         34U, 257U, 15U, 126U, 159U, 123U, 167U, 126U, 15U,
         163U, 9U, 253U, 165U, 119U, 155U, 120U, 14U, 135U, 15U,
@@ -349,7 +360,7 @@ static void test_recorded_z (void)
     test_check(!result.valid, "zero measured width rejected");
 }
 
-int test_barc_run (void)
+int32_t test_barc_run(void)
 {
     test_letters();
     test_invalid();
@@ -364,6 +375,7 @@ int test_barc_run (void)
 }
 
 #ifdef BC_BARCODE_TEST_MAIN
+/** @brief Test entry point: run every case and report. */
 int main (void)
 {
     return (test_barc_run() == 0) ? 0 : 1;

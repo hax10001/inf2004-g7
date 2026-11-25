@@ -7,7 +7,7 @@
 #include "wheel_speed.h"
 #include "board/board_config.h"
 
-#define USEC_PER_MINUTE 60000000.0f
+#define USEC_PER_MINUTE 60000000.0f /* Microseconds per minute. */
 
 void wheel_speed_reset (wheel_speed_t * p_speed, int32_t count,
                         uint32_t edge_usec)

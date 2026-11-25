@@ -7,7 +7,7 @@
 
 /* One mg of acceleration, in mm/s^2. */
 #define LIFT_MATH_MM_S2_PER_MG 9.80665F
-#define LIFT_MATH_MSEC_PER_SEC 1000.0F
+#define LIFT_MATH_MSEC_PER_SEC 1000.0F /* Milliseconds per second. */
 
 /** @brief Track the rest window; true once the readings have stayed still. */
 static bool update_still (lift_math_state_t * p_state, int16_t excess_mg);

@@ -10,7 +10,7 @@
 
 /* Largest steer; at 0.8 the inner wheel keeps 20 percent of the target. */
 #define STEERING_MAX 0.8f
-/* The speed the gains below were tuned at (the default driving speed). */
+/* The speed, RPM, the steering gains were tuned at. */
 #define STEERING_REF_RPM 35.0f
 /* Bound on the speed scale (105 RPM): beyond it the gains are untested. */
 #define STEERING_SCALE_MAX 3.0f
@@ -19,21 +19,21 @@ typedef struct
 {
     float    integral;      /**< Grows while off-centre, decays once centred. */
     /* Only the controller task updates this flag. */
-    unsigned int b_off_centre:1; /**< Previous update saw correction. */
-    signed int last_side:2; /**< Exactly -1, 0 or +1: last touch. */
+    uint32_t     b_off_centre:1; /**< Previous update saw correction. */
+    int32_t    last_side:2; /**< Exactly -1, 0 or +1: last touch. */
     /* The four counts below are in reference periods: one per controller
      * period at STEERING_REF_RPM, more at higher speed (see scale in
      * steering_update()), so they measure distance travelled. */
     float    centred_count; /**< Centred periods since that touch ended. */
     float    hold_count;    /**< Periods left holding a full turn. */
-    signed int bend_side:2; /**< Exactly -1, 0 or +1: prior bend. */
+    int32_t    bend_side:2; /**< Exactly -1, 0 or +1: prior bend. */
     float    bend_age;      /**< Periods since it, capped past memory. */
     float    touch_count;   /**< Periods the current touch has lasted. */
 } steering_t;
 
 /* 1: steer with the line observer below (PID on where the line is, from
- * the sensors and the wheel encoders). 0: the PI steering above, as before
- * (kept as a fallback). */
+ * the sensors and the wheel encoders). 0: the PI steering above (fallback).
+ */
 #ifndef STEERING_OBSERVER
 #define STEERING_OBSERVER 1
 #endif
@@ -41,8 +41,8 @@ typedef struct
 /** @brief Where the line is, estimated between sensor touches.
  *
  * Two sensors that straddle the line only say "left", "right" or "somewhere
- * in between". In between, the robot used to drive blind and drift across
- * to the other sensor, which is the zig-zag. The wheel encoders measure how
+ * in between". Driving blind in between drifts across to the other sensor,
+ * giving a zig-zag. The wheel encoders measure how
  * far it drove and turned, so the line's position can be followed through
  * the gap and corrected whenever a sensor sees it. Steering is then a PID
  * on that estimate: P on the line's offset, D on the robot's heading across

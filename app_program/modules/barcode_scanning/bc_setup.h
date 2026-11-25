@@ -1,5 +1,5 @@
 /** @file bc_setup.h
- * @brief Minimal activation hooks for review by the team integration owner.
+ * @brief Barcode module start-up, worker and IR-sampler hooks.
  */
 #ifndef BC_SETUP_H
 #define BC_SETUP_H
@@ -19,8 +19,8 @@ ER bc_setup_start (void);
 /** @brief Service capture/results once, from the barcode worker only. */
 ER bc_setup_poll (void);
 
-/** @brief Existing 10 ms sampler calls this once GP27 is ready.
- * Arms dedicated 4 ms timer; subsequent 10 ms calls do not feed it.
+/** @brief Called by the 10 ms IR sampler once GP27 is ready.
+ * Arms the dedicated 2 ms capture alarm; later calls do not feed it.
  * No printing, sleeps, motor writes, or dynamic allocation.
  */
 ER bc_setup_sample (uint8_t raw_gpio, uint32_t now_msec);

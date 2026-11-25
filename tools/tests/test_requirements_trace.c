@@ -61,9 +61,9 @@ static uint8_t crc8_reference(uint8_t const *p_bytes, size_t count)
     return crc;
 }
 
-static void store_ready(B1_Store *p_store, uint8_t b_ready)
+static void store_ready(b1_store_t *p_store, uint8_t b_ready)
 {
-    B1_Mission mission = {0};
+    b1_mission_t mission = {0};
     assert(0 == b1_store_init(p_store, lock, unlock, &g_mutex,
                               TRACE_SESSION));
     b1_set_coordinator(p_store, coordinator, NULL);
@@ -73,11 +73,11 @@ static void store_ready(B1_Store *p_store, uint8_t b_ready)
     assert(0 == b1_ingest_mission(p_store, &mission));
 }
 
-static int send(B1_Store *p_store, uint8_t command, uint16_t transaction,
-                uint8_t const *p_map, B1_Frame *p_ack)
+static int send(b1_store_t *p_store, uint8_t command, uint16_t transaction,
+                uint8_t const *p_map, b1_frame_t *p_ack)
 {
-    B1_Command cmd = {0};
-    B1_Frame req = {0};
+    b1_command_t cmd = {0};
+    b1_frame_t req = {0};
     cmd.command = command;
     cmd.transaction = transaction;
     if (NULL != p_map)
@@ -96,9 +96,9 @@ static int send(B1_Store *p_store, uint8_t command, uint16_t transaction,
  * rejected while running or committed. */
 static void fr2_mapping(void)
 {
-    B1_Store store;
-    B1_Frame ack = {0};
-    B1_Mission mission = {0};
+    b1_store_t store;
+    b1_frame_t ack = {0};
+    b1_mission_t mission = {0};
     uint8_t packed[3] = {0};
     uint8_t const order[4] = {18u, 11u, 17u, 20u}; /* S, L, R, U */
     uint8_t bad[4] = {0u, 1u, 2u, 3u};
@@ -129,10 +129,10 @@ static void fr2_mapping(void)
  * controller is NOT_READY; STATUS echoes the last transaction. */
 static void fr13_commands(void)
 {
-    B1_Store store;
-    B1_Frame ack = {0};
-    B1_Frame status = {0};
-    B1_Command decoded = {0};
+    b1_store_t store;
+    b1_frame_t ack = {0};
+    b1_frame_t status = {0};
+    b1_command_t decoded = {0};
     uint8_t const map[4] = {0u, 1u, 2u, 3u};
     uint8_t raw[3] = {0u, 9u, 0u};
     uint8_t const accepted[] = {
@@ -183,8 +183,8 @@ static void fr13_commands(void)
  * rejected. */
 static void nfr13_frame(void)
 {
-    B1_Frame frame = {0};
-    B1_Frame back = {0};
+    b1_frame_t frame = {0};
+    b1_frame_t back = {0};
     uint8_t bytes[B1_MAX_FRAME] = {0};
 
     assert(13u == B1_HEADER);

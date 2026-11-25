@@ -21,13 +21,13 @@ typedef struct
     int32_t right_rpm;
     /* Four one-bit decisions, returned by the controller-owned bypass.
      * This result is never shared with an ISR or transmitted as raw bytes. */
-    unsigned char b_stop:1;        /**< Stop both wheels. */
-    unsigned char b_line_follow:1; /**< Normal line action this period. */
-    unsigned char b_done:1;        /**< Bypass finished. */
-    unsigned char b_fault:1;       /**< Stop and enter the error state. */
+    uint8_t       b_stop:1;        /**< Stop both wheels. */
+    uint8_t       b_line_follow:1; /**< Normal line action this period. */
+    uint8_t       b_done:1;        /**< Bypass finished. */
+    uint8_t       b_fault:1;       /**< Stop and enter the error state. */
     /** With b_done: where line following should look first if neither
      *  sensor is on the line, +1 left, -1 right, 0 unknown. */
-    signed char   line_hint:2;
+    int8_t        line_hint:2;
 } obstacle_drive_t;
 
 /** @brief Create the shared state, sensor and servo. */

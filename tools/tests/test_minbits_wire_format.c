@@ -5,9 +5,9 @@
 #include <string.h>
 #include <assert.h>
 int main(void) {
-    B1_SnapshotPayload input,back;
+    b1_snapshot_payload_t input,back;
     uint8_t binary[13],framebuf[B1_MAX_FRAME],packed[3];
-    B1_Frame frame={0},again;
+    b1_frame_t frame={0},again;
     uint8_t map[4]={0,4,12,25},remap[4]={0};
     unsigned i;
     memset(&input,0,sizeof(input));
@@ -40,7 +40,7 @@ int main(void) {
     printf("\nframe_hex=");
     for(i=0;i<27u;i++)printf("%02x",framebuf[i]);
     printf("\nstore_bytes=%zu\npeers_bytes=%zu\n",
-        sizeof(B1_Store),sizeof(G7_TelemetryPeers));
+        sizeof(b1_store_t),sizeof(g7_telemetry_peers_t));
     puts("PASS v9 bit-field/CRC/mapping/fault/native golden vector");
     return 0;
 }

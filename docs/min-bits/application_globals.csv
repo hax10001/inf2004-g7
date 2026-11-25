@@ -1,232 +1,232 @@
 Source,Line,Name,Type,Storage,Ownership,Status
-app_program/app/task_controller.c,54,g_imu_last_good_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,59,g_lift_floor_since,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,71,g_control,struct (unnamed struct at ../app_program/app/task_controller.c:62:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,110,g_remote_mutex,ID,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,111,g_stop_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,112,g_start_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,114,g_reported_state,robot_state_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,115,g_navigation,nav_controller_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,116,g_nav_report_event,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,117,g_nav_report_value,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,118,g_nav_report_seq,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,142,g_nav_path_counts,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,145,g_nav_handoff_retry,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,147,g_capture_end_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,149,g_capture_start_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,154,g_capture_flags,struct (unnamed struct at ../app_program/app/task_controller.c:151:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,155,g_nav_last_left,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,156,g_nav_last_right,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,158,g_nav_fwd_left,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,159,g_nav_fwd_right,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,173,g_line_heading_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,174,g_line_average_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,175,g_line_tracked_mm,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,498,g_remote_lock_misses,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app/task_controller.c,1254,reasons,const char *const[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app_main.c,21,g7_usermain_stage,volatile unsigned int,external,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/app_main.c,22,g7_usermain_error,volatile int,external,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/drivers/encoder.c,41,g_pins,const encoder_pins_t[2],static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/drivers/encoder.c,45,g_state,encoder_state_t[2],static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/drivers/encoder.c,47,g_ints_base,UW,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/drivers/ir.c,21,g_barcode_level,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/drivers/ir.c,22,gb_adc_ready,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/drivers/ir.c,23,gb_adc_classified,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,109,g_imu_last_good_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,114,g_lift_floor_since,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,126,g_control,struct (unnamed struct at ../app_program/app/task_controller.c:117:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,165,g_remote_mutex,ID,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,166,g_stop_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,167,g_start_pending,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,169,g_reported_state,robot_state_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,170,g_navigation,nav_controller_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,171,g_nav_report_event,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,172,g_nav_report_value,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,173,g_nav_report_seq,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,207,g_nav_path_counts,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,210,g_nav_handoff_retry,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,212,g_capture_end_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,214,g_capture_start_travel,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,219,g_capture_flags,struct (unnamed struct at ../app_program/app/task_controller.c:216:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,220,g_nav_last_left,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,221,g_nav_last_right,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,223,g_nav_fwd_left,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,224,g_nav_fwd_right,int16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,248,g_line_heading_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,249,g_line_average_deg,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,250,g_line_tracked_mm,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,589,g_remote_lock_misses,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app/task_controller.c,1364,reasons,const char *const[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app_main.c,22,g_usermain_stage,volatile uint32_t,external,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/app_main.c,23,g_usermain_error,volatile int32_t,external,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/drivers/encoder.c,68,g_pins,const encoder_pins_t[2],static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/drivers/encoder.c,72,g_state,encoder_state_t[2],static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/drivers/encoder.c,74,g_ints_base,UW,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/drivers/ir.c,28,g_barcode_level,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/drivers/ir.c,29,gb_adc_ready,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/drivers/ir.c,30,gb_adc_classified,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/drivers/motor.c,12,g_last_left_pwm,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/drivers/motor.c,13,g_last_right_pwm,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/drivers/motor.c,16,g_b_stopped,bool,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_code.c,14,g_bc_patterns,const bc_code_pattern_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_fast.c,17,g_adc_stats,bc_fast_adc_stats_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_fast.c,33,gb_fast_registered,uint8_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_fast.c,34,gb_fast_armed,uint8_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_fast.c,35,g_next_alarm_usec,uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_fast.c,36,g_fast_error,volatile ER,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_fast.c,262,last_sample_usec,uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_fast.c,263,restarts,uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_code.c,27,g_bc_patterns,const bc_code_pattern_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_fast.c,19,g_adc_stats,bc_fast_adc_stats_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_fast.c,37,gb_fast_registered,uint8_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_fast.c,38,gb_fast_armed,uint8_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_fast.c,39,g_next_alarm_usec,uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_fast.c,40,g_fast_error,volatile ER,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_fast.c,266,last_sample_usec,uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_fast.c,267,restarts,uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/barcode_scanning/bc_fastq.c,8,g_samples,bc_fastq_sample_t[64],static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/barcode_scanning/bc_fastq.c,12,g_write_index,volatile uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/barcode_scanning/bc_fastq.c,13,g_read_index,volatile uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/barcode_scanning/bc_fastq.c,14,g_drop_count,volatile uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/barcode_scanning/bc_fastq.c,15,g_last_drop_seen,uint32_t,static,ISR/task boundary; preserve existing atomic ownership,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,102,g_phi,const float[145],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,130,g_scales,const float[3],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,132,g_phase,layout_phase_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,133,g_read,bc_layout_read_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,134,g_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,135,g_has_left,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,136,g_variant,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,137,g_tables_ready,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,139,g_wide,float[26][6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,140,g_wide_mean,float[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,141,g_wide_sxx,float[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,145,g_shape,float[52][6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,146,g_black,float[15][2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,147,g_grid,int16_t[850],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,148,g_cache_pos,float[768],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,149,g_cache_sig,int16_t[768],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,150,g_cache_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,152,g_top,int32_t[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,153,g_peaks,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,155,g_raw_centre,float[96],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,156,g_raw_height,int32_t[96],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,157,g_raw_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,158,g_raw_overflow,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,159,g_bar,float[10],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,160,g_bars,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,162,g_pick,uint32_t[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,163,g_combos_done,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,164,g_fit,layout_fit_t[26][2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,166,g_group,uint8_t[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,167,g_group_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,168,g_group_index,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,169,g_best_reverse,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,170,g_best_err,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,171,g_stride,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,172,g_fit_index,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,173,g_mse,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,174,g_mse_valid,uint8_t[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,176,g_mfit,uint8_t[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,177,g_gain,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,178,g_icpt,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,179,g_var,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,181,g_grid2,int16_t[850],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,183,g_variant_result,bc_layout_result_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,184,g_result,bc_layout_result_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_layout.c,1229,texts,const char *const[7],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,12,gh_port_lock,ID,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,25,g_port_config,bc_port_runtime_config_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,26,g_port_scan,bc_scan_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,27,g_port_result,bc_port_result_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,28,g_diag_queue,bc_port_result_t[4],static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,29,g_diag_head,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,30,g_diag_count,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,31,g_last_left,int32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,32,g_last_right,int32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,33,g_travel_units,uint32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,34,g_event_sequence,uint16_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,35,gb_have_counts,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,36,gb_have_time,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,37,g_last_time_usec,uint32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,38,g_clock_usec,uint64_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,39,gb_have_clock,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,40,gb_have_result,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,41,gb_sample_lost,volatile uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,42,g_input_stats,bc_port_stats_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,43,gb_scan_active,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_port.c,44,g_navigation_slot,scan_handoff_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_setup.c,51,g_setup_mode,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_setup.c,52,g_setup_error,volatile ER,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_setup.c,53,gb_fast_ready,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_setup.c,54,gb_worker_ready,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_setup.c,55,g_reported_mode,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_setup.c,56,g_measure,bc_measure_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_setup.c,57,g_input_report_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_uart.c,13,gb_reported_input_error,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_uart.c,14,g_input_error_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,123,g_phi,const float[145],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,151,g_scales,const float[3],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,153,g_phase,layout_phase_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,154,g_read,bc_layout_read_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,155,g_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,156,g_has_left,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,157,g_variant,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,158,g_tables_ready,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,160,g_wide,float[26][6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,161,g_wide_mean,float[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,162,g_wide_sxx,float[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,166,g_shape,float[52][6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,167,g_black,float[15][2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,168,g_grid,int16_t[850],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,169,g_cache_pos,float[768],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,170,g_cache_sig,int16_t[768],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,171,g_cache_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,173,g_top,int32_t[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,174,g_peaks,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,176,g_raw_centre,float[96],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,177,g_raw_height,int32_t[96],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,178,g_raw_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,179,g_raw_overflow,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,180,g_bar,float[10],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,181,g_bars,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,183,g_pick,uint32_t[6],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,184,g_combos_done,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,185,g_fit,layout_fit_t[26][2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,187,g_group,uint8_t[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,188,g_group_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,189,g_group_index,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,190,g_best_reverse,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,191,g_best_err,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,192,g_stride,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,193,g_fit_index,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,194,g_mse,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,195,g_mse_valid,uint8_t[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,197,g_mfit,uint8_t[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,198,g_gain,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,199,g_icpt,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,200,g_var,double[52],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,202,g_grid2,int16_t[850],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,204,g_variant_result,bc_layout_result_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,205,g_result,bc_layout_result_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_layout.c,1281,texts,const char *const[7],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,15,gh_port_lock,ID,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,28,g_port_config,bc_port_runtime_config_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,29,g_port_scan,bc_scan_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,30,g_port_result,bc_port_result_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,31,g_diag_queue,bc_port_result_t[4],static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,32,g_diag_head,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,33,g_diag_count,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,34,g_last_left,int32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,35,g_last_right,int32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,36,g_travel_units,uint32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,37,g_event_sequence,uint16_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,38,gb_have_counts,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,39,gb_have_time,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,40,g_last_time_usec,uint32_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,41,g_clock_usec,uint64_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,42,gb_have_clock,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,43,gb_have_result,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,44,gb_sample_lost,volatile uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,45,g_input_stats,bc_port_stats_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,46,gb_scan_active,uint8_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_port.c,47,g_navigation_slot,scan_handoff_t,static,barcode port semaphore; separate navigation and telemetry ACK,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_setup.c,57,g_setup_mode,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_setup.c,58,g_setup_error,volatile ER,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_setup.c,59,gb_fast_ready,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_setup.c,60,gb_worker_ready,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_setup.c,61,g_reported_mode,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_setup.c,62,g_measure,bc_measure_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_setup.c,63,g_input_report_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_uart.c,15,gb_reported_input_error,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_uart.c,16,g_input_error_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/barcode_scanning/bc_wave.c,16,g_cancel_requested,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/barcode_scanning/bc_wave.c,23,g_drop_requested,volatile uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,104,g_rows,bc_wave_row_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,105,g_smooth,uint16_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,106,g_floor,uint16_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,107,g_contrast,uint16_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,115,g_workspace,union (unnamed union at ../app_program/modules/barcode_scanning/bc_wave.c:111:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,116,g_envelope_head,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,117,g_envelope_tail,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,118,g_envelope_next,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,119,g_run_width,uint32_t[256],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,120,g_run_black,uint8_t[256],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,121,g_widths,uint32_t[26][29],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,122,g_fit,uint16_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,123,g_reverse,uint8_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,124,g_votes,uint8_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,125,g_offsets,const uint16_t[19],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,130,g_phase,volatile bc_wave_phase_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,131,g_write,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,132,g_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,133,g_start,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,134,g_index,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,135,g_trial,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,136,g_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,137,g_left,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,138,g_right,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,139,g_last_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,140,g_trigger_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,141,g_trigger_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,142,g_freeze_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,143,g_capture_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,144,g_last_signal_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,145,g_tail_level,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,146,g_motion_hold,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,147,g_rearm_requested,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,148,g_clock_usec,uint64_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,149,g_clock_last,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,150,g_clock_ready,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,151,g_trigger_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,152,g_white_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,153,g_white_sum,uint64_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,154,g_white_square,uint64_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,155,g_white_mean,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,156,g_white_sigma,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,157,g_white_min,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,158,g_white_max,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,159,g_gap_max,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,160,g_invalid,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,161,g_adc_errors,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,162,g_backward,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,163,g_busy_samples,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,164,g_sequence,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,165,g_saturated,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,166,g_run_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,167,g_trial_frames,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,168,g_trial_mask,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,169,g_last_widths,uint32_t[29],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,170,g_legacy_edges,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,171,g_have_counts,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,172,g_moved,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,173,g_freeze_reason,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,174,g_clear_white_samples,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,175,g_clear_total_samples,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,176,g_suppressed,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,177,g_left_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,178,g_row_left_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,179,g_white_rejects,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,180,g_capture_seen_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,181,g_white_dark,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,189,g_startup_white_valid,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,190,g_dark_adc,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,191,g_relearn_requested,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,193,g_last_valid,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,194,g_last_letter,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,195,g_last_reason,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,196,g_last_process_ms,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,197,g_last_sequence,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,201,g_ignored,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,202,g_scan_guard_until_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,203,g_run_overflow,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,204,g_legacy,bc_code_result_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,1496,reported,bc_wave_phase_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/barcode_scanning/bc_wave.c,1546,white_rejects_reported,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/line_barcode/ir_shared.c,10,gh_ir_mutex,volatile ID,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/line_barcode/ir_shared.c,12,g_latest_ir,volatile ir_shared_snapshot_t,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/line_barcode/ir_shared.c,28,g_ir_latched_and_gap,volatile uint8_t,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/line_barcode/ir_shared.c,30,g_diag,volatile ir_shared_diag_t,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,106,g_turn_pwm,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,107,g_pivot_pwm,uint16_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,108,g_pivot_last,int32_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,109,g_pivot_action,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,116,g_brake_cycles,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,182,g_search,line_search_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,197,g_wheels,motion_wheel_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,198,g_steering,steering_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,200,g_track,line_track_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,203,g_period_counts,int16_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,204,g_base_rpm,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,205,g_steer,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,206,g_log_countdown,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,208,g_downhill,downhill_governor_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,213,g_downhill_brake,struct (unnamed struct at ../app_program/modules/motion/motion.c:210:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,219,gh_status_mutex,volatile ID,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/motion/motion.c,220,g_status,volatile motion_status_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,185,g_rows,bc_wave_row_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,186,g_smooth,uint16_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,187,g_floor,uint16_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,188,g_contrast,uint16_t[8192],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,196,g_workspace,union (unnamed union at ../app_program/modules/barcode_scanning/bc_wave.c:192:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,197,g_envelope_head,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,198,g_envelope_tail,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,199,g_envelope_next,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,200,g_run_width,uint32_t[256],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,201,g_run_black,uint8_t[256],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,202,g_widths,uint32_t[26][29],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,203,g_fit,uint16_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,204,g_reverse,uint8_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,205,g_votes,uint8_t[26],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,206,g_offsets,const uint16_t[19],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,211,g_phase,volatile bc_wave_phase_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,212,g_write,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,213,g_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,214,g_start,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,215,g_index,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,216,g_trial,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,217,g_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,218,g_left,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,219,g_right,int32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,220,g_last_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,221,g_trigger_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,222,g_trigger_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,223,g_freeze_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,224,g_capture_msec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,225,g_last_signal_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,226,g_tail_level,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,227,g_motion_hold,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,228,g_rearm_requested,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,229,g_clock_usec,uint64_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,230,g_clock_last,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,231,g_clock_ready,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,232,g_trigger_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,233,g_white_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,234,g_white_sum,uint64_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,235,g_white_square,uint64_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,236,g_white_mean,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,237,g_white_sigma,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,238,g_white_min,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,239,g_white_max,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,240,g_gap_max,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,241,g_invalid,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,242,g_adc_errors,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,243,g_backward,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,244,g_busy_samples,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,245,g_sequence,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,246,g_saturated,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,247,g_run_count,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,248,g_trial_frames,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,249,g_trial_mask,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,250,g_last_widths,uint32_t[29],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,251,g_legacy_edges,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,252,g_have_counts,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,253,g_moved,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,254,g_freeze_reason,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,255,g_clear_white_samples,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,256,g_clear_total_samples,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,257,g_suppressed,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,258,g_left_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,259,g_row_left_units,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,260,g_white_rejects,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,261,g_capture_seen_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,262,g_white_dark,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,270,g_startup_white_valid,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,271,g_dark_adc,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,272,g_relearn_requested,volatile uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,274,g_last_valid,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,275,g_last_letter,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,276,g_last_reason,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,277,g_last_process_ms,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,278,g_last_sequence,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,282,g_ignored,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,283,g_scan_guard_until_usec,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,284,g_run_overflow,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,285,g_legacy,bc_code_result_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,1630,reported,bc_wave_phase_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/barcode_scanning/bc_wave.c,1683,white_rejects_reported,uint32_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/line_barcode/ir_shared.c,9,gh_ir_mutex,volatile ID,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/line_barcode/ir_shared.c,11,g_latest_ir,volatile ir_shared_snapshot_t,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/line_barcode/ir_shared.c,26,g_ir_latched_and_gap,volatile uint8_t,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/line_barcode/ir_shared.c,28,g_diag,volatile ir_shared_diag_t,static,IR task / existing IR mutexes,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,111,g_turn_pwm,uint16_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,112,g_pivot_pwm,uint16_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,113,g_pivot_last,int32_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,114,g_pivot_action,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,121,g_brake_cycles,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,200,g_search,line_search_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,215,g_wheels,motion_wheel_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,216,g_steering,steering_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,218,g_track,line_track_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,221,g_period_counts,int16_t[2],static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,222,g_base_rpm,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,223,g_steer,float,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,224,g_log_countdown,uint8_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,226,g_downhill,downhill_governor_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,231,g_downhill_brake,struct (unnamed struct at ../app_program/modules/motion/motion.c:228:8),static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,237,gh_status_mutex,volatile ID,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/motion/motion.c,238,g_status,volatile motion_status_t,static,controller-owned or stack-local; inspect shared instance,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/obstacle/obs_state.c,29,gh_sem,ID,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/obstacle/obs_state.c,30,gh_flag,ID,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/obstacle/obs_state.c,31,g_status,volatile uint32_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
@@ -237,31 +237,31 @@ app_program/modules/obstacle/obs_state.c,35,g_side_range,volatile int32_t,static
 app_program/modules/obstacle/obs_state.c,36,g_side_seq,volatile uint32_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/obstacle/obs_state.c,37,g_front_range,volatile int32_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/obstacle/obs_state.c,38,g_front_seq,volatile uint32_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/obstacle/obstacle.c,200,g_seq,obstacle_seq_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/obstacle/scan_plan.c,128,g_sine_milli,const int32_t[19],static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/obstacle/scan_plan.c,132,g_angle_choice_deg,const int32_t[4],static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/obstacle/scan_plan.c,741,g_line_offset_ddeg,volatile int16_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/obstacle/obstacle.c,264,g_seq,obstacle_seq_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/obstacle/scan_plan.c,147,g_sine_milli,const int32_t[19],static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/obstacle/scan_plan.c,151,g_angle_choice_deg,const int32_t[4],static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/obstacle/scan_plan.c,780,g_line_offset_ddeg,volatile int16_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
 app_program/modules/obstacle/servo.c,48,g_angle_deg,int32_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/obstacle/task_obstacle.c,794,reasons,const UB *const[4],static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/obstacle/ultrasonic.c,40,g_last_trigger_msec,uint32_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/obstacle/ultrasonic.c,41,g_last_trigger_valid,uint8_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,21,store,B1_Store,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,22,peers,G7_TelemetryPeers,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,23,mission_seq,uint16_t,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,24,last_mission,uint8_t,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,25,mutex_id,ID,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,239,mutex_cfg,const T_CMTX,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,240,task_cfg,const T_CTSK,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,91,g_hump,hump_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,101,g_climb_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,102,g_climb_peak_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,103,g_climb_up,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,104,g_climb_last,int32_t[2],static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,114,g_climb_counts,bool,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,118,g_landed_msec,uint32_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/task_imu.c,122,g_lift,lift_math_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/terrain.c,13,gh_calibration_mutex,volatile ID,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/terrain.c,14,gh_snapshot_mutex,volatile ID,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/terrain.c,15,g_calibration,volatile terrain_calibration,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/terrain/terrain.c,16,g_snapshot,volatile terrain_snapshot,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
-app_program/modules/telemetry/buddy1_rt.c,27,mission_event_seq,uint16_t,static,telemetry task only,WIRE_WIDTH; mission EVENT IDs (16-bit on the wire)
+app_program/modules/obstacle/task_obstacle.c,894,reasons,const UB *const[4],static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/obstacle/ultrasonic.c,39,g_last_trigger_msec,uint32_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/obstacle/ultrasonic.c,40,g_last_trigger_valid,uint8_t,static,obstacle owner / packed state semaphore; inspect member,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,48,g_store,b1_store_t,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,49,g_peers,g7_telemetry_peers_t,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,50,g_mission_seq,uint16_t,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,53,g_mission_event_seq,uint16_t,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,54,g_last_mission,uint8_t,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,55,g_mutex_id,ID,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,342,mutex_cfg,const T_CMTX,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/telemetry/buddy1_rt.c,343,task_cfg,const T_CTSK,static,B1 store mutex / telemetry owner; inspect individual sharing,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,126,g_hump,hump_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,136,g_climb_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,137,g_climb_peak_mm,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,138,g_climb_up,float,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,139,g_climb_last,int32_t[2],static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,148,g_climb_counts,bool,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,152,g_landed_msec,uint32_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/task_imu.c,156,g_lift,lift_math_state_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/terrain.c,19,gh_calibration_mutex,volatile ID,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/terrain.c,20,gh_snapshot_mutex,volatile ID,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/terrain.c,21,g_calibration,volatile terrain_calibration_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table
+app_program/modules/terrain/terrain.c,22,g_snapshot,volatile terrain_snapshot_t,static,IMU task; published snapshots under terrain mutex,INSTANCE_REVIEW_REQUIRED; see record field table

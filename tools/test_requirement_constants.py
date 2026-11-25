@@ -61,7 +61,8 @@ TRACE = [
     ("FR8", IMU, "HUMP_LEVEL_DEG", 1.5),
     ("FR8", IMU, "HUMP_LEVEL_CONFIRM_SAMPLES", 15),
     ("FR8", IMU, "HUMP_PUBLISH_MAX_MM", 127),
-    ("FR8", IMU, "HUMP_MIN_CLIMB_MM", 5.0),
+    ("FR8", IMU, "HUMP_MIN_CLIMB_MM", 0.0),  # 24 Nov: minimum removed
+    ("FR8", IMU, "HUMP_HEIGHT_BIAS_MM", 2.0),  # 25 Nov: chosen by Linus
     ("FR8", IMU, "HUMP_MIN_TRAVEL_MM", 40),
     ("FR8", IMU, "HUMP_AFTER_LIFT_MSEC", 3000),
     ("FR9", OBS, "OBS_STOP_MM", 250),
@@ -81,7 +82,7 @@ TRACE = [
     ("FR10", OBS, "OBS_RESUME_CLEAR_MM", 400),
     ("FR11", OBS, "OBS_SIDE_CLEAR_HITS", 5),
     ("FR11", OBS, "OBS_PASS_MAX_MM", 600),
-    ("FR11", OBS, "OBS_RETURN_DEG", 60),
+    ("FR11", OBS, "OBS_RETURN_DEG", 75),  # 25 Nov: sharper turn back
     ("FR11", OBS, "OBS_VERIFY_CYCLES", 10),
     ("FR11", OBS, "OBS_ALIGN_CHECK_DEG", 30),
     ("FR12", B1, "B1_STATUS_PERIOD_MS", 1000),

@@ -3,6 +3,10 @@
  */
 #include "bc_scan.h"
 
+#define BC_SCAN_RUN_LIMIT_DIV 5U   /* min run headroom: UINT32_MAX / 5 */
+#define BC_SCAN_TRAILING_RUNS 4U   /* trailing zone exceeds 4 min runs */
+
+/** @brief Finish a pass as rejected with an error code. */
 static uint8_t bc_scan_reject (bc_scan_t * p_scan, uint8_t error,
                                uint32_t now_msec)
 {
@@ -18,8 +22,9 @@ uint8_t bc_scan_init (bc_scan_t * p_scan,
     if ((0 == p_scan) || (0 == p_config) ||
         (0U == p_config->min_run_units) ||
         (p_config->leading_units <= p_config->min_run_units) ||
-        (p_config->min_run_units > UINT32_MAX / 5U) ||
-        (p_config->trailing_units <= p_config->min_run_units * 4U) ||
+        (p_config->min_run_units > UINT32_MAX / BC_SCAN_RUN_LIMIT_DIV) ||
+        (p_config->trailing_units <= p_config->min_run_units *
+                                     BC_SCAN_TRAILING_RUNS) ||
         (p_config->max_barcode_units >
          UINT32_MAX - p_config->trailing_units) ||
         (p_config->min_barcode_units <

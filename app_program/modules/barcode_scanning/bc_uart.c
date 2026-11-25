@@ -1,9 +1,11 @@
 /** @file bc_uart.c
- * @brief Throttled barcode status messages through existing tm_printf.
+ * @brief Throttled barcode status messages through tm_printf.
  */
 #include "bc_uart.h"
 #include "bc_port.h"
 #include <tm/tmonitor.h>
+
+#define BC_UART_REPEAT_MSEC 1000U  /* input-error report interval */
 
 #ifndef BC_UART_DEBUG
 #define BC_UART_DEBUG 1
@@ -33,7 +35,7 @@ ER bc_uart_poll (void)
     {
         uint8_t letter = (uint8_t)(result.info & BC_PORT_LETTER_MASK);
 
-        if (letter < 26U)
+        if (letter < BC_CODE_LETTERS)
         {
             tm_printf((UB *)"[BARCODE] Detected: %c\n",
                       (INT)('A' + letter));
@@ -49,7 +51,7 @@ ER bc_uart_poll (void)
          */
         if ((1U != reason) || (0U == gb_reported_input_error) ||
             ((uint32_t)(result.timestamp_msec - g_input_error_msec) >=
-             1000U))
+             BC_UART_REPEAT_MSEC))
         {
             tm_printf((UB *)"[BARCODE] Rejected: code %d\n",
                       (INT)reason);

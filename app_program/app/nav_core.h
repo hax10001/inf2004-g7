@@ -26,7 +26,7 @@ typedef enum {
     NAV_EVENT_FOLLOWING = 17, NAV_EVENT_FAULT = 18,
     NAV_EVENT_SCAN_REJECTED = 19,
     NAV_EVENT_DECODE_WAIT = 20, /* stopped at junction, letter decoding */
-    NAV_EVENT_SAFE_STOP = 21 /* fault source; existing EVENT payload */
+    NAV_EVENT_SAFE_STOP = 21 /* fault source, sent in the EVENT payload */
 } nav_event_t;
 typedef struct {
     uint32_t confirm_msec;
@@ -43,21 +43,21 @@ typedef struct {
      *  this long continuously both-black also counts as a junction. */
     uint32_t junction_confirm_max_msec;
     /** Junction reached while a barcode is still decoding: stop and wait
-     *  this long for the letter (0 disables: fault at once, as before). */
+     *  this long for the letter (0: fault at once). */
     uint32_t decode_wait_msec;
     /** After decoding ends, how long the letter may take to arrive. */
     uint32_t decode_grace_msec;
     /** Left/right/U-turn: forward travel from where the crossing bar was
      *  first seen (both black) until the wheel axle is over the junction
      *  centre, so a pivot there leaves the sensors on the new arm.
-     *  0: turn at once where the junction was confirmed (old behaviour). */
+     *  0: turn at once where the junction was confirmed. */
     uint32_t centre_counts;
     /** Time bound on that drive to the centre. */
     uint32_t centre_max_msec;
     /** Both wheels' travel added together (turn_counts) for a 90 degree
      *  pivot. The turn ignores the line until 60 degrees (150 for a
      *  U-turn), ends on the first black reading after that, and faults
-     *  past 135 degrees (225). 0: old timed, edge-confirmed turn. */
+     *  past 135 degrees (225). 0: timed, edge-confirmed turn. */
     uint32_t turn90_counts;
     /** 0: a letter's action is used at the next junction only, then
      *  discarded; a junction with no new letter goes straight or stops
@@ -65,33 +65,33 @@ typedef struct {
      *  1: the action repeats at every junction until another barcode
      *  replaces it (a new letter overrides the queued one). Survives an
      *  obstacle bypass; cleared by STOP (nav_forget). */
-    unsigned char repeat_action:1;
+    uint8_t       repeat_action:1;
     /** 1: a junction with no usable action (none queued, or a decode that
      *  gave no letter) is crossed straight on. 0: safety stop there.
      *  A junction too soon after a queued barcode still faults, unless
      *  clearance_straight is set. */
-    unsigned char straight_default:1;
+    uint8_t       straight_default:1;
     /** 1: a junction confirmed too soon after a queued barcode (closer
      *  than min_after_barcode_counts) is crossed straight on and that
      *  suspect action is dropped. 0: safety stop there (fault 1). */
-    unsigned char clearance_straight:1;
+    uint8_t       clearance_straight:1;
 } nav_config_t;
 typedef struct {
     uint32_t now_msec;
     uint32_t travel_counts; /* Forward approximation, not mm. */
     /* All five sensor flags are boolean and the caller owns this sample.
      * No read-modify-write occurs from an ISR on this packed storage. */
-    unsigned char left_black:1;
-    unsigned char right_black:1;
-    unsigned char barcode_capturing:1;
-    unsigned char barcode_decoding:1; /**< Recorded pass decoding. */
+    uint8_t       left_black:1;
+    uint8_t       right_black:1;
+    uint8_t       barcode_capturing:1;
+    uint8_t       barcode_decoding:1; /**< Recorded pass decoding. */
     /** The 1 ms sampler saw both-black broken by white since the previous
      *  step, so a both-black run must restart its distance measurement. */
-    unsigned char both_interrupted:1;
+    uint8_t       both_interrupted:1;
     /** capture_start_counts holds where the current capture began. */
-    unsigned char capture_start_known:1;
+    uint8_t       capture_start_known:1;
     /** A barcode capture is recording right now (it needs motion to end). */
-    unsigned char capture_active:1;
+    uint8_t       capture_active:1;
     /** travel_counts when the barcode capture now running began. */
     uint32_t capture_start_counts;
     /** Both wheels' movement added together, either direction, never
@@ -99,32 +99,32 @@ typedef struct {
     uint32_t turn_counts;
 } nav_sample_t;
 typedef struct {
-    /* Nine navigation states require four bits, action values 0..3 two.
-     * Controller owns the instance; this is not an ISR-shared structure.
-     * In particular, do NOT assume this native layout is a wire format. */
-    unsigned int state:4;
-    unsigned int pending:1;
-    unsigned int letter:5;
-    unsigned int action:2;
-    unsigned int edge_seen:1;
-    unsigned int turn_announced:1;
-    unsigned int resume_announced:1;
-    unsigned int fault_reason:3; /* 0..5: unmapped, turn, cross, no letter */
-    unsigned int decode_hold:1;
-    unsigned int hold_letter:1;
-    unsigned int held:1;
-    unsigned int held_letter:5;
-    unsigned int held_action:2;
-    unsigned int have_barcode:1; /* zero is a valid wrapped sequence */
+    /* Nine navigation states need four bits, action values 0..3 two.
+     * The controller owns the instance; no ISR shares it. This native
+     * layout is NOT a wire format. */
+    uint32_t     state:4;
+    uint32_t     pending:1;
+    uint32_t     letter:5;
+    uint32_t     action:2;
+    uint32_t     edge_seen:1;
+    uint32_t     turn_announced:1;
+    uint32_t     resume_announced:1;
+    uint32_t     fault_reason:3; /* 0..5: unmapped, turn, cross, no letter */
+    uint32_t     decode_hold:1;
+    uint32_t     hold_letter:1;
+    uint32_t     held:1;
+    uint32_t     held_letter:5;
+    uint32_t     held_action:2;
+    uint32_t     have_barcode:1; /* zero is a valid wrapped sequence */
     /** Set when a too-close action was dropped (clearance_straight); the
      *  caller reports it and clears it. */
-    unsigned int clearance_dropped:1;
+    uint32_t     clearance_dropped:1;
     /** Set when a capture that began at this junction (the crossing tape
      *  under the barcode sensor) was ignored; the caller drops it. */
-    unsigned int tape_capture:1;
+    uint32_t     tape_capture:1;
     /** Junction confirmed while a capture was recording: rolling on for it
      *  to end, the junction kept even after the bar has passed. */
-    unsigned int capture_roll:1;
+    uint32_t     capture_roll:1;
     uint32_t hold_since;
     uint32_t decode_idle_since; /* 0 while the scanner is still decoding */
     uint32_t state_since;
@@ -140,21 +140,21 @@ typedef struct {
     nav_config_t cfg;
 } nav_controller_t;
 typedef struct {
-    /* Drive 0..5, event 0..20, value 0..5 (action or fault reason). */
-    unsigned char drive:3;
-    unsigned char event:5;
-    unsigned char value:3;
+    /* Drive 0..5, event 0..21, value 0..5 (action or fault reason). */
+    uint8_t       drive:3;
+    uint8_t       event:5;
+    uint8_t       value:3;
 } nav_result_t;
-void nav_init(nav_controller_t *nav, const nav_config_t *cfg);
-void nav_stop(nav_controller_t *nav);
+void nav_init(nav_controller_t *p_nav, const nav_config_t *p_cfg);
+void nav_stop(nav_controller_t *p_nav);
 /* STOP: also drop the remembered repeat action (a new run starts clean). */
-void nav_forget(nav_controller_t *nav);
-void nav_start(nav_controller_t *nav, uint32_t now_msec);
+void nav_forget(nav_controller_t *p_nav);
+void nav_start(nav_controller_t *p_nav, uint32_t now_msec);
 /* 1 queued (repeat mode: also replaced), 0 duplicate, -1 already queued
  * (single mode only), -2 not running. */
-int nav_barcode(nav_controller_t *nav, uint8_t letter, uint8_t action,
+int32_t nav_barcode(nav_controller_t *p_nav, uint8_t letter, uint8_t action,
                 uint16_t seq, uint32_t ms, uint32_t traveled);
-nav_result_t nav_step(nav_controller_t *nav, const nav_sample_t *sample);
+nav_result_t nav_step(nav_controller_t *p_nav, const nav_sample_t *p_sample);
 #endif
 
 /*** end of file ***/

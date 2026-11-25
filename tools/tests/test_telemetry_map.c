@@ -22,7 +22,7 @@
 
 static int32_t g_left, g_right;
 static uint32_t g_usec;
-static terrain_snapshot g_imu;
+static terrain_snapshot_t g_imu;
 
 ER motion_get_status(motion_status_t *p)
 { memset(p, 0, sizeof(*p)); p->b_valid = 1; return E_OK; }
@@ -34,8 +34,7 @@ ER bc_port_peek(bc_port_result_t *p) { (void)p; return -1; }
 ER bc_port_ack(uint16_t s) { (void)s; return E_OK; }
 ER bc_port_stats(bc_port_stats_t *p) { memset(p, 0, sizeof(*p)); return -1; }
 void bc_wave_status(bc_wave_status_t *p) { memset(p, 0, sizeof(*p)); }
-void g7_nav_note_decoded(uint8_t l, uint16_t s) { (void)l; (void)s; }
-ER terrain_get_snapshot(terrain_snapshot *p) { *p = g_imu; return E_OK; }
+ER terrain_get_snapshot(terrain_snapshot_t *p) { *p = g_imu; return E_OK; }
 bool terrain_is_calibrated(void) { return true; }
 uint32_t obs_state_status_get(void) { return 0u; }
 obs_state_phase_t obs_state_status_phase(uint32_t w)
@@ -46,12 +45,12 @@ uint32_t obs_state_status_faults(uint32_t w) { (void)w; return 0u; }
 uint32_t obs_state_status_count(uint32_t w) { (void)w; return 0u; }
 uint32_t obs_state_status_distance_cm(uint32_t w) { (void)w; return 0u; }
 uint8_t b1_mqtt_can_send(void) { return 0u; }
-int b1_mqtt_submit(const B1_Frame *f) { (void)f; return 0; }
+int32_t b1_mqtt_submit(const b1_frame_t *f) { (void)f; return 0; }
 INT tm_printf(const UB *format, ...) { (void)format; return 0; }
 
 static void lock(void *c) { (void)c; }
-static B1_Store store;
-static G7_TelemetryPeers peers;
+static b1_store_t store;
+static g7_telemetry_peers_t peers;
 
 /* Drive both wheels forward by counts and advance 50 ms. */
 static void drive(int32_t counts)
@@ -68,7 +67,7 @@ typedef struct { int odom, checkpoints, humps, last_hump_mm; uint32_t cp; } seen
 static seen_t drain(void)
 {
     seen_t s = {0};
-    B1_Frame f;
+    b1_frame_t f;
     int last_seq = -1;
     while (b1_next_frame(&store, g_usec / 1000u + 2000u * 1000u, &f) > 0) {
         if (f.type == B1_TYPE_ODOM) {
@@ -127,7 +126,7 @@ int main(void)
     assert(s.humps == 0);
     puts("PASS recorded hump -> one terrain EVENT with its peak height");
 
-    /* 3. Discarded humps (no travel, lifted, no climb) leave the toggle
+    /* 3. Discarded humps (no travel, lifted) leave the toggle
      * alone: no event, whatever the height fields say. */
     for (int k = 0; k < 3; k++) {
         g_imu.onHump = 1;
@@ -136,11 +135,11 @@ int main(void)
         drive(115); s = drain();
         assert(s.humps == 0);
     }
-    puts("PASS discarded humps (no travel, lifted, no climb) give no EVENT");
+    puts("PASS discarded humps (no travel, lifted) give no EVENT");
 
     /* 5. Mission EVENT IDs on their own counter keep records contiguous. */
     {
-        B1_Mission m = {0};
+        b1_mission_t m = {0};
         uint16_t seq = 0u, ev = 0u;
         for (i = 0; i < 10; i++) {
             m.ms = g_usec / 1000u + (uint32_t)i;

@@ -21,6 +21,12 @@
 #include "obs_config.h"
 #include <stddef.h>
 
+/* A confirmed front range nearer than this is the sensor's own blind
+ * zone, not the obstacle, so it cannot anchor the scan. */
+#define SCAN_MIN_FRONT_MM 20
+/* lateral_mm() works on a 2.5 degree grid: 25 tenths of a degree. */
+#define SCAN_GRID_TENTHS 25
+
 #if ((OBS_SCAN_DIRECTION < -1) || (OBS_SCAN_DIRECTION > 1))
 #error "OBS_SCAN_DIRECTION must be 0 (both ways), 1 or -1."
 #endif
@@ -129,6 +135,13 @@
 #define OTHER_CM_MASK 0x1FFU
 #define OTHER_OK_SHIFT 31U
 #define OTHER_OK_MASK 0x1U
+/* scan_plan_side_info_t.reason is a 2-bit SCAN_PLAN_NEED_* code. */
+#define SCAN_REASON_MASK 0x3U
+/* isqrt(): highest power of four in an int32_t, two bits per step. */
+#define SCAN_ROOT_START_BIT (1UL << 30)
+#define SCAN_ROOT_STEP_BITS 2
+/* Side loop step: -1 (one side) then +1 (the other). */
+#define SCAN_DIR_STEP 2
 
 /** @brief Sine times 1000 for 0 to 90 degrees in steps of 5 degrees. */
 static int32_t const g_sine_milli[TRIG_TABLE_SIZE] = {
@@ -346,10 +359,10 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
                          bool b_strict, scan_anchor_t anchor,
                          plan_fields_t * p_fields,
                          scan_plan_sides_t * p_sides);
-/** @brief Pack the plan fields into two words. */
 /** @brief Count no-echo bearings next to the object as its face seen
  *  glancingly (OBS_GLANCE_AS_FACE); see obs_config.h. */
 static void glance_fill (scan_plan_point_t * p_points, int32_t count);
+/** @brief Pack the plan fields into two words. */
 static void pack_fields (plan_fields_t const * p_fields,
                          scan_plan_bypass_t *  p_plan);
 
@@ -448,7 +461,8 @@ void scan_plan_build_side_report (scan_plan_point_t * p_points, int32_t count,
 
     glance_fill(p_points, count);
 
-    if ((confirmed_front_mm >= 20) && (confirmed_front_mm <= OBS_STOP_MM))
+    if ((confirmed_front_mm >= SCAN_MIN_FRONT_MM) &&
+        (confirmed_front_mm <= OBS_STOP_MM))
     {
         anchor.stop_mm = confirmed_front_mm;
     }
@@ -737,11 +751,11 @@ static int32_t isqrt (int32_t value)
 {
     uint32_t remainder = (value > 0) ? (uint32_t)value : 0U;
     uint32_t root      = 0U;
-    uint32_t bit       = 1UL << 30;
+    uint32_t bit       = SCAN_ROOT_START_BIT;
 
     while (bit > remainder)
     {
-        bit >>= 2;
+        bit >>= SCAN_ROOT_STEP_BITS;
     }
 
     while (0U != bit)
@@ -756,7 +770,7 @@ static int32_t isqrt (int32_t value)
             root >>= 1;
         }
 
-        bit >>= 2;
+        bit >>= SCAN_ROOT_STEP_BITS;
     }
 
     /* The root of a non-negative int32_t fits int32_t. */
@@ -770,13 +784,10 @@ void scan_plan_set_line_offset_ddeg (int16_t offset_ddeg)
     g_line_offset_ddeg = offset_ddeg;
 }
 
-/* The frame the sides are compared in. The face normal cannot be used: it
- * is estimated from where the face echoes, so a box sticking out further
- * on one side pulls it to the middle of the box and every box looked
- * centred (logged 19 Nov 13:0x: splits 80/80, 76/76, 87/87; a box at -20..40
- * deg went left on the tie-break). The controller measures the robot's
- * heading off the line from the wheels while following; the line runs at
- * minus that bearing. Unknown (too little following): sonar zero. */
+/* The frame the sides are compared in: the line, at minus the heading
+ * offset the controller measured while following, or sonar zero if that is
+ * unknown. The face normal is not used: it is fitted to the face's own
+ * echoes, so it sits at the middle of the box and every box looks centred. */
 static int32_t compare_tilt_x2 (scan_plan_point_t const * p_points,
                                 int32_t low, int32_t high, int32_t tilt_x2)
 {
@@ -796,7 +807,7 @@ static int32_t compare_tilt_x2 (scan_plan_point_t const * p_points,
     /* The line's bearing is minus the offset. In half degrees that is
      * -offset / 5; round it to the 2.5 degree (5 half degree) grid that
      * lateral_mm() accepts: steps of 25 tenths. */
-    int32_t const grid = 25;
+    int32_t const grid = SCAN_GRID_TENTHS;
     int32_t const turns = (offset >= 0) ? ((offset + (grid / HALF)) / grid)
                                         : -(((-offset) + (grid / HALF)) / grid);
     int32_t       x2    = -turns * TRIG_STEP_DEG;
@@ -818,7 +829,7 @@ static int32_t face_tilt_x2 (scan_plan_point_t const * p_points, int32_t low,
                              int32_t high, int32_t face_mm)
 {
     /* The whole object: a robot stopped 20 degrees off square has its
-     * nearest echoes out past 25 degrees (logged 22:27). */
+     * nearest echoes out past 25 degrees. */
     int32_t const reach = OBS_CORNER_MAX_DEG;
     int32_t const unit  = TRIG_STEP_DEG; /* half degrees: 2.5 degrees */
     int32_t const limit = HALF * OBS_FACE_TILT_MAX_DEG;
@@ -1191,6 +1202,7 @@ static int32_t sine_half_milli (int32_t angle_x2)
     return (sine_milli(angle) + sine_milli(next)) / HALF;
 }
 
+/** @brief Round a value in thousandths to the nearest integer. */
 static int32_t round_milli (int32_t value)
 {
     int32_t const half = MILLI / HALF;
@@ -1217,7 +1229,7 @@ static front_span_t project_span (int32_t face_mm, int32_t tilt_x2,
     return span;
 }
 
-/* Retain the original corridor check and also check the narrower path in
+/* Keep the edge-based corridor check and also check the narrower path in
  * the robot frame. Round the reduced target outward before packing it. */
 static int32_t tighten_clearance (scan_plan_point_t const * p_points,
                                   int32_t count, int32_t low, int32_t high,
@@ -1409,9 +1421,8 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
          * on the bearing spacing; the conservative edges above still set
          * how far out the robot drives (need_mm). Measured from the face
          * normal, not sonar zero: the box sits square to the line, and a
-         * robot that stopped turned on the line (logged 19 Nov 12:32: face
-         * 20 degrees off, heading still swinging) would otherwise pick the
-         * side that is shorter only in its own skewed frame. */
+         * robot stopped at an angle would otherwise pick the side that is
+         * shorter only in its own skewed frame. */
         int32_t left_mm  = 0;
         int32_t right_mm = 0;
 
@@ -1559,7 +1570,9 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         p_sides->low_deg  = p_points[low].angle_deg;
         p_sides->high_deg = p_points[high].angle_deg;
         p_sides->near_mm  = need_field(near_depth);
-        p_sides->width_mm = need_field(reported);
+        /* Report only (see OBS_WIDTH_REPORT_ADD_MM); never planned on. */
+        p_sides->width_mm = need_field(
+            (reported > 0) ? (reported + OBS_WIDTH_REPORT_ADD_MM) : reported);
         report_side(p_points, high, left_out, b_left_seen, high + 1,
                     count - 1, &left, &p_sides->left);
         report_side(p_points, low, right_out, b_right_seen, 0, low - 1,
@@ -1569,16 +1582,10 @@ static void plan_object (scan_plan_point_t const * p_points, int32_t count,
         /* Within +-2 * OBS_FACE_TILT_MAX_DEG (60): fits the 7-bit field. */
         p_sides->tilt_x2         = tilt_x2;
         p_sides->centre_mm       = centre_mm;
-        /* Dashboard split: exactly the extents the side choice compared
-         * (beam-corrected, from the face normal, i.e. the line), so the
-         * reading and the decision always agree. A side the box does not
-         * reach shows 0. One-sided echo guesses are no longer reported:
-         * logged 19 Nov 12:33 one stray echo showed 173/12 mm for a box
-         * that was about centred. */
-        /* Measured edges about the line, not the compared values: a
-         * blocked side or a lone corner echo alters those (logged 19 Nov
-         * 14:0x: a box at 122/123 mm showed 106/26). Both corners seen:
-         * their real extents. */
+        /* Dashboard split: the beam-corrected edges measured about the
+         * line, not the compared values, which a blocked side or a lone
+         * corner echo can alter. With both corners seen, their real
+         * extents. A side the box does not reach shows 0. */
         int32_t edge_left  = 0;
         int32_t edge_right = 0;
 
@@ -1714,9 +1721,9 @@ static void report_side (scan_plan_point_t const * p_points,
     p_info->edge_deg    = p_points[edge_index].angle_deg;
     p_info->edge_mm     = edge;
     p_info->b_seen      = b_seen ? 1U : 0U;
-    p_info->reason      = p_option->reason & 0x3U;
+    p_info->reason      = p_option->reason & SCAN_REASON_MASK;
     p_info->open_mm     = need_field(open_mm);
-    p_info->angle_index = p_option->angle_index & 0x3U;
+    p_info->angle_index = p_option->angle_index & ANGLE_MASK;
     p_info->compare_mm  = need_field(p_option->compare_mm);
 
     if (p_option->blocker >= 0)
@@ -1727,6 +1734,7 @@ static void report_side (scan_plan_point_t const * p_points,
     }
 }
 
+/** @brief Pack the scan plan into its compact stored form. */
 static void pack_fields (plan_fields_t const * p_fields,
                          scan_plan_bypass_t *  p_plan)
 {
@@ -1770,7 +1778,7 @@ static void glance_fill (scan_plan_point_t * p_points, int32_t count)
 
     /* Each side: out along the face's own echoes, then on through the
      * unbroken run of no-echo bearings, up to OBS_CORNER_MAX_DEG. */
-    for (int32_t dir = -1; dir <= 1; dir += 2)
+    for (int32_t dir = -1; dir <= 1; dir += SCAN_DIR_STEP)
     {
         int32_t edge = centre;
 
@@ -1780,7 +1788,7 @@ static void glance_fill (scan_plan_point_t * p_points, int32_t count)
             edge += dir;
         }
 
-        unsigned int const face_mm = p_points[edge].range_mm;
+        uint32_t const     face_mm = p_points[edge].range_mm;
         int32_t            end     = edge + dir;
 
         while ((end >= 0) && (end < count) &&

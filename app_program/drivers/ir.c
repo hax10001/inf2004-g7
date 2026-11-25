@@ -18,18 +18,25 @@
 #error Barcode analog capture requires GP27 / ADC channel 1
 #endif
 
+/* Polls allowed for the ADC reset to finish and for it to become ready. */
+#define IR_ADC_POLL_LIMIT    10000U
+/* GP27 is ADC input 1. */
+#define IR_ADC_CHANNEL       1U
+/* The ADC result register holds a 12-bit sample. */
+#define IR_ADC_RESULT_MASK   0x0FFFU
+
 static volatile uint32_t g_barcode_level;
 static volatile uint8_t gb_adc_ready;
 static uint8_t gb_adc_classified;
 
+/** @brief Power up and configure ADC1 for the barcode sensor. */
 static ER ir_barcode_adc_init (void)
 {
-    /* The barcode exclusively owns ADC1 conversions. The generic ADC
-     * device is not opened by this application; do not open it concurrently.
-     * Register definitions match the repository's RP2040 ADC driver.
+    /* The barcode sensor owns ADC1 conversions. Do not open the generic
+     * ADC device as well. Register names come from the RP2040 ADC driver.
      */
     clr_w(RESETS_RESET, RESETS_RESET_ADC);
-    for (uint32_t i = 0U; i < 10000U; ++i)
+    for (uint32_t i = 0U; i < IR_ADC_POLL_LIMIT; ++i)
     {
         if (0U != (in_w(RESETS_RESET_DONE) & RESETS_RESET_ADC))
         {
@@ -38,8 +45,8 @@ static ER ir_barcode_adc_init (void)
             out_w(ADC_INTE, 0U);
             out_w(ADC_FCS, 0U);
             out_w(ADC_DIV, 0U);
-            out_w(ADC_CS, (1U << ADC_CS_AINSEL_POS) | ADC_CS_EN);
-            for (uint32_t ready = 0U; ready < 10000U; ++ready)
+            out_w(ADC_CS, (IR_ADC_CHANNEL << ADC_CS_AINSEL_POS) | ADC_CS_EN);
+            for (uint32_t ready = 0U; ready < IR_ADC_POLL_LIMIT; ++ready)
             {
                 if (0U != (in_w(ADC_CS) & ADC_CS_READY))
                 {
@@ -112,7 +119,7 @@ bool ir_barcode_capture (uint16_t * p_raw, uint8_t * p_level)
     {
         return false;
     }
-    uint16_t raw = (uint16_t)(in_w(ADC_RESULT) & 0x0FFFU);
+    uint16_t raw = (uint16_t)(in_w(ADC_RESULT) & IR_ADC_RESULT_MASK);
     uint8_t high = APP_BARCODE_ADC_BLACK_HIGH ? 1U : 0U;
     uint8_t low = APP_BARCODE_ADC_BLACK_HIGH ? 0U : 1U;
     if (0U == gb_adc_classified)

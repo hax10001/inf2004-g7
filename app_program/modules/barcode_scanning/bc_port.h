@@ -1,5 +1,5 @@
 /** @file bc_port.h
- * @brief RTOS-protected barcode scanner using existing read-only encoders.
+ * @brief RTOS-protected barcode scanner using read-only encoder counts.
  */
 #ifndef BC_PORT_H
 #define BC_PORT_H
@@ -12,10 +12,10 @@ ER bc_port_nav_enable(uint8_t enable);
 ER bc_port_nav_begin(uint32_t captured_msec);
 ER bc_port_nav_captured(uint32_t captured_msec);
 ER bc_port_nav_finish(void);
-/** Capture dropped as not a barcode: end its navigation transaction with
- *  no result. */
+/** @brief End the navigation transaction of a capture dropped as not a
+ *  barcode, with no result. */
 ER bc_port_nav_abort(void);
-ER bc_port_nav_take(scan_handoff_t *out);
+ER bc_port_nav_take(scan_handoff_t *p_out);
 
 #include "bc_scan.h"
 #include <stdint.h>
@@ -75,11 +75,11 @@ typedef struct
     /* The barcode worker copies this diagnostic record under gh_port_lock.
      * Raw GPIO is 0..1, scan state 0..5, run count 0..29 and failure
      * codes 0..8. The sampled counters above retain 32-bit rollover. */
-    unsigned int raw:1;
-    unsigned int state:3;
-    unsigned int runs:5;
-    unsigned int last_error:4;
-    unsigned int last_runs:5;
+    uint32_t     raw:1;
+    uint32_t     state:3;
+    uint32_t     runs:5;
+    uint32_t     last_error:4;
+    uint32_t     last_runs:5;
 } bc_port_stats_t;
 
 /** @brief Copy input-failure counters from task context. */
@@ -94,13 +94,13 @@ ER bc_port_snapshot (bc_scan_t * p_output);
  */
 ER bc_port_init (bc_port_config_t const * p_config);
 
-/** @brief Legacy direct-feed API retained for host tests/integration.
- * Production 2 ms ISR captures into bc_fastq, never calls this API.
+/** @brief Direct-feed API used by host tests and integration.
+ * The 2 ms ISR captures into bc_fastq and never calls this API.
  * @return E_OK; E_OBJ when not configured; lock error otherwise.
  */
 ER bc_port_sample (uint8_t raw_gpio_level, uint32_t now_msec);
 
-/** @brief Decode completed captures in an existing lower-priority task.
+/** @brief Decode completed captures in a lower-priority task.
  * The successful letter is held until ack/clear; no motor commands.
  */
 /** @brief Process an ISR-captured coherent timestamp/encoder sample.
@@ -116,7 +116,7 @@ ER bc_port_process (void);
 /** @brief Publish an exact buffered match through the normal result slot. */
 ER bc_port_publish_buffered (bc_code_result_t const * p_result,
                               uint32_t timestamp_msec);
-/** Publish a completed but unrecognized buffered scan for MQTT metrics. */
+/** @brief Publish a completed but unrecognized scan for MQTT metrics. */
 ER bc_port_publish_buffered_rejection(uint8_t error_code,
                                       uint32_t timestamp_msec);
 

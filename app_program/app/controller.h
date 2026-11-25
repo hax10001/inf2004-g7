@@ -9,16 +9,19 @@
 
 /** @brief Prepare controller resources, including the live-command mutex. */
 ER controller_init (void);
-/** @brief Create and start the controller task at its tested priority. */
+/** @brief Create and start the controller task. */
 ER controller_start (void);
 #ifdef B1_LIVE_COMMANDS
-/* No PWM writes. Validated remote requests are consumed by controller task. */
-uint8_t g7_controller_remote_command(uint8_t cmd,void *context);
+/** @brief Queue a validated remote command; the controller task acts on
+ * it (no PWM writes here). */
+uint8_t g7_controller_remote_command(uint8_t cmd,void *p_context);
+/** @brief Return non-zero when a remote START would be accepted. */
 uint8_t g7_controller_remote_ready(void);
-/* Bitmask explaining why remote START is blocked; zero means ready. */
+/** @brief Bitmask of reasons remote START is blocked; zero = ready. */
 uint8_t g7_controller_remote_blockers(void);
-/* True only when STOP has actually left the controller in safe remote hold. */
+/** @brief True only once STOP has put the controller in safe hold. */
 uint8_t g7_controller_remote_hold_applied(void);
+/** @brief Return the mission state code for telemetry. */
 uint8_t g7_controller_mission_state(void);
 #endif
 

@@ -1,12 +1,12 @@
 /** @file board_config.h
- * @brief Wiring used by the tested robot application.
+ * @brief Robot pin wiring and wheel geometry.
  */
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
 #define BOARD_IR_LEFT_PIN 6U
 #define BOARD_IR_RIGHT_PIN 2U
-/* WARNING: Preserve GP27; GP26 is not used by the working IR task. */
+/* WARNING: barcode AO must stay on GP27 (ADC1); GP26 is unused. */
 #define BOARD_IR_BARCODE_PIN 27U
 #define BOARD_MOTOR_LEFT_A_PIN 8U
 #define BOARD_MOTOR_LEFT_B_PIN 9U
@@ -26,7 +26,7 @@
  * the [MOTOR SPEED] log, then set this value.
  */
 #define BOARD_ENC_COUNTS_PER_REV 1056U
-/* Wheel diameter supplied by the reviewed obstacle project's board config. */
+/* Wheel diameter, in mm. */
 #define BOARD_WHEEL_DIAMETER_MM 70.0f
 
 #define BOARD_US_TRIG_PIN 4U
@@ -34,7 +34,7 @@
 #define BOARD_US_ECHO_PIN 5U
 #define BOARD_SERVO_PIN 15U
 
-/* I2C0 pin configuration remains owned by the supplied device driver. */
+/* I2C0 pins are configured by the BSP device driver. */
 
 #endif /* BOARD_CONFIG_H */
 
