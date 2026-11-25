@@ -82,7 +82,7 @@ TRACE = [
     ("FR10", OBS, "OBS_RESUME_CLEAR_MM", 400),
     ("FR11", OBS, "OBS_SIDE_CLEAR_HITS", 5),
     ("FR11", OBS, "OBS_PASS_MAX_MM", 600),
-    ("FR11", OBS, "OBS_RETURN_DEG", 75),  # 25 Nov: sharper turn back
+    ("FR11", OBS, "OBS_RETURN_DEG", 60),
     ("FR11", OBS, "OBS_VERIFY_CYCLES", 10),
     ("FR11", OBS, "OBS_ALIGN_CHECK_DEG", 30),
     ("FR12", B1, "B1_STATUS_PERIOD_MS", 1000),

@@ -67,9 +67,10 @@
 #define BC_LAYOUT_LOCAL_DIFF 0.25F    /* of one bar's model contrast */
 #define BC_LAYOUT_LOCAL_MIN 6U        /* samples where the models differ */
 /* Local misfit ratio - 1 the winner needs over the runner-up. Correct
- * reads sit well above 0.15; near ties (C/M, F/P, T backwards/G) fall
- * below and are refused, as a refused read is safer than a wrong turn. */
-#define BC_LAYOUT_LOCAL_MARGIN 0.15F
+ * reads sit above 0.10; near ties (a big P read as F, a big T scanned
+ * backwards read as G) fall below and are refused, as a refused read is
+ * safer than a wrong turn. */
+#define BC_LAYOUT_LOCAL_MARGIN 0.10F
 /* Local gap (per mille) the sensor-distance read needs to overrule a
  * centre-distance tie (see layout_combine). */
 #ifndef BC_LAYOUT_OVERRULE_PERMILLE

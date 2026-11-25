@@ -405,9 +405,7 @@
  * 90 degrees to straighten up and needs more travel past the object first.
  * The pass end and body clearance are derived from it.
  */
-#ifndef OBS_RETURN_DEG
-#define OBS_RETURN_DEG 75
-#endif
+#define OBS_RETURN_DEG 60
 #define OBS_ALIGN_CHECK_DEG 30
 /* Added to the REPORTED object width only (the "[OBS] Object" log line
  * and the telemetry width), never to the plan. The beam-corrected width

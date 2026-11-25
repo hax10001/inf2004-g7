@@ -1,10 +1,13 @@
-/* Closed-loop rejoin after a bypass: the real obstacle return state
- * machine drives a simulated robot back to a simulated line, including
- * stops where the robot was not heading along the line (angled approach,
- * mid-correction) and an obstacle on a curve. Odometry is exact; only the
- * line's true position differs from the straight-ahead assumption.
- * Success: after hand-back and simple line following, the line sensors
- * straddle the line and the robot faces the original travel direction. */
+/** @file obstacle_rejoin_sim.c
+ * @brief Closed-loop rejoin after a bypass: the real obstacle return state
+ *        machine drives a simulated robot back to a simulated line, including
+ *        stops where the robot was not heading along the line (angled
+ *        approach, mid-correction) and an obstacle on a curve. Odometry is
+ *        exact; only the line's true position differs from the straight-ahead
+ *        assumption. Success: after hand-back and simple line following, the
+ *        line sensors straddle the line and the robot faces the original
+ *        travel direction.
+ */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -14,23 +17,42 @@
 #include "modules/obstacle/obstacle.c"
 
 static UINT flags;
-static uint32_t side_seq,front_seq;
+static uint32_t side_seq;
+static uint32_t front_seq;
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *format,...) {(void)format;return 0;}
+/** @brief Host stub of obs_state_flags_read(). */
 UINT obs_state_flags_read(void) {return flags;}
+/** @brief Host stub of obs_state_flags_set(). */
 void obs_state_flags_set(UINT bits) {flags|=bits;}
+/** @brief Host stub of obs_state_flags_clear(). */
 void obs_state_flags_clear(UINT bits) {flags&=~bits;}
+/** @brief Host stub of obs_state_set_phase(). */
 void obs_state_set_phase(obs_state_phase_t phase) {(void)phase;}
+/** @brief Host stub of obs_state_set_route(). */
 void obs_state_set_route(obs_state_route_t route) {(void)route;}
+/** @brief Host stub of obs_state_set_width_cm(). */
 void obs_state_set_width_cm(int32_t width) {(void)width;}
+/** @brief Host stub of obs_state_count_bypass(). */
 void obs_state_count_bypass(void) {}
-void obs_state_faults_update(uint32_t set,uint32_t clear) {(void)set;(void)clear;}
+/** @brief Host stub of obs_state_faults_update(). */
+void obs_state_faults_update(uint32_t set,uint32_t clear) {(void)set;(
+    void)clear;}
+/** @brief Host stub of obs_state_plan_load(). */
 void obs_state_plan_load(scan_plan_bypass_t *plan) {(void)plan;}
+/** @brief Host stub of obs_state_watch_angle_set(). */
 void obs_state_watch_angle_set(int32_t angle) {(void)angle;}
+/** @brief Host stub of obs_state_side_seq_get(). */
 uint32_t obs_state_side_seq_get(void) {return ++side_seq;}
+/** @brief Host stub of obs_state_side_range_get(). */
 int32_t obs_state_side_range_get(void) {return 4000;}
+/** @brief Host stub of obs_state_front_seq_get(). */
 uint32_t obs_state_front_seq_get(void) {return ++front_seq;}
+/** @brief Host stub of obs_state_front_range_get(). */
 int32_t obs_state_front_range_get(void) {return 4000;}
+/** @brief Host stub of servo_left_limit_deg(). */
 int32_t servo_left_limit_deg(void) {return 60;}
+/** @brief Host stub of servo_right_limit_deg(). */
 int32_t servo_right_limit_deg(void) {return 70;}
 
 #define DT_S 0.05
@@ -41,8 +63,10 @@ typedef struct { double x, y, h; } pose_t;
 /* The line: through the IR position at the stop (125, 0), heading
  * line_deg in the obstacle frame; bends with curve_mm radius (0 straight,
  * >0 to the left) after x = 150 along it. */
-static double line_deg, curve_mm;
+static double line_deg;
+static double curve_mm;
 
+/** @brief Test helper: line at. */
 static void line_at(double s, double *x, double *y, double *dir)
 {
     double const a0 = line_deg * M_PI / 180.0;
@@ -63,16 +87,23 @@ static void line_at(double s, double *x, double *y, double *dir)
 /* Distance from a point to the line and the line direction there. */
 static double line_dist(double px, double py, double *dir_out)
 {
-    double best = 1e9, best_dir = 0.0;
+    double best = 1e9;
+    double best_dir = 0.0;
     for (double s = -400.0; s <= 3000.0; s += 2.0) {
-        double x, y, d;
+        double x;
+        double y;
+        double d;
         line_at(s, &x, &y, &d);
         double const dd = hypot(px - x, py - y);
         if (dd < best) { best = dd; best_dir = d; }
     }
-    if (dir_out) *dir_out = best_dir;
+    if (dir_out)
+    {
+        *dir_out = best_dir;
+    }
     return best;
 }
+/** @brief Test helper: sensors. */
 static void sensors(pose_t const *p, bool *l, bool *r)
 {
     double const fx = p->x + OBS_IR_TO_AXLE_MM * cos(p->h);
@@ -83,10 +114,12 @@ static void sensors(pose_t const *p, bool *l, bool *r)
     *r = line_dist(fx - SENSOR_HALF_GAP_MM * nx, fy - SENSOR_HALF_GAP_MM * ny,
                    NULL) <= TAPE_HALF_MM;
 }
+/** @brief Test helper: drive rpm. */
 static void drive_rpm(pose_t *p, double left_rpm, double right_rpm)
 {
     double const k = OBS_CIRC_MM / 60.0 * DT_S;
-    double const l = left_rpm * k, r = right_rpm * k;
+    double const l = left_rpm * k;
+    double const r = right_rpm * k;
     double const turn = (r - l) / OBS_TRACK_WIDTH_MM;
     double const mid = p->h + turn / 2.0;
     p->x += (l + r) / 2.0 * cos(mid); p->y += (l + r) / 2.0 * sin(mid);
@@ -98,10 +131,17 @@ static void follow(pose_t *p, int hint, int periods)
 {
     int spin = 0;
     for (int i = 0; i < periods; i++) {
-        bool l, r;
+        bool l;
+        bool r;
         sensors(p, &l, &r);
-        if (l && !r) drive_rpm(p, 12, 30);
-        else if (r && !l) drive_rpm(p, 30, 12);
+        if (l && !r)
+        {
+            drive_rpm(p, 12, 30);
+        }
+        else if (r && !l)
+        {
+            drive_rpm(p, 30, 12);
+        }
         else if (!l && !r && hint && spin < 40) {
             spin++;
             drive_rpm(p, hint > 0 ? -15 : 15, hint > 0 ? 15 : -15);
@@ -113,8 +153,10 @@ static void follow(pose_t *p, int hint, int periods)
  * behind the box (the robot is over it when it turns back), which neither
  * the old nor the new return finds: it must still hand back to line
  * following without a fault. */
-typedef struct { const char *name; double line_deg, curve_mm; int side, must; } case_t;
+typedef struct { const char *name; double line_deg, curve_mm; int side,
+    must; } case_t;
 
+/** @brief Test helper: run case. */
 static int run_case(case_t const *c, bool verbose)
 {
     pose_t p;
@@ -138,27 +180,46 @@ static int run_case(case_t const *c, bool verbose)
     enter_turn(&g_seq, OBS_PHASE_TURN_BACK,
                -c->side * OBS_RETURN_DEG * DDEG_PER_DEG, now);
     for (;;) {
-        bool l, r;
+        bool l;
+        bool r;
         out = (obstacle_drive_t){0};
         sensors(&p, &l, &r);
         g_seq.b_ir_left = l; g_seq.b_ir_right = r;
         run_phase(&g_seq, &out, l || r, now);
-        if (trace && ((int)g_seq.phase != last_phase || (periods > 95 && periods < 160 && (l || r || periods % 5 == 0)))) {
+        if (trace && ((int)g_seq.phase != last_phase || (periods > 95
+            && periods < 160 && (l || r || periods % 5 == 0)))) {
             last_phase = (int)g_seq.phase;
-            printf("    t%4d phase %2d x%6.0f y%6.0f h%6.1f L%d R%d lineoff %5.0f fy %6.0f bs %d\n",
+            printf(
+                "    t%4d phase %2d x%6.0f y%6.0f h%6.1f L%d R%d lineoff %5.0f "
+                "fy %6.0f bs %d\n",
                    periods, last_phase, p.x, p.y, p.h * 180 / M_PI, l, r,
-                   line_dist(p.x, p.y, NULL), g_seq.pose.y_mm, g_seq.b_black_seen);
+                   line_dist(p.x, p.y, NULL), g_seq.pose.y_mm,
+                       g_seq.b_black_seen);
         }
-        if (out.b_done || out.b_fault || ++periods > 1200) break;
+        if (out.b_done || out.b_fault || ++periods > 1200)
+        {
+            break;
+        }
         {
             /* Odometry: the controller's own pose gets the same wheel
              * motion; it keeps any corrections it made to it. */
             pose_t const before = p;
             pose_t odo = {g_seq.pose.x_mm, g_seq.pose.y_mm,
                           g_seq.pose.heading_rad};
-            double fwd, turn, c0, s0, lx, ly;
-            if (out.b_line_follow) follow(&p, 0, 1);
-            else if (!out.b_stop) drive_rpm(&p, out.left_rpm, out.right_rpm);
+            double fwd;
+            double turn;
+            double c0;
+            double s0;
+            double lx;
+            double ly;
+            if (out.b_line_follow)
+            {
+                follow(&p, 0, 1);
+            }
+            else if (!out.b_stop)
+            {
+                drive_rpm(&p, out.left_rpm, out.right_rpm);
+            }
             /* The same displacement, in the robot's own frame. */
             c0 = cos(before.h); s0 = sin(before.h);
             lx = (p.x - before.x) * c0 + (p.y - before.y) * s0;
@@ -184,22 +245,28 @@ static int run_case(case_t const *c, bool verbose)
     }
     {
         int const seeks = g_seq.seek_legs;
-        double dir, h_err;
+        double dir;
+        double h_err;
         follow(&p, out.line_hint, 60); /* 3 s of line following */
         double const fx = p.x + OBS_IR_TO_AXLE_MM * cos(p.h);
         double const fy = p.y + OBS_IR_TO_AXLE_MM * sin(p.h);
         double const off = line_dist(fx, fy, &dir);
         h_err = remainder(p.h - dir, 2.0 * M_PI) * 180.0 / M_PI;
         if (verbose)
+        {
             printf("  %-34s seek legs %d, off line %5.1f mm, heading "
                    "%+6.1f deg to the line\n", c->name, seeks, off, h_err);
+        }
         if (c->line_deg == 0.0 && c->curve_mm == 0.0)
-            /* Head-on: 4.5 mm, 0.1 deg at 60 deg; 7.4 mm, 1.6 deg at 75. */
-            return seeks == 0 && off <= 10.0 && fabs(h_err) <= 3.0;
+        {
+            /* Head-on: within 6 mm and 2 deg of the line. */
+            return seeks == 0 && off <= 6.0 && fabs(h_err) <= 2.0;
+        }
         return seeks == 0 && off <= 15.0 && fabs(h_err) <= 10.0;
     }
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     static const case_t cases[] = {
@@ -229,3 +296,5 @@ int main(void)
     return 0;
 }
 /*** end of file ***/
+/*** end of file ***/
+
