@@ -1,10 +1,14 @@
-/** Lossless representation boundaries reviewed against firmware producers. */
+/** @file test_precision_ranges.c
+ * @brief * Lossless representation boundaries reviewed against firmware
+ *        producers.
+ */
 #include <stdio.h>
 #include "modules/motion/steering.h"
 #include "modules/barcode_scanning/bc_match.h"
 #include "modules/barcode_scanning/bc_layout.h"
 #include "modules/terrain/terrain.h"
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     steering_t steer = {0};
@@ -43,3 +47,5 @@ int main(void)
            sizeof(bc_layout_result_t));
     return 0;
 }
+/*** end of file ***/
+

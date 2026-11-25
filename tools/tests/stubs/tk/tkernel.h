@@ -1,4 +1,7 @@
-/* Host-only micro T-Kernel test doubles. Never included by the robot build. */
+/** @file tkernel.h
+ * @brief Host-only micro T-Kernel test doubles. Never included by the robot
+ *        build.
+ */
 #ifndef HOST_TKERNEL_H
 #define HOST_TKERNEL_H
 #include <stdint.h>
@@ -79,3 +82,5 @@ void out_w(UW address, UW value);
 #define RESETS_RESET_DONE 0x4000C008U
 #define RESETS_RESET_TIMER 0x00200000U
 #endif
+/*** end of file ***/
+

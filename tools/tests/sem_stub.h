@@ -1,4 +1,6 @@
-/* Test-only shim for task-owned barcode port semaphore APIs. */
+/** @file sem_stub.h
+ * @brief Test-only shim for task-owned barcode port semaphore APIs.
+ */
 #ifndef G7_V11_SEM_STUB_H
 #define G7_V11_SEM_STUB_H
 #include <tk/tkernel.h>
@@ -10,3 +12,5 @@ ID tk_cre_sem(T_CSEM const *cfg);
 ER tk_wai_sem(ID sem, W count, TMO timeout);
 ER tk_sig_sem(ID sem, W count);
 #endif
+/*** end of file ***/
+

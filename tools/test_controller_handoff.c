@@ -1,4 +1,6 @@
-/* Host test for the controller's Cortex-M0+-safe remote handoff. */
+/** @file test_controller_handoff.c
+ * @brief Host test for the controller's Cortex-M0+-safe remote handoff.
+ */
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,12 +24,18 @@ static uint32_t g_ir_timestamp = 99U;
 static unsigned int g_decoded_clears = 0U;
 static unsigned int g_bypass_steps = 0U;
 static line_follow_action_t g_last_action = LINE_FORWARD;
-static float g_left_rpm, g_right_rpm;
+static float g_left_rpm;
+static float g_right_rpm;
 static obstacle_drive_t g_bypass_drive;
 static uint32_t g_now = 100U;
 static terrain_snapshot_t g_terrain = {.b_valid=true};
-static uint8_t g_ir_left, g_ir_right, g_scan_pending, g_capture, g_guard;
-static uint8_t g_scan_letter, g_scan_action;
+static uint8_t g_ir_left;
+static uint8_t g_ir_right;
+static uint8_t g_scan_pending;
+static uint8_t g_capture;
+static uint8_t g_guard;
+static uint8_t g_scan_letter;
+static uint8_t g_scan_action;
 static uint16_t g_scan_seq;
 static int g_scan_result;
 static int32_t g_encoder_count;
@@ -35,29 +43,45 @@ static uint8_t g_maneuver;
 static uint8_t g_governor_fault;
 static bool g_calibrated = true;
 static uint16_t g_output_pwm;
+/** @brief Host stub of motor_last_command(). */
 void motor_last_command(uint16_t *l,uint16_t *r)
 {*l=g_output_pwm;*r=g_output_pwm;}
+/** @brief Host stub of terrain_get_snapshot(). */
 ER terrain_get_snapshot(terrain_snapshot_t *s) {*s=g_terrain;return E_OK;}
+/** @brief Host stub of motion_reset_run(). */
 void motion_reset_run(void) {}
+/** @brief Host stub of motion_observe_terrain(). */
 void motion_observe_terrain(terrain_snapshot_t const *s,uint32_t now)
 {(void)s;(void)now;}
+/** @brief Host stub of motion_downhill_fault(). */
 uint8_t motion_downhill_fault(void) {return g_governor_fault;}
+/** @brief Host stub of obstacle_has_fault(). */
 bool obstacle_has_fault(void) {return g_obstacle_fault;}
+/** @brief Host stub of obstacle_is_blocked(). */
 bool obstacle_is_blocked(void) {return g_obstacle_blocked;}
+/** @brief Host stub of obstacle_abort(). */
 void obstacle_abort(void) {++g_obstacle_aborts;}
+/** @brief Host stub of obstacle_bypass_step(). */
 obstacle_drive_t obstacle_bypass_step(uint32_t l,uint32_t r,uint32_t ms)
 {
     (void)l;(void)r;(void)ms;
     ++g_bypass_steps;
     return g_bypass_drive;
 }
+/** @brief Host stub of motion_apply(). */
 void motion_apply(line_follow_action_t action)
 {g_last_action=action;g_output_pwm=action==LINE_UNCERTAIN?0U:1000U;}
+/** @brief Host stub of motion_brake(). */
 void motion_brake(void) {motion_apply(LINE_UNCERTAIN);}
+/** @brief Host stub of motion_line_hint(). */
 void motion_line_hint(int side) {(void)side;}
+/** @brief Host stub of obstacle_set_line_offset_ddeg(). */
 void obstacle_set_line_offset_ddeg(int16_t offset_ddeg) {(void)offset_ddeg;}
+/** @brief Host stub of motion_stop_now(). */
 void motion_stop_now(void) {motion_apply(LINE_UNCERTAIN);}
+/** @brief Host stub of motion_drive(). */
 void motion_drive(float l,float r) {g_left_rpm=l;g_right_rpm=r;}
+/** @brief Host stub of motion_apply_maneuver(). */
 void motion_apply_maneuver(uint8_t action) {g_maneuver=action;}
 /* The controller reports the line to motion each following period. */
 void motion_line_seen(bool l,bool r) {(void)l;(void)r;}
@@ -66,14 +90,25 @@ void motion_line_seen(bool l,bool r) {(void)l;(void)r;}
  * rearms it (g_cancel_pending cleared by the test). */
 static bool g_model_cancel = false;
 static bool g_cancel_pending = false;
+/** @brief Host stub of g7_nav_clear_decoded(). */
 void g7_nav_clear_decoded(void)
-{++g_decoded_clears;if(g_model_cancel)g_cancel_pending=true;}
+{
+    ++g_decoded_clears;
+    if (g_model_cancel)
+    {
+        g_cancel_pending = true;
+    }
+}
+/** @brief Host stub of g7_nav_begin_run(). */
 int32_t g7_nav_begin_run(void)
 {return (g_model_cancel&&(g_cancel_pending||!g_barcode_ready))?0:1;}
 /* Mid-run handoff: does not wait for the scanner. */
 static bool g_handoff_fail = false;
 static unsigned int g_continue_calls = 0U;
-int32_t g7_nav_continue_run(void) {++g_continue_calls;return g_handoff_fail?0:1;}
+/** @brief Host stub of g7_nav_continue_run(). */
+int32_t g7_nav_continue_run(
+    void) {++g_continue_calls;return g_handoff_fail?0:1;}
+/** @brief Host stub of g7_nav_take_scan(). */
 int32_t g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
                      uint32_t *ms,uint32_t *done,uint8_t *pending)
 {
@@ -82,28 +117,46 @@ int32_t g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
     *pending=g_scan_pending;
     int result=g_scan_result;g_scan_result=0;return result;
 }
+/** @brief Host stub of g7_nav_take_decoded(). */
 int32_t g7_nav_take_decoded(uint8_t *l,uint8_t *a,uint16_t *s)
 {(void)l;(void)a;(void)s;return 0;}
+/** @brief Host stub of encoder_read(). */
 void encoder_read(encoder_wheel_t wheel,encoder_sample_t *out)
 {(void)wheel;*out=(encoder_sample_t){.count=g_encoder_count};}
+/** @brief Host stub of bc_wave_request_drop(). */
 void bc_wave_request_drop(void) {}
+/** @brief Host stub of bc_wave_navigation_guard_active(). */
 uint8_t bc_wave_navigation_guard_active(void) {return g_guard;}
+/** @brief Host stub of bc_wave_capture_active(). */
 uint8_t bc_wave_capture_active(void) {return g_capture;}
 static uint8_t g_suppressed_flag;
+/** @brief Host stub of bc_wave_set_suppressed(). */
 void bc_wave_set_suppressed(uint8_t b) {g_suppressed_flag=b;}
 static int g_relearn_calls = 0;
+/** @brief Host stub of bc_wave_request_relearn(). */
 void bc_wave_request_relearn(void) {++g_relearn_calls;}
+/** @brief Host stub of bc_wave_decode_pending(). */
 uint8_t bc_wave_decode_pending(void) {return 0U;}
+/** @brief Host stub of ir_shared_take_sides(). */
 ER ir_shared_take_sides(bool *l,bool *r) {*l=false;*r=false;return E_OK;}
+/** @brief Host stub of ir_shared_take_junction(). */
 ER ir_shared_take_junction(bool *both) {*both=false;return E_OK;}
+/** @brief Host stub of ir_shared_take_both_gap(). */
 ER ir_shared_take_both_gap(bool *gap) {*gap=false;return E_OK;}
-ER ir_shared_take_diag(ir_shared_diag_t *d) {*d=(ir_shared_diag_t){0};return E_OK;}
+/** @brief Host stub of ir_shared_take_diag(). */
+ER ir_shared_take_diag(ir_shared_diag_t *d) {*d=(
+    ir_shared_diag_t){0};return E_OK;}
+/** @brief Host stub of tk_dly_tsk(). */
 ER tk_dly_tsk(UINT ms) {(void)ms;return E_OK;}
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *format,...) {(void)format;return 0;}
+/** @brief Host stub of bc_wave_can_rearm(). */
 uint8_t bc_wave_can_rearm(void) {return g_barcode_can_rearm;}
+/** @brief Host stub of bc_wave_is_ready(). */
 uint8_t bc_wave_is_ready(void) {return g_barcode_ready;}
 static unsigned int g_unlock_count = 0U;
 
+/** @brief Host stub of tk_cre_mtx(). */
 ID tk_cre_mtx(const T_CMTX *config)
 {
     assert(config != NULL);
@@ -111,18 +164,23 @@ ID tk_cre_mtx(const T_CMTX *config)
     return 42;
 }
 
+/** @brief Host stub of tk_loc_mtx(). */
 ER tk_loc_mtx(ID id, TMO timeout)
 {
     assert(id == 42);
     assert(timeout == TMO_POL || timeout == TMO_FEVR ||
            timeout == (TMO)APP_REMOTE_LOCK_WAIT_MSEC);
     /* Busy models contention for any bounded wait, never TMO_FEVR. */
-    if (g_force_busy && timeout != TMO_FEVR) return E_TMOUT;
+    if (g_force_busy && timeout != TMO_FEVR)
+    {
+        return E_TMOUT;
+    }
     assert(!g_lock_held);
     g_lock_held = true;
     return E_OK;
 }
 
+/** @brief Host stub of tk_unl_mtx(). */
 ER tk_unl_mtx(ID id)
 {
     assert(id == 42);
@@ -132,8 +190,11 @@ ER tk_unl_mtx(ID id)
     return E_OK;
 }
 
+/** @brief Host stub of b1_mqtt_connected(). */
 uint8_t b1_mqtt_connected(void) {return g_connected;}
+/** @brief Host stub of terrain_is_calibrated(). */
 bool terrain_is_calibrated(void) {return g_calibrated;}
+/** @brief Host stub of ir_shared_get_latest(). */
 ER ir_shared_get_latest(ir_shared_snapshot_t * out)
 {
     assert(!g_lock_held);
@@ -143,11 +204,13 @@ ER ir_shared_get_latest(ir_shared_snapshot_t * out)
     return E_OK;
 }
 
+/** @brief Test helper: obstacle handoff. */
 static void obstacle_handoff(void)
 {
     controller_history_t history={0};
     nav_init(&g_navigation,
-        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U});
+        &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,
+            0U,0U});
     nav_start(&g_navigation,1U);
     assert(nav_barcode(&g_navigation,0U,NAV_LEFT,1U,1U,0U)==1);
     g_obstacle_blocked=true;
@@ -241,6 +304,7 @@ static void obstacle_handoff(void)
          "fault and stale IR PASS");
 }
 
+/** @brief Test helper: cycle. */
 static robot_state_t cycle(robot_state_t state, controller_history_t *history)
 {
     g_ir_timestamp=g_now;
@@ -248,6 +312,7 @@ static robot_state_t cycle(robot_state_t state, controller_history_t *history)
     return controller_cycle(state,history);
 }
 
+/** @brief Test helper: v15 cycles. */
 static void v15_cycles(void)
 {
     controller_history_t history={0};
@@ -690,6 +755,7 @@ static void lift_stop(void)
          "Lift stop (latched): immediate stop, no restart on landing, "
          "STOP reset and hold immunity PASS");
 }
+/** @brief Host stub of tk_get_otm(). */
 ER tk_get_otm(SYSTIM *out)
 {
     out->hi = 0U;
@@ -697,9 +763,11 @@ ER tk_get_otm(SYSTIM *out)
     return E_OK;
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
-    uint8_t stop=0U, start=0U;
+    uint8_t stop=0U;
+    uint8_t start=0U;
     assert(g7_controller_remote_init() == E_OK);
     assert(g7_controller_remote_ready() == 1U);
     /* Barcode recalibration is forwarded to the barcode task only. */
@@ -754,7 +822,8 @@ int main(void)
     assert(g7_controller_mission_state() == 2U);
     /* A confirmed navigation failure is a safe, recoverable STOP state.
      * No START can pass until operator STOP clears the navigation fault. */
-    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U});
+    nav_init(&g_navigation, &(nav_config_t){150U,250U,2500U,1800U,120U,96U,
+        1500U,0U,0U,0U,0U,0U,0U,0U,0U});
     g_navigation.state = NAV_FAULT;
     remote_publish_state(ROBOT_NAV_SAFETY_STOP);
     assert(g7_controller_remote_ready() == 0U);
@@ -774,9 +843,24 @@ int main(void)
     assert(remote_reset_after_stop(ROBOT_OBSTACLE) == ROBOT_REMOTE_HOLD);
     remote_publish_state(ROBOT_REMOTE_HOLD);
     assert(g7_controller_remote_ready() == 1U);
+    /* STOP -> REMOTE HOLD -> START after a stop: START is refused until
+     * STOP has put the controller back in remote hold. */
+    remote_publish_state(ROBOT_STOPPED);
+    assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_NOT_READY);
+    assert(g7_controller_remote_command(B1_CMD_STOP,NULL) == B1_OK);
+    remote_take_requests(&stop,&start,ROBOT_STOPPED);
+    assert(stop == 1U && start == 0U);
+    assert(remote_reset_after_stop(ROBOT_STOPPED) == ROBOT_REMOTE_HOLD);
+    remote_publish_state(ROBOT_REMOTE_HOLD);
+    assert(g7_controller_remote_hold_applied() == 1U);
+    assert(g7_controller_remote_ready() == 1U);
+    assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_OK);
+    remote_take_requests(&stop,&start,ROBOT_REMOTE_HOLD);
+    assert(stop == 0U && start == 1U);
     /* A genuine controller error must never be cleared over MQTT. */
     assert(remote_reset_after_stop(ROBOT_ERROR) == ROBOT_ERROR);
-    assert(g7_controller_remote_ready() == 1U); /* Ready only because published HOLD. */
+    /* Ready only because HOLD was published. */
+    assert(g7_controller_remote_ready() == 1U);
     remote_publish_state(ROBOT_ERROR);
     assert(g7_controller_remote_ready() == 0U);
     assert(g7_controller_remote_command(B1_CMD_START,NULL) == B1_NOT_READY);
@@ -790,3 +874,5 @@ int main(void)
          "START gating and mutex-busy fail-safe PASS");
     return 0;
 }
+/*** end of file ***/
+

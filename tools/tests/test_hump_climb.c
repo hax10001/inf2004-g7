@@ -1,10 +1,12 @@
-/* Host test: the real hump detector (task_imu.c update_hump) against the
- * 15 humps it kept on 23 Nov plus an older real one, rebuilt as 20 ms
- * samples with the recorded peak height and measured climb. Real humps
- * (climb 8.4-16.4 mm) must still be recorded and reach the descending
- * phase (downhill slow-down); the false ones (climb 0.4-2.1 mm, sideways
- * jolts from pivots, START and restarts) must be discarded and never
- * reach the descending phase. */
+/** @file test_hump_climb.c
+ * @brief Host test: the real hump detector (task_imu.c update_hump) against
+ *        the 15 humps it kept on 23 Nov plus an older real one, rebuilt as 20
+ *        ms samples with the recorded peak height and measured climb. Real
+ *        humps (climb 8.4-16.4 mm) must still be recorded and reach the
+ *        descending phase (downhill slow-down); the false ones (climb 0.4-2.1
+ *        mm, sideways jolts from pivots, START and restarts) must be
+ *        discarded and never reach the descending phase.
+ */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -14,6 +16,7 @@
 
 static int32_t g_counts;
 static int g_discards;
+/** @brief Host stub of encoder_read(). */
 void encoder_read(encoder_wheel_t wheel, encoder_sample_t *p)
 {
     /* Both wheels report the same forward travel; the left encoder is
@@ -21,11 +24,16 @@ void encoder_read(encoder_wheel_t wheel, encoder_sample_t *p)
     p->count = (wheel == ENCODER_LEFT) ? -g_counts : g_counts;
     p->edge_usec = 0U;
 }
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(const UB *format, ...)
 {
-    if (strstr((const char *)format, "DISCARDED") != NULL) g_discards++;
+    if (strstr((const char *)format, "DISCARDED") != NULL)
+    {
+        g_discards++;
+    }
     return 0;
 }
+/** @brief Host stub of terrain_hump_height(). */
 float terrain_hump_height(float roll_deg)
 {
     return tilt_math_hump_height(roll_deg, (float)WHEEL_SPACING_MM);
@@ -43,7 +51,10 @@ static void sample(float roll_deg, float travel_mm, uint32_t *now,
     s.b_valid = 1;
     *now += 20U;
     update_hump(&s);
-    if (TERRAIN_HUMP_DESCENDING == g_hump.phase) *b_desc = true;
+    if (TERRAIN_HUMP_DESCENDING == g_hump.phase)
+    {
+        *b_desc = true;
+    }
 }
 
 /* Tilt to the recorded peak; travel on the up-slope so the climb reaches
@@ -57,15 +68,26 @@ static int run(hump_t const *h, bool *b_desc)
         asinf(h->peak_mm / (float)WHEEL_SPACING_MM) / CLIMB_DEG_TO_RAD;
     float const up_mm = h->climb_mm / sinf(peak_deg * CLIMB_DEG_TO_RAD);
     float const back_mm = (up_mm < 45.0F) ? (45.0F - up_mm) + 5.0F : up_mm;
-    int const n_up = 10, n_back = 10;
+    int const n_up = 10;
+    int const n_back = 10;
     *b_desc = false;
     g_discards = 0;
-    for (int i = 0; i < 3; i++) sample(0.0F, 2.0F, &now, b_desc);
+    for (int i = 0; i < 3; i++)
+    {
+        sample(0.0F, 2.0F, &now, b_desc);
+    }
     for (int i = 0; i < n_up; i++)
+    {
         sample(peak_deg, up_mm / (float)n_up, &now, b_desc);
+    }
     for (int i = 0; i < n_back; i++)
+    {
         sample(-peak_deg * 0.9F, back_mm / (float)n_back, &now, b_desc);
-    for (int i = 0; i < 20; i++) sample(0.0F, 2.0F, &now, b_desc);
+    }
+    for (int i = 0; i < 20; i++)
+    {
+        sample(0.0F, 2.0F, &now, b_desc);
+    }
     printf("  %-28s peak %5.1f climb %4.1f -> %s, descending %s\n",
            h->name, h->peak_mm, h->climb_mm,
            g_hump.hump_count != before ? "recorded" : "discarded",
@@ -73,6 +95,7 @@ static int run(hump_t const *h, bool *b_desc)
     return g_hump.hump_count != before;
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     static const hump_t humps[] = {
@@ -107,7 +130,10 @@ int main(void)
             printf("FAIL %s\n", humps[i].name);
             failed++;
         }
-        if (!humps[i].real) assert(g_discards == (want_kept ? 0 : 1));
+        if (!humps[i].real)
+        {
+            assert(g_discards == (want_kept ? 0 : 1));
+        }
         if (kept) {
             /* Reported height = larger of tilt and climb, less the
              * 25 Nov calibration HUMP_HEIGHT_BIAS_MM, never below 0. */
@@ -126,3 +152,5 @@ int main(void)
     return 0;
 }
 /*** end of file ***/
+/*** end of file ***/
+

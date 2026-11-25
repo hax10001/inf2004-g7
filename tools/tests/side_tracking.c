@@ -1,4 +1,7 @@
-/* Side tracking: acquire the object, debounce absence and reacquire it. */
+/** @file side_tracking.c
+ * @brief Side tracking: acquire the object, debounce absence and reacquire
+ *        it.
+ */
 #include <assert.h>
 #include <stdio.h>
 #include "modules/obstacle/obstacle.c"
@@ -6,22 +9,26 @@
 static uint32_t mock_seq;
 static int32_t mock_mm;
 
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const * format, ...)
 {
     (void)format;
     return 0;
 }
 
+/** @brief Host stub of obs_state_side_seq_get(). */
 uint32_t obs_state_side_seq_get(void)
 {
     return mock_seq;
 }
 
+/** @brief Host stub of obs_state_side_range_get(). */
 int32_t obs_state_side_range_get(void)
 {
     return mock_mm;
 }
 
+/** @brief Host stub of sample(). */
 static void sample(obstacle_seq_t * p_seq, int32_t mm)
 {
     mock_mm = mm;
@@ -29,6 +36,7 @@ static void sample(obstacle_seq_t * p_seq, int32_t mm)
     (void)side_ping_update(p_seq);
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     obstacle_seq_t seq = {0};
@@ -53,7 +61,10 @@ int main(void)
     sample(&seq, 4000);
     sample(&seq, 4000);
     assert(seq.clear_hits == 3U && seq.clear_hits < OBS_SIDE_CLEAR_HITS);
-    for (unsigned i=3; i<OBS_SIDE_CLEAR_HITS; ++i) sample(&seq, -1);
+    for (unsigned i=3; i<OBS_SIDE_CLEAR_HITS; ++i)
+    {
+        sample(&seq, -1);
+    }
     assert(seq.clear_hits == OBS_SIDE_CLEAR_HITS);
     puts("PASS sustained absence is required after first acquiring the object");
     (void)side_ping_update(&seq);
@@ -97,10 +108,15 @@ int main(void)
     assert(miss.miss_hits == 0U);
     sample(&miss, -1);sample(&miss, 30);
     assert(miss.miss_hits == 2U && miss.clear_hits == 0U);
-    for (unsigned i = 0U; i < 2U * OBS_SIDE_CLEAR_HITS; ++i) sample(&miss, 30);
+    for (unsigned i = 0U; i < 2U * OBS_SIDE_CLEAR_HITS; ++i)
+    {
+        sample(&miss, 30);
+    }
     assert(miss.miss_hits == OBS_SIDE_CLEAR_HITS);
     sample(&miss, 240);
     assert(miss.miss_hits == 0U);
     puts("PASS misses since the last hit count noise, saturate and reset");
     return 0;
 }
+/*** end of file ***/
+

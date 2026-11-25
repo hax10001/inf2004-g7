@@ -1,4 +1,7 @@
-/* Real sampler: held readiness survives START and catches the first stripe. */
+/** @file test_scanner_ready.c
+ * @brief Real sampler: held readiness survives START and catches the first
+ *        stripe.
+ */
 #include <assert.h>
 #include <stdio.h>
 #define B1_LIVE_COMMANDS 1
@@ -7,34 +10,51 @@
 static uint32_t now;
 static unsigned int captures;
 static unsigned int rejections;
+/** @brief Host stub of bc_match_result(). */
 bc_match_result_t bc_match_result(void) {return (bc_match_result_t){0};}
+/** @brief Host stub of bc_layout_result(). */
 bc_layout_result_t bc_layout_result(void)
 {return (bc_layout_result_t){.reason=BC_LAYOUT_FEW_BARS,.letter=255U};}
+/** @brief Host stub of bc_layout_reason_text(). */
 char const *bc_layout_reason_text(uint8_t reason)
 {(void)reason;return "few bars";}
+/** @brief Host stub of bc_port_publish_buffered(). */
 ER bc_port_publish_buffered(bc_code_result_t const *result,uint32_t ms)
-{(void)result;(void)ms;assert(0 && "unreadable capture cannot publish a letter");return E_OK;}
+{(void)result;(void)ms;assert(0
+    && "unreadable capture cannot publish a letter");return E_OK;}
+/** @brief Host stub of bc_port_publish_buffered_rejection(). */
 ER bc_port_publish_buffered_rejection(uint8_t code,uint32_t ms)
 {(void)ms;assert(code==BC_SCAN_ERROR_PATTERN);++rejections;return E_OK;}
+/** @brief Host stub of bc_port_nav_finish(). */
 ER bc_port_nav_finish(void) {return E_OK;}
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *f,...) {(void)f;return 0;}
+/** @brief Host stub of encoder_now_usec(). */
 uint32_t encoder_now_usec(void) {return now;}
+/** @brief Host stub of bc_port_nav_begin(). */
 ER bc_port_nav_begin(uint32_t ms) {(void)ms;++captures;return E_OK;}
 static unsigned int aborts;
+/** @brief Host stub of bc_port_nav_abort(). */
 ER bc_port_nav_abort(void) {++aborts;return E_OK;}
+/** @brief Host stub of bc_port_nav_captured(). */
 ER bc_port_nav_captured(uint32_t ms) {(void)ms;return E_OK;}
 /* bc_wave_poll() is called only with no capture to decode, so the decoder
  * is never reached; these satisfy the linker and fail loudly if it is. */
 bc_code_result_t bc_code_decode(uint32_t const *w,uint32_t m)
 {(void)w;(void)m;assert(0 && "no decode expected");
  return (bc_code_result_t){0};}
+/** @brief Host stub of bc_layout_begin(). */
 void bc_layout_begin(uint32_t n,bc_layout_read_t r,uint8_t l)
 {(void)n;(void)r;(void)l;assert(0 && "no decode expected");}
+/** @brief Host stub of bc_layout_poll(). */
 uint8_t bc_layout_poll(void) {assert(0 && "no decode expected");return 1U;}
+/** @brief Host stub of bc_scan_init(). */
 uint8_t bc_scan_init(bc_scan_t *s,bc_scan_config_t const *c)
 {(void)s;(void)c;return 1U;}
+/** @brief Host stub of bc_scan_feed(). */
 uint8_t bc_scan_feed(bc_scan_t *s,uint8_t b,uint32_t u,uint32_t ms,uint8_t v)
 {(void)s;(void)b;(void)u;(void)ms;(void)v;return 0U;}
+/** @brief Host stub of bc_scan_take(). */
 uint8_t bc_scan_take(bc_scan_t *s,uint32_t *w,uint8_t *e,uint32_t *ts)
 {(void)s;(void)w;(void)e;(void)ts;return 0U;}
 
@@ -45,6 +65,7 @@ static unsigned int captures_since(void)
 static int32_t g_cnt;
 /* Drive n samples forward at `step` encoder units per 2 ms sample. */
 static void drive(uint16_t adc, unsigned int n, int32_t step);
+/** @brief Host stub of sample(). */
 static void sample(uint16_t adc, int32_t count)
 {
     now += BC_FAST_PERIOD_USEC;
@@ -53,6 +74,7 @@ static void sample(uint16_t adc, int32_t count)
     bc_wave_sample(&s);
 }
 
+/** @brief Test helper: drive. */
 static void drive(uint16_t adc, unsigned int n, int32_t step)
 {
     for (unsigned int i = 0U; i < n; i++)
@@ -117,16 +139,25 @@ static void trigger_and_drop(void)
     g_phase=BC_WAVE_DONE;
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     bc_wave_status_t status={0};
     bc_wave_set_suppressed(1U);
     assert(!bc_wave_is_ready());
-    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES;i++) sample(200U,0);
+    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES;i++)
+    {
+        sample(200U,0);
+    }
     assert(bc_wave_is_ready());
-    for(unsigned i=0;i<1000;i++) sample(200U,0);
+    for(unsigned i=0;i<1000;i++)
+    {
+        sample(200U,0);
+    }
     assert(bc_wave_is_ready() && !captures);
-    uint32_t const white=g_white_mean, count=g_count, sequence=g_sequence;
+    uint32_t const white=g_white_mean;
+    uint32_t const count=g_count;
+    uint32_t const sequence=g_sequence;
     /* START only lifts suppression; no reset or relearning window. */
     bc_wave_set_suppressed(0U);
     assert(bc_wave_is_ready() && g_white_mean==white && g_count==count);
@@ -138,7 +169,10 @@ int main(void)
     bc_wave_request_rearm();
     wave_rearm_completed_capture();
     assert(g_phase==BC_WAVE_CLEAR && !bc_wave_is_ready());
-    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++) sample(200U,1);
+    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++)
+    {
+        sample(200U,1);
+    }
     assert(bc_wave_is_ready());
 #if APP_BARCODE_KEEP_STARTUP_WHITE
     assert(g_startup_white_valid && g_startup_white_mean==200U);
@@ -148,7 +182,10 @@ int main(void)
      * startup reference is kept (or re-learned with the setting off). */
     g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
     wave_rearm_completed_capture();
-    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++) sample(205U,1);
+    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES*2;i++)
+    {
+        sample(205U,1);
+    }
     assert(bc_wave_is_ready());
     assert(g_white_mean==(APP_BARCODE_KEEP_STARTUP_WHITE ? 200U : 205U));
     /* Lighter floor beyond sigma + 8 (here 230 vs 200, sigma 0) is not
@@ -156,14 +193,18 @@ int main(void)
     g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
     wave_rearm_completed_capture();
     for(unsigned i=0;i<BC_WAVE_CLEAR_MAX_SAMPLES+BC_WAVE_WHITE_SAMPLES+10U;i++)
+    {
         sample(230U,1);
+    }
     assert(bc_wave_is_ready() && g_white_mean==230U && !captures_since());
     /* A floor that no longer matches uses its own reading, so the scanner
      * cannot lock up triggering on it; the startup reference survives. */
     g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
     wave_rearm_completed_capture();
     for(unsigned i=0;i<BC_WAVE_CLEAR_MAX_SAMPLES+BC_WAVE_WHITE_SAMPLES+10U;i++)
+    {
         sample(400U,1);
+    }
     assert(bc_wave_is_ready() && g_white_mean==400U && !captures_since());
 #if APP_BARCODE_KEEP_STARTUP_WHITE
     assert(g_startup_white_mean==200U);
@@ -172,14 +213,19 @@ int main(void)
     g_phase=BC_WAVE_DONE;bc_wave_request_rearm();
     wave_rearm_completed_capture();
     for(unsigned i=0;i<BC_WAVE_CLEAR_MAX_SAMPLES+BC_WAVE_WHITE_SAMPLES+10U;i++)
+    {
         sample(205U,1);
+    }
     assert(bc_wave_is_ready());
     assert(g_white_mean==(APP_BARCODE_KEEP_STARTUP_WHITE ? 200U : 205U));
     /* An explicit recalibration replaces the startup reference. */
     bc_wave_request_relearn();
     bc_wave_poll();
     assert(g_phase==BC_WAVE_LEARN);
-    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES;i++) sample(300U,1);
+    for(unsigned i=0;i<BC_WAVE_WHITE_SAMPLES;i++)
+    {
+        sample(300U,1);
+    }
     assert(bc_wave_is_ready() && g_white_mean==300U);
 #if APP_BARCODE_KEEP_STARTUP_WHITE
     assert(g_startup_white_valid && g_startup_white_mean==300U);
@@ -209,3 +255,5 @@ int main(void)
          "first-stripe capture, CLEAR/DONE/cancel/relearn gating");
     return 0;
 }
+/*** end of file ***/
+

@@ -67,9 +67,231 @@ PASS read_failure: reads=58 retries=1
 PASS movement: reads=58 retries=1
 PASS magnitude: reads=58 retries=1
 PASS persistent: reads=3 retries=3
+PASS bc_code table: A-Z patterns equal Code 39 reference, out-of-range letter refused
+PASS bc_code FR5: all 26 letters A-Z decode forwards, strong quality
+PASS bc_code FR5: all 26 letters A-Z decode backwards with reverse flag set
+PASS bc_code: jittered 2.5:1 widths still decode the letter
+PASS bc_code quality: 2.3x strong, 2.29x good, 1.4x good, 1.39x refused
+PASS bc_code ratio: widest run > 2x narrowest wide is refused, exactly 2x accepted
+PASS bc_code reject: 3 or 1 wide bars, 2 or 0 wide spaces, wide separator, sub-minimum run
+PASS bc_code reject: digit 0, '-' and '*' between stars give no letter
+PASS bc_code framing: missing start or stop '*' gives no letter in either direction
+PASS bc_code guards: null widths, zero min width and runs below min width refused
+PASS bc_scan init: null, zero run, short leading/trailing, short/long code, zero timeout, overflow refused
+PASS bc_scan FR5: clean forward pass -> READY once, 29 exact widths, timestamp, decodes 'B'
+PASS bc_scan FR5: reversed pass decodes 'R' with reverse flag
+PASS bc_scan rearm: take returns to idle; second pass captured
+PASS bc_scan start: black after < leading white stays idle; after >= leading starts capture
+PASS bc_scan input: invalid sample/colour rejects with INPUT, held until take, widths untouched
+PASS bc_scan width: run below min_run rejects with WIDTH, no READY
+PASS bc_scan distance: travel moving backwards rejects with DISTANCE
+PASS bc_scan timeout: stalled pass rejects with TIMEOUT
+PASS bc_scan clock wrap: uint32 msec rollover mid-pass still READY
+PASS bc_scan overflow: bar inside trailing zone after 29 runs rejects with OVERFLOW
+PASS bc_scan length: min length accepted; under min, over max and endless bar rejected with DISTANCE
+PASS bc_scan interrupt: active/trailing pass -> INTERRUPTED; idle and completed passes unaffected
+PASS bc_scan take: null arguments return NONE and keep the pending result
+PASS bc_layout FR5: all 26 letters read forwards and backwards from blurred ADC captures, module ~50
+KNOWN BUG: bc_layout refuses clean 'N' backwards at blur 0.30 module: 'H' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+KNOWN BUG: bc_layout refuses clean 'Q' backwards at blur 0.30 module: 'C' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+KNOWN BUG: bc_layout refuses clean 'N' backwards at blur 0.35 module: 'H' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+KNOWN BUG: bc_layout refuses clean 'N' backwards at blur 0.40 module: 'H' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+KNOWN BUG: bc_layout refuses clean 'N' backwards at blur 0.45 module: 'H' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+KNOWN BUG: bc_layout refuses clean 'H' at blur 0.50 module: 'G' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+KNOWN BUG: bc_layout refuses clean 'H' at blur 0.55 module: 'G' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+KNOWN BUG: bc_layout refuses clean 'M' backwards at blur 0.55 module: 'C' layout at ~0.7x scale fits 3 wide + 3 narrow bars within the 0.25 module class margin
+PASS bc_layout focus sweep: 312 clean reads at blur 0.30-0.55 never give a wrong letter (8 safe refusals)
+PASS bc_layout FR5: centre and sensor distance agree on A, G, P, Z both directions
+KNOWN BUG: bc_layout result.variant=0 for a read taken from the sensor-distance variant (centre refused); bc_layout.c never sets variant, so bc_wave.c logs every read as 'centre'
+PASS bc_layout sensor variant: weaving pass refused at wheel centre, read 'A' at the sensor distance
+PASS bc_layout margin rule: F/P blend refused when local gap < 100 permille, read when >= 100, never the wrong letter
+PASS bc_layout tie: 50/50 F/P capture refused as ambiguous with both distance variants
+PASS bc_layout reject: flat, all-dark, white-noise, empty and null-reader captures give no letter
+PASS bc_layout reject: missing stop-star bars and a pass cut off mid-letter give no letter
+KNOWN BUG: bc_layout reads Code 39 '*-*' as letter G (rev=0 gap=1408 permille): no absolute model-fit check, so a non-letter symbol sharing G's wide-bar layout is accepted
+PASS bc_layout reject: '*0*' and '***' give no letter
+PASS bc_layout reason text: each refusal code has its log name, out-of-range -> unknown
+PASS bc_match FR5: all 26 letters matched forwards and backwards, margin/score/support rules hold
+PASS bc_match cache: prefix-integral path, small table and negative-sample fallback give the same letters
+PASS bc_match margin rule: F/P blend read only with margin >= 300 z100, refused below (45 reads, 23 refusals near the boundary)
+PASS bc_match tie: 50/50 F/P capture is not a confident letter
+PASS bc_match reject: flat, white-noise, high-noise, too-short and null-reader captures give no letter
+PASS bc_match reject: pass cut mid-letter and code without trailing white give no letter
+KNOWN BUG: bc_match reads Code 39 '*-*' as letter G (score 4720, margin 1758 z100)
+PASS bc_match reject: '***' gives no letter
+PASS bc_match bounded: 2 jobs per poll over 6 levels, done stays done, bounded log lines
+PASS status word before init: reads 0, writes dropped, no lock
+PASS init reports semaphore and event flag creation errors
+PASS init word: idle, no route, invalid distance and width
+PASS all 14 phases x 3 routes round-trip without side effects
+PASS distance 0..5109 mm to cm, -1/out of range -> invalid 511
+PASS width 0..254 cm kept, <0 and >254 -> invalid 255 (no wrap)
+PASS bypass count 1..15 then saturates (no wrap to 0)
+PASS fault bits set/clear independently, extra bits masked
+PASS pack: fields at 0 and max round-trip, oversize masked
+PASS lock: one take/give per update, failed take writes nothing
+PASS flags: clear drops only the named bits
+PASS plan/angle round-trip; repeated pings still bump the seq
+PASS FR10 object removed during scan: resumes after OBS_RESUME_HITS clear pings, no turn-out, no bypass counted
+PASS FR10 clear scan resumes line following without pinging
+PASS FR10 echo at OBS_RESUME_CLEAR_MM after a clear run keeps the bypass plan
+PASS FR10 first echo inside the limit commits at once (no extra pings)
+PASS FR10 only missing echoes: never resumes, plan kept after OBS_RESUME_PINGS
+PASS FR10 a missing echo restarts the clear run
+PASS FR10 OBS_RESUME_PINGS without a clear run keeps the plan
+PASS FR10 stale ping not re-counted; silent sonar times out to a fault
+PASS FR10 both sides blocked: rescan pings ahead again and resumes once clear
+PASS FR10 blocked on every rescan: no-route fault after OBS_NO_ROUTE_RESCANS scans
+KNOWN BUG: telemetry width 10 cm but measured 62 mm + 43 mm = 105 mm rounds to 11 cm (plan width 6 cm, offset rounded separately)
+KNOWN BUG: 51 of 139 scanned widths reported 1 cm short
+PASS width report = measured + 43 mm offset (within 1 cm) on 139 real scans
+PASS width 0 stays 0, invalid stays invalid, small widths get the offset
+PASS FR11 left bypass returns at 60 deg (turned 57.3 deg, lead 40 ddeg)
+PASS FR11 right bypass returns at 60 deg (turned 57.3 deg, lead 40 ddeg)
+PASS FR11 left and right returns mirror the same angle and both rejoin the line
+PASS FR10/FR11 clear rescan mid-bypass carries on, no resume off the line
+PASS FR11 mid-bypass rescan keeps the bypass side, no recheck
+PASS line_follow_decide: 4 sensor combinations, bad level -> UNCERTAIN
+PASS line_follow_text: four names and UNKNOWN ACTION default
+PASS steering PI: left +0.4, right -0.4 after one period
+PASS steering PI: output and integral clamped to +-STEERING_MAX
+PASS steering PI: scale >3 acts as 3, negative scale freezes the integral
+PASS steering: 3-period nudge drops its turn on release
+PASS steering: 4-period curve kept, decays 0.85 per centred period
+PASS steering: crossing the line restarts from zero (-0.4)
+PASS steering: same-side repeat after 8 centred periods kept, 9 dropped, alternating sides dropped
+PASS steering hold: full turn held 1+12 periods at scale 1, 1+6 at scale 2 (same distance)
+PASS steering hold: other sensor ends the hold (-0.4)
+PASS steering bend memory: short touch 25 periods after a full turn resumes it, 26 does not, a 2-period full turn sets none
+PASS line observer: left sensor -> offset +4 mm, steer left; right mirrors it
+PASS line observer: both black keeps prediction; reset clears
+PASS line observer: line lost outside a sensor is not snapped into the gap; steer clamps at +STEERING_MAX
+PASS line observer: heading bounded at -0.8 rad, integral and steer within +-STEERING_MAX
+PASS line observer: 10 mm with no sensor snaps to the 4 mm gap edge, heading fixed over 100 mm travelled
+PASS wheel speed: 88 edges in 50 ms = 100 RPM; 1 ms without an edge caps it at 56.8 RPM
+PASS wheel speed: counting down reports +100 RPM, never negative
+PASS wheel speed: 200000 us gap measured, 200001 us restarts at 0, zero interval safe
+PASS wheel speed: no edges decays to the 1-edge ceiling, 0 RPM after 200 ms
+PASS wheel speed: count and clock wraparound give 100 RPM
+PASS wheel speed: reset reports zero from the new reference
+PASS tilt_math_angles: 0, +-30 roll/pitch, +-90 and 180 roll
+PASS tilt_math_angles: full-scale axes stay finite
+PASS tilt_math_angles: zero vector, Y=Z=0 and NULL rejected, outputs untouched
+PASS tilt_math_hump_height: 0, 55 mm at +-30 deg, 110 at 90
+PASS tilt_math_heading_level: 0/90/180/270, just under 360, zero field and NULL rejected
+PASS terrain before init: E_OBJ, never a stale reference
+PASS terrain_init: create errors returned, partial mutex deleted, second init refused
+PASS terrain_start: zero/negative task handle fails, good one starts the IMU task
+PASS terrain_tilt: sensor X -> roll, sensor Y -> pitch, undefined roll E_PAR
+PASS terrain_magnitude: exact integer roots to the 12-bit extreme 3547 mg
+PASS terrain heading/hump height: 270 deg, zero field E_PAR, 55 mm at 30 deg on 110 mm spacing
+PASS terrain_calibrate: bad vector and lock error leave it uncalibrated; once only; relative roll 0 then +20
+PASS terrain_relative_tilt: reference +10, reading -175 wraps to +175 (not -185)
+PASS terrain_relative_tilt: lock/unlock errors returned, not reported as calibrated
+PASS terrain snapshot: copy round-trips; lock error writes nothing
+PASS tilt_math_angles: 0, +-30 roll/pitch, +-90 and 180 roll
+PASS tilt_math_angles: full-scale axes stay finite
+PASS tilt_math_angles: zero vector, Y=Z=0 and NULL rejected, outputs untouched
+PASS tilt_math_hump_height: 0, 55 mm at +-30 deg, 110 at 90
+PASS tilt_math_heading_level: 0/90/180/270, just under 360, zero field and NULL rejected
+PASS terrain before init: E_OBJ, never a stale reference
+PASS terrain_init: create errors returned, partial mutex deleted, second init refused
+PASS terrain_start: zero/negative task handle fails, good one starts the IMU task
+PASS terrain_tilt: sensor X -> roll, sensor Y -> pitch, undefined roll E_PAR
+PASS terrain_magnitude: exact integer roots to the 12-bit extreme 3547 mg
+PASS terrain heading/hump height: 270 deg, zero field E_PAR, 55 mm at 30 deg on 110 mm spacing
+PASS terrain_calibrate: bad vector and lock error leave it uncalibrated; once only; relative roll 0 then +20
+PASS terrain_relative_tilt: reference -10, reading +175 wraps to -175 (not +185)
+PASS terrain_relative_tilt: lock/unlock errors returned, not reported as calibrated
+PASS terrain snapshot: copy round-trips; lock error writes nothing
+PASS imu start-up: I2C open or sensor init failure parks the task (device closed), no sensor reads
+PASS imu start-up: waits for USB, calibrates on 50 samples, parks if the kernel clock cannot be read
+PASS imu level: calibrated, roll 0, no hump, floor contact, heading 270.00 deg
+PASS imu read failures: accel error -> invalid snapshot, mag error or zero field -> no heading
+PASS imu invalid tilt: nose straight down (Y=Z=0) publishes an invalid snapshot, height 0; recovers when level
+PASS imu jolt filter: 1166 mg sideways shove leaves roll 0, a 1000 mg 5.3 deg tilt moves it
+PASS imu hump: live peak 10 mm reported 8 mm (bias 2), climb 5.7 mm reached DESCENDING
+PASS imu small hump: 3.3 deg (6 mm) reports 4 mm, max stays 8, climb < 3 mm never DESCENDING
+PASS imu hump discard: 5.3 deg tilt with wheels still is not recorded
+PASS imu lift: 39 mm off the floor not lifted, 40 mm lifted (limit 40, at or above), floor contact clears it at once
+PASS imu floor evidence: IR 201 ms old, invalid or unreadable keeps lifted; 200 ms old is floor
+PASS imu settle: hump after being put down starts exactly 3000 ms after landing, not before
+PASS imu spoiled hump: lifted mid-hump -> discarded, no HUMP DONE toggle
+PASS imu hump saturation: 300 mm climb reports 127 mm (7-bit field), not a wrapped value
+PASS downhill runaway limit: 40.00 RPM is not over, 40.01 is; target < 5 RPM ignored; full speed never counts
+PASS downhill streak: right wheel alone counts; 9 over, one at 40.0, 9 over = no stop; 10 in a row latches
+PASS downhill streak: count cleared at full speed, next descent gets a full 10 periods
+PASS downhill NULL handling: no state = no derating, no crash
+PASS motion descent gate: climbing, invalid height or off-hump DESCENDING never caps the speed
+PASS motion descent gate: 200 ms old snapshot engages, 201 ms is stale (20 stale periods = IMU fault)
+PASS motion runaway cut: wheel at 40.9 RPM jumps to the -25 % brake, wheel at 39.8 RPM only ramps 2 %
+PASS motion overspeed: 9 runaway periods keep driving, the 10th latches the stop (fault 2)
+PASS motion overspeed: latched through 30 periods level and a bypass drive; cleared only by reset
+PASS downhill runaway limit: 40.00 RPM is not over, 40.01 is; target < 5 RPM ignored; full speed never counts
+PASS downhill streak: right wheel alone counts; 9 over, one at 40.0, 9 over = no stop; 10 in a row latches
+PASS downhill streak: count cleared at full speed, next descent gets a full 10 periods
+PASS downhill NULL handling: no state = no derating, no crash
+PASS motion descent gate: climbing, invalid height or off-hump DESCENDING never caps the speed
+PASS motion descent gate: 200 ms old snapshot engages, 201 ms is stale (20 stale periods = IMU fault)
+PASS motion runaway cut: wheel at 40.9 RPM jumps to the -25 % brake, wheel at 39.8 RPM only ramps 2 %
+PASS motion overspeed: 9 runaway periods keep driving, the 10th latches the stop (fault 2)
+PASS motion overspeed: latched through 30 periods level and a bypass drive; cleared only by reset
+PASS downhill runaway limit: 40.00 RPM is not over, 40.01 is; target < 5 RPM ignored; full speed never counts
+PASS downhill streak: right wheel alone counts; 9 over, one at 40.0, 9 over = no stop; 10 in a row latches
+PASS downhill streak: count cleared at full speed, next descent gets a full 10 periods
+PASS downhill NULL handling: no state = no derating, no crash
+PASS motion descent gate: climbing, invalid height or off-hump DESCENDING never caps the speed
+PASS motion descent gate: 200 ms old snapshot engages, 201 ms is stale (20 stale periods = IMU fault)
+PASS motion runaway cut: wheel at 40.9 RPM jumps to the -25 % brake, wheel at 39.8 RPM only ramps 2 %
+PASS motion overspeed: 9 runaway periods keep driving, the 10th latches the stop (fault 2)
+PASS motion overspeed: latched through 30 periods level and a bypass drive; cleared only by reset
+PASS FR16 no remote mutex: START blocked as CONTROLLER, mission STOPPED, commands refused
+PASS FR13/FR16 START blockers: MQTT, hold, pending, IMU (cal, error, invalid, >200 ms), IR invalid/stale, controller, scanner each set alone; 0 when ready
+PASS FR16 blockers combine: clock error -> IMU|CONTROLLER, all faults at once -> 0xDF, IR invalid hides IR stale
+PASS FR16 IR safety stops: 201 ms stale/invalid -> STOPPED source 2, read error -> ERROR source 3, 200 ms keeps driving
+PASS FR16 obstacle fault -> ERROR source 5 and abort; clock error -> source 4 in following, IMU lost (10) in a full period
+PASS FR16 IMU silent 1000 ms drives, 1001 ms -> source 10; governor stale IMU -> 11, overspeed -> 9
+PASS FR15/FR16 same fault reported once per stop, again after STOP clears it
+PASS FR15 mission codes: ERROR 7, STOPPED/junction 6, IDLE 1, busy mutex reports STOPPED and not held
+PASS FR13 relearn refused while moving/pending/not resettable; IMU recal, snapshot, mapping refused by the controller
+PASS FR16 IDLE waits for calibrated IMU and fresh valid IR, IR/clock/obstacle faults -> ERROR; ERROR and unknown states keep motors off; bypass faults stop
+PASS FR16 junction hold: 5 coast periods ignored, resumes only after both-black then 3 fresh line periods; latch error -> ERROR
+PASS controller readiness and fault-source checks
+PASS FR15 handshake: CONNECT with retained offline will, SUBSCRIBE command topic, online after SUBACK only
+PASS FR15 link silence: PINGREQ every 5 s, up at 14.9 s and 15 s, dropped at 15.001 s although telemetry was still sent
+PASS FR15 PINGRESP within 200 ms keeps the link up for 60 s
+PASS FR15 Wi-Fi link down drops at once; reconnect backoff 1 s then 2 s; TCP error never closes a freed PCB
+PASS FR13/FR15 STOP delivered first with the command queue full (7 queued, START dropped)
+PASS FR15 reconnect never replays a queued START or STOP; offline telemetry is still published
+PASS FR15 malformed: 5-byte length, 201-byte body and 257-byte segment drop the link; fragmented PUBLISH reassembled
+PASS FR13 retained, QoS 1, wrong-topic and oversize PUBLISH ignored; bad-CRC command returned as -1
+PASS FR15 ACK before older telemetry, refused write retried, telemetry queue bounded at 7 (submit -1 when full)
+KNOWN BUG: mqtt_utk.c tcp_recv_cb(): after process_packet() discards on a refused CONNACK, 'g_rxlen -= pos' wraps g_rxlen to 65532, so the NEXT connection is closed on its first received bytes (CONNACK) and one more backoff is lost
+PASS FR15 refused CONNACK closes, no CONNACK in 10 s closes, tcp_new failure retried after 2 s, SUBACK 0x80 never ready
+PASS FR15 console log: whole lines, in-band lost-byte note, held back while the TCP send buffer is low, full 240-byte chunk sent at once, refused write counted as lost
+PASS FR15 broker FIN (NULL pbuf) drops the link at once; tcp_connect error closes and retries
+PASS MQTT client link-loss and command-delivery checks
+PASS FR12 ODOM: signed L/R deltas, 200/240 mm/s speeds, reverse negative, 0.25 mm counts carried (40 counts -> 10 mm)
+PASS FR12 checkpoint at exactly 500 mm, again at 1000 mm driving backwards; 100 pivot periods add no distance
+PASS FR12 IR bits L|B=5, letter 31 before any barcode, one G EVENT per scan sequence with one ACK, invalid scans ignored
+PASS FR12 sentinels: hump 1023 when height invalid, obstacle 1023 for 511 cm and for no-echo, real values otherwise
+PASS FR12 obstacle EVENTs: confirm (25 cm), LEFT chosen, bypassed, fault 2 - each once, IDs 1..4
+PASS FR12/NFR13 SENSOR: 26 bytes, valid mask, IR, tilt clamp, heading, distance, counts, phases, lift 300|lifted; 65535/1023 when unavailable; one per second
+PASS FR12 BARCODE_DIAG: 42 bytes, every field, scan units saturate at 65535, skipped without a sequence while offline
+PASS FR12 motion invalid or wheel scale 0: no ODOM, no MOTION valid bit
+PASS telemetry poll path checks
+PASS NFR13 SNAPSHOT layout: 16 fields each exactly at their 99 wire bits, all-ones round trip, 5 pad bits zero
+PASS NFR13 SNAPSHOT limits: -2048 saturates to -2047, letters 26..30 refused both ways, each pad bit and 12/14 bytes rejected
+PASS FR2/NFR13 mapping: Z,Y,X,W packs to 20 bits, each reserved bit, packed letter 26 and duplicate letters rejected
+PASS FR13 commands 1..6 at transaction 0xFFFF; short buffer, codes 0/7, duplicate map, wrong length, reserved bits rejected
+PASS NFR13 frames: 15 type/length pairs round-trip at header limits; 14..62 bytes; every single-bit flip of a 62-byte frame rejected; 49-byte payload refused
+PASS FR12 detail frames: SENSOR 24/26/32/34 and DIAG 28/42 stamped in sequence; 25/27/33/35, 27/43 and other types refused without a sequence; NULL lock and session 0 handled
+PASS FR13 other-session START/STOP -> DUPLICATE, coordinator not called; STOP repeat applied twice, START repeat refused; no coordinator -> NOT_READY; non-command or short payload -> no ACK
+PASS FR12/FR15 EVENT ring: 25th event drops the oldest, counted and flagged uncertain; line and mission stale after 1.5 s
+PASS protocol codec limit checks
 PASS NFR7 no heap: no malloc/calloc/realloc/free in 92 application files
 PASS requirement constants: 96 values traced to source for 26 requirements (FR1, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10, FR11, FR12, FR13, FR14, FR15, FR16, FR17, FR18, NFR2, NFR3, NFR4, NFR5, NFR6, NFR8, NFR9, NFR10, NFR13)
-Application standard checks: 112 files, 0 errors.
+Application standard checks: 166 files, 0 errors.
 Network ownership & buffer boundary: PASS
 PASS: precision field bounds, steering bytes=28, matcher bytes=16, layout bytes=12
 V10_SIZES nav_sample=20 nav_controller=104 nav_result=2 code_result=2 scan=164 fastq_sample=24 ring=1536 layout=12 match=16 telemetry_store=760
@@ -138,8 +360,6 @@ PASS nothing in front after the sweep: clear at once, no edge vote
 PASS silent scan (corner band pinged 4 times per bearing) in 5670 ms
 PASS an intermittent edge echo is kept: third ping, median
 PASS every scan bearing is reached moving right; a servo lag is one constant offset and repeat scans agree
-Obstacle handoff: preemption, RPM, stop, reacquisition, fault and stale IR PASS
-Controller handoff: STOP priority, no missed STOP, START gating and mutex-busy fail-safe PASS
 Obstacle motion: RPM ramp, stopped inner wheel and immediate STOP PASS
 Obstacle telemetry: event, range, route, faults and staleness PASS
 C codec + aggregation + IMU guard tests PASS
@@ -181,16 +401,16 @@ PASS confirmed end stops the leg before the default distance
 PASS object still seen at the default point runs to the hard limit
 PASS echo after a default end resumes passing without flapping
 PASS turn-out peek: box ends -> carry on; box still there -> other side, once; sequencer still 112 bytes
-  head-on, left bypass               seek legs 0, off line   7.4 mm, heading   +1.6 deg to the line
-  head-on, right bypass              seek legs 0, off line   7.4 mm, heading   -1.6 deg to the line
-  stopped 15 deg left of line, left  seek legs 0, off line   5.1 mm, heading   -0.8 deg to the line
+  head-on, left bypass               seek legs 0, off line   4.5 mm, heading   -0.1 deg to the line
+  head-on, right bypass              seek legs 0, off line   4.5 mm, heading   +0.1 deg to the line
+  stopped 15 deg left of line, left  seek legs 0, off line  10.2 mm, heading   +1.4 deg to the line
   stopped 15 deg left of line, right seek legs 0, off line   9.8 mm, heading   +3.0 deg to the line
   stopped 15 deg right of line, left seek legs 0, off line   9.8 mm, heading   -3.0 deg to the line
-  stopped 15 deg right of line, right seek legs 0, off line   5.1 mm, heading   +0.8 deg to the line
-  stopped 25 deg left of line, left  seek legs 0, off line   6.9 mm, heading   -0.5 deg to the line
+  stopped 15 deg right of line, right seek legs 0, off line  10.2 mm, heading   -1.4 deg to the line
+  stopped 25 deg left of line, left  seek legs 0, off line   7.3 mm, heading   -0.5 deg to the line
   stopped 25 deg left of line, right line in the passing lane: handed back after 4 seek legs (known limit)
   stopped 25 deg right of line, left line in the passing lane: handed back after 4 seek legs (known limit)
-  stopped 25 deg right of line, right seek legs 0, off line   6.9 mm, heading   +0.5 deg to the line
+  stopped 25 deg right of line, right seek legs 0, off line   7.3 mm, heading   +0.5 deg to the line
   curve bending left (r 600), left   seek legs 0, off line   6.4 mm, heading   +6.0 deg to the line
   curve bending left (r 600), right  line in the passing lane: handed back after 4 seek legs (known limit)
   curve bending right (r 600), left  line in the passing lane: handed back after 4 seek legs (known limit)
@@ -198,121 +418,124 @@ PASS turn-out peek: box ends -> carry on; box still there -> other side, once; s
 PASS rejoin: head-on, +-15/+-25 deg stops and curves bending away from the passing lane end on the line facing the travel direction
 PASS: obstacle integration and existing navigation regressions.
 AUTONAV PASS: 227 assertions
-✔ one barcode owner with timer scanner and no old decoder (0.755917ms)
-✔ connection auto-reconnect does not need a separate Connect button (3.744042ms)
-✔ 42-byte barcode diagnostic carries scanner state, white and last pass (1.025208ms)
-✔ an unreadable completed capture remains visible through rearm even when firmware did not count a rejection (0.843833ms)
-✔ first diagnostic recovers a failure and simultaneous pass/counter updates create one result (0.256625ms)
-✔ a real diagnostic letter recovers a dropped result event and pairs once in either arrival order (0.431208ms)
-✔ legacy diagnostic already containing rejected attempts shows the failure on connect (0.114583ms)
-✔ older 28-byte barcode diagnostic still decodes without scanner fields (0.172458ms)
-✔ RECALIBRATE_BARCODE is command 6 with no arguments (0.40525ms)
-✔ dashboard logs scanner state changes and each pass result (0.202916ms)
-✔ UI and server expose a barcode recalibrate control (1.8175ms)
-✔ serial barcode letters are extracted but never claimed as MQTT (2.180042ms)
-✔ real MQTT barcode event logs decoded letter (0.95625ms)
-✔ ACK must match command id, target and boot session, cannot confirm actuation (0.408875ms)
-✔ timeout and failed publishes have explicit statuses (0.106042ms)
-✔ unified console has four named quadrants and reuses existing monitor panels (0.7645ms)
-✔ live controls and original MQTT streams remain single-owned (0.135208ms)
-✔ stale readiness and historical scans cannot be presented as live success (0.089042ms)
-✔ every monitoring list has independent scroll-follow detection and Latest button (0.879875ms)
-✔ new entries append oldest-to-newest, and pause-view does not stop ingestion (0.154458ms)
-✔ four responsive quadrants share a full-height card shell and internal scroll bodies (0.124042ms)
-✔ read-only LAN refuses mapping and Start with explicit launch instructions (148.50275ms)
-✔ telemetry and command monitor are intentionally separated (0.461041ms)
-✔ V8.0 reports barcode motor hold and real requested PWM separately from ACK (1.431792ms)
-✔ E2E: local broker + simulator binary packets + HTTP dashboard + admin ACK (1977.846667ms)
-✔ network retries, 10s bounded join, guarded commands off by default (3.201333ms)
-✔ firmware event observes validated letter and does not send motor command (0.490708ms)
-✔ sensor frame carries the lifted height in ten bits plus a lifted flag (1.135ms)
-✔ lift word of 1023 is unavailable and older 24/32-byte frames still decode (0.149291ms)
-✔ lift word follows obstacle diagnostics and reserved bits are rejected (0.281334ms)
-✔ dashboard state logs lift and landing once and names fault 14 (0.715333ms)
-✔ lift pause is reported as mission 4 and clears once running again (0.22325ms)
-✔ page names mission 4 as the lift pause (0.165333ms)
-✔ serial sensor line reports the lifted height when present (0.671542ms)
-✔ dashboard page shows the lifted height in every sensor view (0.477584ms)
-✔ ignored barcode scans are explained as non-stopping (0.172625ms)
-✔ live mapping ACK is required before dashboard sends START; no USB serial needed (754.191292ms)
-✔ real TCP MQTT broker routes fragmented binary frame with authentication (122.164042ms)
-✔ Overview is focused, with no mission event feed or detailed sensor summary (0.504042ms)
-✔ Telemetry keeps advanced diagnostic values accessible but collapsed by default (0.220917ms)
-✔ Overview reports stale connection and missing sensor packets separately (0.521208ms)
-✔ responsive overview fills width and keeps low-value mission-event spam out of command monitor (0.224542ms)
-✔ MQTT-enabled radio owner attempts a direct join without scan prerequisite (0.535375ms)
-✔ owner handles binary MQTT target topic while app does not own lwIP calls (1.64225ms)
-✔ mapping A,B,C,D packs 20 bits in three bytes (1.354709ms)
-✔ frame CRC detects modifications and refuses truncated frames (0.245833ms)
-✔ snapshot has valid zero and invalid sentinels (0.130625ms)
-✔ MQTT wildcard matching (0.084875ms)
-✔ odometry integration and missing delta flag (0.763166ms)
-✔ MQTT STATUS reports mapping and readiness independently of USB serial (0.266208ms)
-✔ status frame decoding rejects invalid sizes (0.14625ms)
-✔ a live binary sensor frame produces telemetry-console lines (0.1495ms)
-✔ after host restart transaction resumes at firmware counter; Pico reboot restores map but NEVER auto-START (496.722208ms)
-✔ STOP can be sent with fresh MQTT link even before first STATUS token arrives (290.36ms)
-✔ CSV escaping prevents spreadsheet formula execution and line breaking (0.398459ms)
-✔ V15 fault source uses compatible EVENT payload and clears only on ready HOLD (1.986791ms)
-✔ V15 differentiates decode, stale IR and downhill failures without changing STATUS (0.474584ms)
-✔ recoverable navigation safety stop has a distinct mission code and explicit STOP instructions (1.170209ms)
-✔ genuine controller fault retains separate blocking message (0.145041ms)
-✔ zero scanner rejection error is described as unknown, not no error (0.375959ms)
-✔ V14 STOPPED is not mislabelled remote hold, then explicit STOP makes ready (1.112ms)
-✔ live map only reports ACK-accepted route assignments, not speculative selections (1.873583ms)
-✔ robot reboot clears the old route confirmation and physical position (0.372041ms)
-✔ barcodes record detection order but remain position-invalid without odometry (0.276541ms)
-✔ the map visibly separates robot mapping, observed barcodes, and estimated route (0.408458ms)
-✔ track width matches the firmware wheel track (APP_NAV_TRACK_MM 130) (2.309917ms)
-✔ every event gets a marker at the pose it happened, even after a lost record (0.522875ms)
-✔ an event received before the motion that led up to it waits for that motion (0.549334ms)
-✔ a lost wheel update dashes one segment; the next checkpoint bridges the distance (0.518166ms)
-✔ frames from another source going missing do not make the route approximate (0.189833ms)
-✔ Left turn snaps heading to the pre-junction heading +90 (0.58025ms)
-✔ Right turn snaps heading to the pre-junction heading -90 (0.457542ms)
-✔ U-turn retraces the outbound line back through the junction (0.491125ms)
-✔ turn events that overtake their ODOM are applied at the right time (0.295709ms)
-✔ obstacle bypass stays purely dead-reckoned (0.515333ms)
-✔ map draws a distinct marker per kind and labels kind 6 correctly (0.339125ms)
-✔ failed scan count produces a visible alert in both live telemetry and monitor, not a guessed decoded letter (1.597209ms)
-✔ decoded A-Z event creates success with the actual letter and clears on new session (0.302542ms)
-✔ completed-count does not invent a successful letter; actual event shows once (0.212125ms)
-✔ odometry sequence is exposed to browser only if measured incremental ODOM packet arrived (0.276625ms)
-✔ dashboard has two result views, independent sensor status fields, and responsive spacing styles (0.479625ms)
-✔ scanner card removes duplicate summaries, diagnostics and mapping warnings (0.507125ms)
-✔ old scans retain timestamped results while live scanner state goes offline (32.920875ms)
-✔ fresh ready and simulated readiness remain distinct (1.8635ms)
-✔ scan filtering keeps real rejected reasons and handles no matches (0.63175ms)
-✔ IMU stays enabled in normal firmware profile (0.059041ms)
-✔ scanner progress explains ready, decoding and rearming while the last failure stays visible (1.397834ms)
-✔ barcode diagnostics are actual robot counters, not inferred barcode success (1.475791ms)
-✔ invalid diagnostic length is rejected rather than fabricated (0.232792ms)
-✔ sensor odometry flag labels nominal scale versus measured and retains heading validity (0.158209ms)
-✔ sensor packet reports valid IMU, three IR and encoders (1.164167ms)
-✔ obstacle owner publishes measured ultrasonic range and bypass phase (0.729ms)
-✔ extended sensor packet explains why the bypass has not returned (0.362375ms)
-✔ serial sensor mirror populates dashboard without claiming MQTT link (0.574708ms)
-✔ MQTT sensor frame retains live origin and session (0.119584ms)
-✔ latest hump peak comes from a finished hump, even when lower (0.178208ms)
-✔ obstacle width and forward split use the matching scan summary (0.982417ms)
-✔ a lost, stale, or inconsistent split leaves the scan width only (0.137ms)
-✔ coarse sonar split is marked only for the scan with an echo estimate (0.10025ms)
-✔ priority ACK arriving ahead of queued telemetry does not drop them (0.243417ms)
-✔ V7.8 status reports exact startup blockers and backwards compatibility (0.896458ms)
-✔ V7.8 MQTT command clock cannot be rolled backward by barcode or odometry history (1.234541ms)
-✔ single navigation bar with Overview, Map and one Console tab (0.706458ms)
-✔ browser scripts parse (a syntax error leaves the dashboard stuck at CONNECTING) (1.879541ms)
-✔ 3D renderer provides software fallback and stays inside browser (0.164541ms)
-✔ theme and controls use one spacing system across monitoring views (0.402333ms)
-✔ single-command simulation is opt-in and scoped to synthetic telemetry (0.122375ms)
-ℹ tests 107
+✔ one barcode owner with timer scanner and no old decoder (1.745875ms)
+✔ connection auto-reconnect does not need a separate Connect button (3.542708ms)
+✔ 42-byte barcode diagnostic carries scanner state, white and last pass (1.224917ms)
+✔ an unreadable completed capture remains visible through rearm even when firmware did not count a rejection (0.841375ms)
+✔ first diagnostic recovers a failure and simultaneous pass/counter updates create one result (0.246667ms)
+✔ a real diagnostic letter recovers a dropped result event and pairs once in either arrival order (0.415875ms)
+✔ legacy diagnostic already containing rejected attempts shows the failure on connect (0.120792ms)
+✔ older 28-byte barcode diagnostic still decodes without scanner fields (0.154083ms)
+✔ RECALIBRATE_BARCODE is command 6 with no arguments (0.724583ms)
+✔ dashboard logs scanner state changes and each pass result (0.214875ms)
+✔ UI and server expose a barcode recalibrate control (1.634791ms)
+✔ serial barcode letters are extracted but never claimed as MQTT (2.510375ms)
+✔ real MQTT barcode event logs decoded letter (1.02775ms)
+✔ ACK must match command id, target and boot session, cannot confirm actuation (0.442833ms)
+✔ timeout and failed publishes have explicit statuses (0.128167ms)
+✔ unified console has four named quadrants and reuses existing monitor panels (0.718ms)
+✔ live controls and original MQTT streams remain single-owned (0.128542ms)
+✔ stale readiness and historical scans cannot be presented as live success (0.089041ms)
+✔ every monitoring list has independent scroll-follow detection and Latest button (0.9565ms)
+✔ new entries append oldest-to-newest, and pause-view does not stop ingestion (0.166ms)
+✔ four responsive quadrants share a full-height card shell and internal scroll bodies (0.133459ms)
+✔ read-only LAN refuses mapping and Start with explicit launch instructions (121.185667ms)
+✔ telemetry and command monitor are intentionally separated (0.47025ms)
+✔ V8.0 reports barcode motor hold and real requested PWM separately from ACK (1.490291ms)
+✔ E2E: local broker + simulator binary packets + HTTP dashboard + admin ACK (1922.492125ms)
+✔ network retries, 10s bounded join, guarded commands off by default (3.078709ms)
+✔ firmware event observes validated letter and does not send motor command (0.505084ms)
+✔ sensor frame carries the lifted height in ten bits plus a lifted flag (1.10725ms)
+✔ lift word of 1023 is unavailable and older 24/32-byte frames still decode (0.143834ms)
+✔ lift word follows obstacle diagnostics and reserved bits are rejected (0.270167ms)
+✔ dashboard state logs lift and landing once and names fault 14 (0.729584ms)
+✔ lift pause is reported as mission 4 and clears once running again (0.219583ms)
+✔ page names mission 4 as the lift pause (0.16375ms)
+✔ serial sensor line reports the lifted height when present (0.693208ms)
+✔ dashboard page shows the lifted height in every sensor view (0.5195ms)
+✔ ignored barcode scans are explained as non-stopping (0.212083ms)
+✔ live mapping ACK is required before dashboard sends START; no USB serial needed (751.290084ms)
+✔ real TCP MQTT broker routes fragmented binary frame with authentication (122.309084ms)
+✔ Overview is focused, with no mission event feed or detailed sensor summary (0.524291ms)
+✔ Telemetry keeps advanced diagnostic values accessible but collapsed by default (0.227667ms)
+✔ Overview reports stale connection and missing sensor packets separately (0.580292ms)
+✔ responsive overview fills width and keeps low-value mission-event spam out of command monitor (0.23325ms)
+✔ MQTT-enabled radio owner attempts a direct join without scan prerequisite (0.585667ms)
+✔ owner handles binary MQTT target topic while app does not own lwIP calls (0.792917ms)
+✔ mapping A,B,C,D packs 20 bits in three bytes (1.262084ms)
+✔ frame CRC detects modifications and refuses truncated frames (0.224791ms)
+✔ snapshot has valid zero and invalid sentinels (0.140459ms)
+✔ MQTT wildcard matching (0.100958ms)
+✔ odometry integration and missing delta flag (0.857542ms)
+✔ MQTT STATUS reports mapping and readiness independently of USB serial (0.24825ms)
+✔ status frame decoding rejects invalid sizes (0.169167ms)
+✔ a live binary sensor frame produces telemetry-console lines (0.14975ms)
+✔ after host restart transaction resumes at firmware counter; Pico reboot restores map but NEVER auto-START (499.197458ms)
+✔ STOP can be sent with fresh MQTT link even before first STATUS token arrives (283.9975ms)
+✔ CSV escaping prevents spreadsheet formula execution and line breaking (0.446209ms)
+✔ V15 fault source uses compatible EVENT payload and clears only on ready HOLD (2.077667ms)
+✔ V15 differentiates decode, stale IR and downhill failures without changing STATUS (0.510708ms)
+✔ recoverable navigation safety stop has a distinct mission code and explicit STOP instructions (1.133542ms)
+✔ genuine controller fault retains separate blocking message (0.149333ms)
+✔ zero scanner rejection error is described as unknown, not no error (0.345125ms)
+✔ V14 STOPPED is not mislabelled remote hold, then explicit STOP makes ready (1.172ms)
+✔ robot log joins chunks into whole lines and holds a partial line (2.974917ms)
+✔ robot log flushes a runaway line and keeps only the newest lines (0.636625ms)
+✔ recording export writes a header, skips bad rows and neutralises formulas (1.600542ms)
+✔ live map only reports ACK-accepted route assignments, not speculative selections (1.993958ms)
+✔ robot reboot clears the old route confirmation and physical position (0.3885ms)
+✔ barcodes record detection order but remain position-invalid without odometry (0.396542ms)
+✔ the map visibly separates robot mapping, observed barcodes, and estimated route (0.445333ms)
+✔ track width matches the firmware wheel track (APP_NAV_TRACK_MM 130) (2.38475ms)
+✔ every event gets a marker at the pose it happened, even after a lost record (0.589708ms)
+✔ an event received before the motion that led up to it waits for that motion (0.202291ms)
+✔ a lost wheel update dashes one segment; the next checkpoint bridges the distance (0.560375ms)
+✔ frames from another source going missing do not make the route approximate (0.197375ms)
+✔ Left turn snaps heading to the pre-junction heading +90 (0.554792ms)
+✔ Right turn snaps heading to the pre-junction heading -90 (0.408625ms)
+✔ U-turn retraces the outbound line back through the junction (0.497833ms)
+✔ turn events that overtake their ODOM are applied at the right time (0.355541ms)
+✔ obstacle bypass stays purely dead-reckoned (0.57275ms)
+✔ map draws a distinct marker per kind and labels kind 6 correctly (0.344084ms)
+✔ failed scan count produces a visible alert in both live telemetry and monitor, not a guessed decoded letter (1.700875ms)
+✔ decoded A-Z event creates success with the actual letter and clears on new session (0.3815ms)
+✔ completed-count does not invent a successful letter; actual event shows once (0.300875ms)
+✔ odometry sequence is exposed to browser only if measured incremental ODOM packet arrived (0.367458ms)
+✔ dashboard has two result views, independent sensor status fields, and responsive spacing styles (0.630541ms)
+✔ scanner card removes duplicate summaries, diagnostics and mapping warnings (0.594042ms)
+✔ old scans retain timestamped results while live scanner state goes offline (37.99ms)
+✔ fresh ready and simulated readiness remain distinct (1.561209ms)
+✔ scan filtering keeps real rejected reasons and handles no matches (1.135708ms)
+✔ IMU stays enabled in normal firmware profile (0.07175ms)
+✔ scanner progress explains ready, decoding and rearming while the last failure stays visible (1.513667ms)
+✔ barcode diagnostics are actual robot counters, not inferred barcode success (1.462916ms)
+✔ invalid diagnostic length is rejected rather than fabricated (0.2295ms)
+✔ sensor odometry flag labels nominal scale versus measured and retains heading validity (0.167292ms)
+✔ sensor packet reports valid IMU, three IR and encoders (1.059ms)
+✔ obstacle owner publishes measured ultrasonic range and bypass phase (0.694209ms)
+✔ extended sensor packet explains why the bypass has not returned (0.360167ms)
+✔ serial sensor mirror populates dashboard without claiming MQTT link (0.542417ms)
+✔ MQTT sensor frame retains live origin and session (0.1225ms)
+✔ latest hump peak comes from a finished hump, even when lower (0.176375ms)
+✔ obstacle width and forward split use the matching scan summary (0.898583ms)
+✔ a lost, stale, or inconsistent split leaves the scan width only (0.1275ms)
+✔ coarse sonar split is marked only for the scan with an echo estimate (0.102333ms)
+✔ priority ACK arriving ahead of queued telemetry does not drop them (0.230167ms)
+✔ V7.8 status reports exact startup blockers and backwards compatibility (0.930833ms)
+✔ V7.8 MQTT command clock cannot be rolled backward by barcode or odometry history (1.281792ms)
+✔ single navigation bar with Overview, Map and one Console tab (0.702792ms)
+✔ browser scripts parse (a syntax error leaves the dashboard stuck at CONNECTING) (1.873375ms)
+✔ 3D renderer provides software fallback and stays inside browser (0.207708ms)
+✔ theme and controls use one spacing system across monitoring views (0.433833ms)
+✔ single-command simulation is opt-in and scoped to synthetic telemetry (0.132916ms)
+ℹ tests 110
 ℹ suites 0
-ℹ pass 107
+ℹ pass 110
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 5866.167708
+ℹ duration_ms 5943.401791
 
 Core host tests passed: lift estimation, STOP/START, governor, navigation, dashboard.
 V15 scan port: independent ACK, idle/result atomicity, contention, cancelled worker, repeated scans, failure, overflow, wrap and dropped non-barcode captures PASS

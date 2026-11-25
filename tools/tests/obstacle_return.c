@@ -1,36 +1,57 @@
-/* Exercise the real return state machine using controlled side echoes. */
+/** @file obstacle_return.c
+ * @brief Exercise the real return state machine using controlled side echoes.
+ */
 #include <assert.h>
 #include <stdio.h>
 #include "modules/obstacle/scan_plan.c"
 #include "modules/obstacle/obstacle.c"
 
 static UINT flags;
-static uint32_t side_seq,front_seq;
+static uint32_t side_seq;
+static uint32_t front_seq;
 static int32_t side_mm=-1;
 static int32_t front_mm=1000;
 static uint32_t fault_bits;
 
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *format,...) {(void)format;return 0;}
+/** @brief Host stub of obs_state_flags_read(). */
 UINT obs_state_flags_read(void) {return flags;}
+/** @brief Host stub of obs_state_flags_set(). */
 void obs_state_flags_set(UINT bits) {flags|=bits;}
+/** @brief Host stub of obs_state_flags_clear(). */
 void obs_state_flags_clear(UINT bits) {flags&=~bits;}
+/** @brief Host stub of obs_state_set_phase(). */
 void obs_state_set_phase(obs_state_phase_t phase) {(void)phase;}
+/** @brief Host stub of obs_state_set_route(). */
 void obs_state_set_route(obs_state_route_t route) {(void)route;}
+/** @brief Host stub of obs_state_set_width_cm(). */
 void obs_state_set_width_cm(int32_t width) {(void)width;}
+/** @brief Host stub of obs_state_count_bypass(). */
 void obs_state_count_bypass(void) {}
+/** @brief Host stub of obs_state_faults_update(). */
 void obs_state_faults_update(uint32_t set,uint32_t clear)
 {fault_bits=(fault_bits|set)&~clear;}
 static scan_plan_bypass_t loaded_plan;
+/** @brief Host stub of obs_state_plan_load(). */
 void obs_state_plan_load(scan_plan_bypass_t *plan) {*plan=loaded_plan;}
 static int32_t watch_deg;
+/** @brief Host stub of obs_state_watch_angle_set(). */
 void obs_state_watch_angle_set(int32_t angle) {watch_deg=angle;}
+/** @brief Host stub of obs_state_side_seq_get(). */
 uint32_t obs_state_side_seq_get(void) {return side_seq;}
+/** @brief Host stub of obs_state_side_range_get(). */
 int32_t obs_state_side_range_get(void) {return side_mm;}
+/** @brief Host stub of obs_state_front_seq_get(). */
 uint32_t obs_state_front_seq_get(void) {return front_seq;}
+/** @brief Host stub of obs_state_front_range_get(). */
 int32_t obs_state_front_range_get(void) {return front_mm;}
+/** @brief Host stub of servo_left_limit_deg(). */
 int32_t servo_left_limit_deg(void) {return 70;}
+/** @brief Host stub of servo_right_limit_deg(). */
 int32_t servo_right_limit_deg(void) {return 70;}
 
+/** @brief Test helper: step. */
 static obstacle_drive_t step(int32_t range,bool black,uint32_t now)
 {
     obstacle_drive_t drive={0};
@@ -50,6 +71,7 @@ static obstacle_drive_t step_ir(bool left,bool right,uint32_t now)
     return drive;
 }
 
+/** @brief Test helper: passing. */
 static void passing(int32_t side)
 {
     flags=0U;front_mm=1000;fault_bits=0U;
@@ -62,6 +84,7 @@ static void passing(int32_t side)
     g_seq.search_side=side;
 }
 
+/** @brief Test helper: finish side. */
 static obstacle_drive_t finish_side(int32_t side)
 {
     passing(side);
@@ -70,7 +93,9 @@ static obstacle_drive_t finish_side(int32_t side)
     assert(g_seq.b_seen);
     g_seq.pose.x_mm=510.0F;
     for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS;++i)
+    {
         (void)step(-1,false,200U+i*50U);
+    }
     assert(g_seq.phase==OBS_PHASE_PASS_END);
     /* Rear bound: where the first empty ray crossed the object's side. */
     assert(g_seq.rear_x_mm >= g_seq.clear_rear_mm);
@@ -92,6 +117,7 @@ static obstacle_drive_t finish_side(int32_t side)
     return step(-1,false,700);
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     /* Every intermediate return angle must retain the body-side margin,
@@ -109,13 +135,16 @@ int main(void)
                                       OBS_SAFETY_MARGIN_MM);
         }
     }
-    printf("PASS swept return clearance for all gaps/angles; sequencer %zu bytes\n",
+    printf(
+        "PASS swept return clearance for all gaps/angles; sequencer %zu "
+        "bytes\n",
            sizeof(obstacle_seq_t));
     obstacle_seq_t geometry={0};
     pose_update(&geometry,-1056,1056);
     assert(geometry.pose.x_mm>219.90F && geometry.pose.x_mm<219.93F);
     passing(1);
-    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-OBS_SENSOR_TO_AXLE_MM-1.0F;
+    g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_DEFAULT_MM-
+                    OBS_SENSOR_TO_AXLE_MM-1.0F;
     (void)step(-1,false,100);
     assert(g_seq.phase==OBS_PHASE_PASS_SIDE && !g_seq.b_seen);
     g_seq.pose.x_mm+=2.0F;
@@ -146,7 +175,9 @@ int main(void)
 
     obstacle_drive_t drive=finish_side(1);
     assert(drive.left_rpm==OBS_DRIVE_RPM && drive.right_rpm==0);
-    puts("PASS confirmed side absence plus whole-body travel permits right return");
+    puts(
+        "PASS confirmed side absence plus whole-body travel permits right "
+        "return");
     g_seq.pose.heading_rad=-OBS_RETURN_DEG*OBS_RAD_PER_DEG;
     (void)step(4000,false,1100);
     assert(g_seq.phase==OBS_PHASE_SEARCH_LINE);
@@ -164,7 +195,9 @@ int main(void)
     (void)step(4000,false,1400);
     assert(g_seq.phase==OBS_PHASE_VERIFY);
     for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
+    {
         drive=step(4000,true,1500U+i*50U);
+    }
     assert(drive.b_done && !g_seq.b_active);
     puts("PASS full return, IR reacquisition, alignment and handback");
 
@@ -291,13 +324,17 @@ int main(void)
     (void)step(240,false,100);(void)step(240,false,150);
     assert(g_seq.b_seen);
     for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS-1U;++i)
+    {
         (void)step(-1,false,200U+i*50U);
+    }
     assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
     (void)step(-1,false,500);
     assert(g_seq.phase==OBS_PHASE_PASS_END);
     (void)step(240,false,550);
     assert(g_seq.phase==OBS_PHASE_PASS_SIDE && g_seq.clear_hits==0U);
-    puts("PASS brief dropout cannot end tracking and reappearance cancels clearance");
+    puts(
+        "PASS brief dropout cannot end tracking and reappearance cancels "
+        "clearance");
 
     drive=finish_side(-1);
     assert(g_seq.phase==OBS_PHASE_TURN_BACK);
@@ -320,7 +357,9 @@ int main(void)
         assert(g_seq.phase==OBS_PHASE_PASS_SIDE && !drive.b_fault);
     }
     assert(g_seq.rear_x_mm>g_seq.face_x_mm+OBS_PASS_DEFAULT_MM);
-    puts("PASS long obstacle stays under side watch beyond the former depth estimate");
+    puts(
+        "PASS long obstacle stays under side watch beyond the former depth "
+        "estimate");
 
     (void)finish_side(1);
     enter_phase(&g_seq,OBS_PHASE_PASS_END,700);
@@ -332,13 +371,17 @@ int main(void)
     run_phase(&g_seq,&drive,false,1701);
     assert(g_seq.phase==OBS_PHASE_FAULT && drive.b_stop && drive.b_fault);
     assert(fault_bits==OBS_FAULT_TIMEOUT);
-    puts("PASS cached clear samples cannot authorize a turn and a stalled worker stops");
+    puts(
+        "PASS cached clear samples cannot authorize a turn and a stalled "
+        "worker stops");
 
     passing(1);g_seq.pose.x_mm=500.0F;
     (void)step(240,false,100);(void)step(240,false,150);
     g_seq.pose.x_mm=550.0F;
     for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS;i++)
+    {
         (void)step(-1,false,200U+i*50U);
+    }
     assert(g_seq.phase==OBS_PHASE_PASS_END);
     float const prior_end=g_seq.end_x_mm;
     g_seq.pose.heading_rad=-10.0F*OBS_RAD_PER_DEG;
@@ -360,14 +403,18 @@ int main(void)
     handle_plan(&g_seq,&drive,5000);
     assert(g_seq.phase==OBS_PHASE_PASS_SIDE && g_seq.clear_hits==0U);
     assert(g_seq.side_sample_msec==5000U);
-    puts("PASS a front-guard rescan requires fresh side confirmation before return");
+    puts(
+        "PASS a front-guard rescan requires fresh side confirmation before "
+        "return");
 
     passing(1);g_seq.pose.x_mm=g_seq.face_x_mm+OBS_PASS_MAX_MM;
     g_seq.b_seen=true;g_seq.side_hits=OBS_SIDE_SEEN_HITS;
     drive=step(240,false,100); /* Seen and still there. */
     assert(g_seq.phase==OBS_PHASE_FAULT && drive.b_stop && drive.b_fault);
     assert(fault_bits==OBS_FAULT_NO_ROUTE);
-    puts("PASS an obstacle that never ends stops at the configured travel limit");
+    puts(
+        "PASS an obstacle that never ends stops at the configured travel "
+        "limit");
 
     /* 18 Nov video/log: odometry said 231 mm out against a 200 mm offset
      * target, so the old pass steered back in by up to 5 degrees, towards
@@ -397,7 +444,10 @@ int main(void)
         passing(side);
         g_seq.lateral_mm=200;g_seq.pose.y_mm=(float)side*231.0F;
         g_seq.pose.x_mm=200.0F;
-        for(unsigned i=0;i<5;i++)(void)step(62,false,100U+i*50U);
+        for(unsigned i=0;i<5;i++)
+        {
+            (void)step(62,false,100U+i*50U);
+        }
         assert(g_seq.lateral_mm<=231+(int32_t)OBS_HALF_PATH_MM);
     }
     puts("PASS passing never steers into the object; a short side gap turns "
@@ -446,8 +496,10 @@ int main(void)
         /* A wide scan (echoes -40..40 deg) is still assumed no deeper than
          * the largest obstacle on the course. */
         for(int32_t i=0;i<n;i++)
+        {
             pts[i].range_mm=(pts[i].angle_deg>=-40&&pts[i].angle_deg<=40)?
                 225U:4000U;
+        }
         scan_plan_build_side(pts,n,0,0,&loaded_plan);
         assert(scan_plan_result(&loaded_plan)==SCAN_PLAN_ROUTE);
         assert(scan_plan_width_cm(&loaded_plan)*10>OBS_OBJECT_MAX_MM);
@@ -481,14 +533,17 @@ int main(void)
     puts("PASS return keeps heading in until black, bounded, then seeks");
 #else
     assert(g_seq.phase==OBS_PHASE_ALIGN && !g_seq.b_black_seen);
-    puts("PASS return straightens up on the odometry line without seeing black");
+    puts(
+        "PASS return straightens up on the odometry line without seeing black");
 
     /* IR never confirms the line: zig-zag instead of a LINE_LOST fault. */
     g_seq.pose.heading_rad=0.0F;g_seq.pose.y_mm=0.0F;
     (void)step(4000,false,200);
     assert(g_seq.phase==OBS_PHASE_VERIFY);
     for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
+    {
         drive=step(4000,false,250U+i*50U);
+    }
 #endif
     assert(!drive.b_fault && !drive.b_done);
     assert(g_seq.phase==OBS_PHASE_TURN_BACK && g_seq.b_seeking);
@@ -510,7 +565,9 @@ int main(void)
     (void)step_ir(true,false,1200);
     assert(g_seq.phase==OBS_PHASE_VERIFY);
     for(uint32_t i=0;i<OBS_VERIFY_CYCLES;i++)
+    {
         drive=step(4000,false,1250U+i*50U);
+    }
     assert(drive.b_done && !g_seq.b_active);
     puts("PASS seek leg finds the line, straightens and hands back");
 
@@ -560,7 +617,8 @@ int main(void)
     enter_phase(&g_seq,OBS_PHASE_DIAG_OUT,0);
     g_seq.pose.y_mm=300.0F-30.0F;
     (void)step(-1,false,50);
-    int32_t const gain_left = (OBS_WIDE_PASS_PIVOT_GAIN_PCT > OBS_PIVOT_GAIN_PCT)
+    int32_t const gain_left = (
+        OBS_WIDE_PASS_PIVOT_GAIN_PCT > OBS_PIVOT_GAIN_PCT)
                               ? OBS_WIDE_PASS_PIVOT_GAIN_PCT
                               : OBS_PIVOT_GAIN_PCT;
     assert(g_seq.phase==(gain_left>=60?OBS_PHASE_TURN_PARALLEL
@@ -599,7 +657,9 @@ int main(void)
         (void)step(240,false,100);
         assert(g_seq.side_hits==1U && !g_seq.b_seen);
         for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS;++i)
+        {
             (void)step(-1,false,150U+i*50U);
+        }
         assert(g_seq.phase==OBS_PHASE_PASS_SIDE);
         g_seq.pose.x_mm=default_axle_x-1.0F;
         (void)step(-1,false,450);
@@ -665,7 +725,9 @@ int main(void)
                     OBS_SENSOR_TO_AXLE_MM-100.0F;
     (void)step(240,false,100);(void)step(240,false,150);
     for(unsigned i=0;i<OBS_SIDE_CLEAR_HITS;++i)
+    {
         (void)step(-1,false,200U+i*50U);
+    }
     /* Ended by the side watch while the sensor was short of the default. */
     assert(g_seq.phase==OBS_PHASE_PASS_END && !g_seq.b_default_end);
     assert(g_seq.pose.x_mm+OBS_SENSOR_TO_AXLE_MM<
@@ -735,7 +797,9 @@ int main(void)
         d=step(-1,false,t+=50U);
         assert(OBS_PEEK==0 || (d.b_stop && watch_deg==-first*(OBS_PEEK_DEG+5)));
         for(uint32_t k=0;k<OBS_PEEK_PINGS+OBS_PEEK_SKIP;k++)
+        {
             d=step(face_there?262:1500,false,t+=60U);
+        }
         if(OBS_PEEK!=0 && face_there)
         {
             /* Other way, with that side's own drive-out. */
@@ -753,7 +817,9 @@ int main(void)
             t+=OBS_STOP_SETTLE_MSEC;
             d=step(-1,false,t+=50U);
             for(uint32_t k=0;k<OBS_PEEK_PINGS+OBS_PEEK_SKIP;k++)
+            {
                 d=step(262,false,t+=60U);
+            }
             assert(g_seq.side==-first && g_seq.peek_state==PEEK_DONE);
         }
         else
@@ -772,3 +838,5 @@ int main(void)
 
     return 0;
 }
+/*** end of file ***/
+

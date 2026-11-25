@@ -1,3 +1,6 @@
+/** @file libbsp.h
+ * @brief Host test harness.
+ */
 #ifndef HOST_LIBBSP_H
 #define HOST_LIBBSP_H
 #include <tk/tkernel.h>
@@ -10,3 +13,5 @@ ER pwm_set_wrap(UINT pin, UW wrap);
 ER pwm_set_cc(UINT pin, UW compare);
 ER pwm_set_enabled(UINT pin, BOOL enabled);
 #endif
+/*** end of file ***/
+

@@ -33,11 +33,6 @@ def main():
 
     build_run("obstacle_watch", ["tools/tests/obstacle_watch.c"],
               dead_code_flags(args.cc, whole_program=True))
-    build_run("controller_remote", ["tools/test_controller_remote.c",
-              "app_program/app/nav_core.c",
-              "app_program/modules/line_barcode/line_follow.c"],
-              [*dead_code_flags(args.cc), "-fno-asynchronous-unwind-tables",
-               "-fno-unwind-tables"])
     build_run("obstacle_motion", ["tools/tests/obstacle_motion.c",
               "app_program/modules/motion/motion.c",
               "app_program/modules/motion/downhill.c",

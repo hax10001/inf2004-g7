@@ -1,4 +1,6 @@
-/* Host-only barcode port ownership/configuration regression. */
+/** @file test_barcode_port.c
+ * @brief Host-only barcode port ownership/configuration regression.
+ */
 #include "modules/barcode_scanning/bc_port.h"
 #include "drivers/encoder.h"
 #include <assert.h>
@@ -6,23 +8,30 @@
 #include <string.h>
 
 static int sem_taken=0;
+/** @brief Host stub of tk_get_otm(). */
 ER tk_get_otm(SYSTIM *now) {*now=(SYSTIM){0};return E_OK;}
+/** @brief Test helper: tk cre sem. */
 ID tk_cre_sem(T_CSEM const *cfg) {
     assert(cfg && cfg->isemcnt==1 && cfg->maxsem==1);
     return 8;
 }
+/** @brief Test helper: tk wai sem. */
 ER tk_wai_sem(ID id, W count,TMO timeout) {
     (void)timeout; assert(id==8 && count==1 && !sem_taken);
     sem_taken=1; return E_OK;
 }
+/** @brief Test helper: tk sig sem. */
 ER tk_sig_sem(ID id,W count) {
     assert(id==8 && count==1 && sem_taken);
     sem_taken=0; return E_OK;
 }
+/** @brief Host stub of encoder_read(). */
 void encoder_read(encoder_wheel_t wheel,encoder_sample_t *p) {
     (void)wheel; p->count=0; p->edge_usec=0;
 }
+/** @brief Host stub of encoder_now_usec(). */
 uint32_t encoder_now_usec(void) {return 0U;}
+/** @brief Run every test case; any failed assert aborts. */
 int main(void) {
     bc_port_config_t cfg={0};
     bc_scan_t snapshot={0};
@@ -57,6 +66,10 @@ int main(void) {
     assert(bc_port_stats(&stats)==E_OK);
     assert(stats.direction_invalid==0);
     assert(!sem_taken);
-    puts("PASS V11 barcode port: reverse wheel config, persisted scan thresholds, clear and no semaphore leak");
+    puts(
+        "PASS V11 barcode port: reverse wheel config, persisted scan "
+        "thresholds, clear and no semaphore leak");
     return 0;
 }
+/*** end of file ***/
+

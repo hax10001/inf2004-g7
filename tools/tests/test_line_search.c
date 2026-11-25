@@ -26,22 +26,36 @@ static int32_t g_count;
 static char const *gp_log[SEARCH_LOG_MAX];
 static uint32_t g_log_count;
 
+/** @brief Host stub of motor_stop(). */
 void motor_stop(void) {g_left_pwm=0U;g_right_pwm=0U;}
+/** @brief Host stub of motor_brake(). */
 void motor_brake(void) {g_left_pwm=0U;g_right_pwm=0U;}
+/** @brief Host stub of motor_init(). */
 void motor_init(void) {motor_stop();}
+/** @brief Host stub of motor_set_forward(). */
 void motor_set_forward(uint32_t l,uint32_t r) {g_left_pwm=l;g_right_pwm=r;}
+/** @brief Host stub of motor_set_regulated(). */
 void motor_set_regulated(int32_t l,int32_t r)
 {g_left_pwm=(uint32_t)(l<0?-l:l);g_right_pwm=(uint32_t)(r<0?-r:r);}
+/** @brief Host stub of motor_set_directional(). */
 void motor_set_directional(int32_t l,int32_t r)
 {g_left_pwm=(uint32_t)(l<0?-l:l);g_right_pwm=(uint32_t)(r<0?-r:r);}
+/** @brief Host stub of encoder_init(). */
 ER encoder_init(void) {return E_OK;}
+/** @brief Host stub of encoder_read(). */
 void encoder_read(encoder_wheel_t wheel,encoder_sample_t *sample)
 {(void)wheel;*sample=(encoder_sample_t){0};sample->count=g_count;}
+/** @brief Host stub of encoder_now_usec(). */
 uint32_t encoder_now_usec(void) {g_clock_usec+=50000U;return g_clock_usec;}
+/** @brief Host stub of bc_wave_capture_active(). */
 uint8_t bc_wave_capture_active(void) {return 0U;}
+/** @brief Host stub of tk_cre_mtx(). */
 ID tk_cre_mtx(const T_CMTX *cfg) {assert(cfg!=NULL);return 42;}
+/** @brief Host stub of tk_loc_mtx(). */
 ER tk_loc_mtx(ID id,TMO timeout) {(void)timeout;assert(id==42);return E_OK;}
+/** @brief Host stub of tk_unl_mtx(). */
 ER tk_unl_mtx(ID id) {assert(id==42);return E_OK;}
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *format,...)
 {
     if (g_log_count < SEARCH_LOG_MAX)
@@ -52,6 +66,7 @@ INT tm_printf(UB const *format,...)
     return 0;
 }
 
+/** @brief Test helper: find log. */
 static int32_t find_log(char const *p_text)
 {
     for (uint32_t i = 0U; i < g_log_count; i++)
@@ -64,6 +79,7 @@ static int32_t find_log(char const *p_text)
     return -1;
 }
 
+/** @brief Host stub of period(). */
 static void period(bool b_left, bool b_right, line_follow_action_t action)
 {
     g_count += SEARCH_COUNTS_PER_PERIOD;
@@ -71,6 +87,7 @@ static void period(bool b_left, bool b_right, line_follow_action_t action)
     motion_apply(action);
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     assert(E_OK == motion_init());
@@ -120,3 +137,5 @@ int main(void)
            "(%u periods)\n", (unsigned)n);
     return 0;
 }
+/*** end of file ***/
+

@@ -123,9 +123,9 @@ error.
 
 | Suite | Command | Current result |
 |---|---|---|
-| Firmware host tests (no robot needed; also runs the dashboard suite) | `bash tools/run_host_tests.sh` | 162 PASS lines, ends with `HOST PASS` |
-| Dashboard | `cd app_program/dashboard && npm test` | 107 / 107 |
-| Style check (also run by every build) | `python3 tools/check_app_standard.py` | 112 files, 0 errors |
+| Firmware host tests (no robot needed; also runs the dashboard suite) | `bash tools/run_host_tests.sh` | 368 PASS lines, ends with `HOST PASS` |
+| Dashboard | `cd app_program/dashboard && npm test` | 110 / 110 |
+| Style check (also run by every build) | `python3 tools/check_app_standard.py` | 166 files (firmware and tests), 0 errors |
 
 The host tests compile the real firmware modules against simulated hardware:
 - line following on curves and corners, and the lost-line search;
@@ -137,7 +137,10 @@ The host tests compile the real firmware modules against simulated hardware:
 - the minimum-bit packing;
 - a check that every number in the requirement table matches its `#define`.
 
-Saved outputs are in [`docs/evidence/test_results/`](docs/evidence/test_results/).
+Host tests cover 83 % of the firmware's lines and 76 % of its branches (clang source-based coverage). The
+[traceability document](docs/tribunal2/requirements_traceability.md)
+has the per-module figures, what cannot be tested off the car, and the
+issues the tests found. Saved outputs are in [`docs/evidence/test_results/`](docs/evidence/test_results/).
 
 ## Documentation and evidence
 

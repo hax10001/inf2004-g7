@@ -1,19 +1,30 @@
-/* Exercise the actual port semaphore and independent navigation reader. */
+/** @file test_scan_handoff.c
+ * @brief Exercise the actual port semaphore and independent navigation
+ *        reader.
+ */
 #include <assert.h>
 #include <stdio.h>
 #include "modules/barcode_scanning/bc_port.c"
 
-static int busy, locked;
+static int busy;
+static int locked;
+/** @brief Host stub of tk_get_otm(). */
 ER tk_get_otm(SYSTIM *now) {*now=(SYSTIM){.lo=500U};return E_OK;}
+/** @brief Test helper: tk wai sem. */
 ER tk_wai_sem(ID id, INT count, TMO timeout)
 {
     assert(id==42 && count==1 && !locked);
-    if (busy && timeout==TMO_POL) return E_TMOUT;
+    if (busy && timeout==TMO_POL)
+    {
+        return E_TMOUT;
+    }
     locked=1;return E_OK;
 }
+/** @brief Test helper: tk sig sem. */
 ER tk_sig_sem(ID id, INT count)
 {assert(id==42 && count==1 && locked);locked=0;return E_OK;}
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     scan_handoff_t scan={0};
@@ -94,7 +105,10 @@ int main(void)
     assert(bc_port_nav_abort()==E_OK);
     assert(bc_port_nav_take(&scan)==E_OK && scan.overflow);
     puts("V15 scan port: independent ACK, idle/result atomicity, contention, "
-         "cancelled worker, repeated scans, failure, overflow, wrap and dropped "
+         "cancelled worker, repeated scans, failure, overflow, wrap and "
+         "dropped "
          "non-barcode captures PASS");
     return 0;
 }
+/*** end of file ***/
+

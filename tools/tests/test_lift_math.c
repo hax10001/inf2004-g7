@@ -1,5 +1,7 @@
-/* Host test of the lifted-height estimator (modules/terrain/lift_math.c).
- * Pure arithmetic: no kernel, I2C or motor code is involved.
+/** @file test_lift_math.c
+ * @brief Host test of the lifted-height estimator
+ *        (modules/terrain/lift_math.c). Pure arithmetic: no kernel, I2C or
+ *        motor code is involved.
  */
 #include <assert.h>
 #include <stdio.h>
@@ -10,11 +12,14 @@
 
 static lift_math_state_t g_state;
 
+/** @brief Host stub of run(). */
 static uint16_t run(int16_t excess_mg, unsigned samples, bool floor)
 {
     uint16_t height = 0U;
     for (unsigned i = 0U; i < samples; i++)
+    {
         height = lift_math_step(&g_state, excess_mg, STEP_MSEC, floor);
+    }
     return height;
 }
 
@@ -27,6 +32,7 @@ static uint16_t lift(void)
     return run(-200, 10U, false);
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     uint16_t height;
@@ -125,3 +131,5 @@ int main(void)
          "and sample gap PASS");
     return 0;
 }
+/*** end of file ***/
+

@@ -1,23 +1,21 @@
-/* Closed-loop line-following regression (host only).
- *
- * Real firmware: motion.c, steering.c, wheel_speed.c, downhill.c,
- * ir_shared.c (1 ms latches), nav_core.c and line_follow.c, driven by a
- * copy of the controller's live line-following step (task_controller.c).
- * Simulated: motors (first-order lag fitted to motion.c's calibration:
- * 21-22 % duty for 40 RPM, 8 % deadband), encoders (1056 per rev), a
- * 70 mm-wheel differential drive with a 125 mm track, two IR spots 125 mm
- * ahead of the axle and 26 mm apart, over 18 mm tape.
- *
- * Every trial runs in its own process (motion.c keeps static state) with
- * its own start offset, heading, motor gains, motor lag, tape edge and
- * controller phase. Build with -DMOTION_TARGET_RPM=<rpm>f -DSIM_RPM=<rpm>.
- *
- * Measured with this harness before the steering change (KP 0.3, KI 2.0,
- * decay 0.85, no lost-line search), 20 trials per course:
- *   35 RPM: curves 60-100 %, 90 degree corner (R 30) 10 %, sharp 0 %
- *   55 RPM: curves 10-70 %, corners 0 %.
- * It also checks the zig-zag: the sensors' RMS distance off the line on
- * the opening straight, once settled.
+/** @file line_follow_sim.c
+ * @brief Closed-loop line-following regression (host only). * Real firmware:
+ *        motion.c, steering.c, wheel_speed.c, downhill.c, ir_shared.c (1 ms
+ *        latches), nav_core.c and line_follow.c, driven by a copy of the
+ *        controller's live line-following step (task_controller.c).
+ *        Simulated: motors (first-order lag fitted to motion.c's calibration:
+ *        21-22 % duty for 40 RPM, 8 % deadband), encoders (1056 per rev), a
+ *        70 mm-wheel differential drive with a 125 mm track, two IR spots 125
+ *        mm ahead of the axle and 26 mm apart, over 18 mm tape. * Every trial
+ *        runs in its own process (motion.c keeps static state) with its own
+ *        start offset, heading, motor gains, motor lag, tape edge and
+ *        controller phase. Build with -DMOTION_TARGET_RPM=<rpm>f
+ *        -DSIM_RPM=<rpm>. * Measured with this harness before the steering
+ *        change (KP 0.3, KI 2.0, decay 0.85, no lost-line search), 20 trials
+ *        per course: 35 RPM: curves 60-100 %, 90 degree corner (R 30) 10 %,
+ *        sharp 0 % 55 RPM: curves 10-70 %, corners 0 %. It also checks the
+ *        zig-zag: the sensors' RMS distance off the line on the opening
+ *        straight, once settled.
  */
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
@@ -60,11 +58,17 @@ static double const p_wheel_mm = 70.0;
 /* ---------------- kernel and driver stubs ---------------- */
 static uint32_t g_now_ms = 1000U;
 static uint32_t g_now_us = 1000000U;
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *format, ...) { (void)format; return 0; }
+/** @brief Host stub of tk_cre_mtx(). */
 ID tk_cre_mtx(const T_CMTX *cfg) { (void)cfg; return 42; }
+/** @brief Host stub of tk_loc_mtx(). */
 ER tk_loc_mtx(ID id, TMO t) { (void)id; (void)t; return E_OK; }
+/** @brief Host stub of tk_unl_mtx(). */
 ER tk_unl_mtx(ID id) { (void)id; return E_OK; }
+/** @brief Host stub of tk_get_otm(). */
 ER tk_get_otm(SYSTIM *t) { t->hi = 0; t->lo = g_now_ms; return E_OK; }
+/** @brief Host stub of bc_wave_capture_active(). */
 uint8_t bc_wave_capture_active(void) { return 0U; }
 
 static int32_t g_pwm[2];
@@ -75,20 +79,30 @@ static int32_t g_count[2];
 static uint32_t g_edge_us[2];
 static int g_pivot_periods;
 
+/** @brief Host stub of motor_init(). */
 void motor_init(void) { motor_stop(); }
+/** @brief Host stub of motor_stop(). */
 void motor_stop(void) { g_pwm[0] = g_pwm[1] = 0; g_mode[0] = g_mode[1] = 0; }
+/** @brief Host stub of motor_brake(). */
 void motor_brake(void) { g_pwm[0] = g_pwm[1] = 0; g_mode[0] = g_mode[1] = 2; }
+/** @brief Host stub of motor_set_forward(). */
 void motor_set_forward(uint32_t l, uint32_t r)
 { g_pwm[0] = (int32_t)l; g_pwm[1] = (int32_t)r; g_mode[0] = g_mode[1] = 1; }
+/** @brief Host stub of motor_set_regulated(). */
 void motor_set_regulated(int32_t l, int32_t r)
 { g_pwm[0] = l; g_pwm[1] = r; g_mode[0] = g_mode[1] = 1; }
+/** @brief Host stub of motor_set_directional(). */
 void motor_set_directional(int32_t l, int32_t r)
 { g_pwm[0] = l; g_pwm[1] = r; g_mode[0] = g_mode[1] = 3; g_pivot_periods++; }
+/** @brief Host stub of motor_last_command(). */
 void motor_last_command(uint16_t *l, uint16_t *r)
 { *l = (uint16_t)abs(g_pwm[0]); *r = (uint16_t)abs(g_pwm[1]); }
+/** @brief Host stub of encoder_init(). */
 ER encoder_init(void) { return E_OK; }
+/** @brief Host stub of encoder_read(). */
 void encoder_read(encoder_wheel_t w, encoder_sample_t *s)
 { s->count = g_count[w]; s->edge_usec = g_edge_us[w]; }
+/** @brief Host stub of encoder_now_usec(). */
 uint32_t encoder_now_usec(void) { return g_now_us; }
 
 /* ---------------- track: 1 mm polyline ---------------- */
@@ -98,6 +112,7 @@ static int tn;
 static double g_th;
 static int g_hint;
 
+/** @brief Test helper: track add. */
 static void track_add(double heading)
 {
     assert(tn < MAX_PTS);
@@ -105,9 +120,13 @@ static void track_add(double heading)
     ty[tn] = ty[tn - 1] + sin(heading);
     tn++;
 }
+/** @brief Test helper: track straight. */
 static void track_straight(double len)
 {
-    for (double d = 1.0; d <= len; d += 1.0) track_add(g_th);
+    for (double d = 1.0; d <= len; d += 1.0)
+    {
+        track_add(g_th);
+    }
 }
 /* radius 0: a sharp vertex; + angle turns left */
 static void track_arc(double radius, double angle_deg)
@@ -121,11 +140,19 @@ static void track_arc(double radius, double angle_deg)
         track_add(g_th - ang / steps / 2.0);
     }
 }
+/** @brief Test helper: track dist. */
 static double track_dist(double x, double y, int *p_idx)
 {
-    int lo = g_hint - 600, hi = g_hint + 600;
-    if (lo < 0) lo = 0;
-    if (hi > tn - 1) hi = tn - 1;
+    int lo = g_hint - 600;
+    int hi = g_hint + 600;
+    if (lo < 0)
+    {
+        lo = 0;
+    }
+    if (hi > tn - 1)
+    {
+        hi = tn - 1;
+    }
     double best = 1e18;
     int bi = lo;
     for (int i = lo; i <= hi; i++)
@@ -134,10 +161,14 @@ static double track_dist(double x, double y, int *p_idx)
         double const d = dx * dx + dy * dy;
         if (d < best) { best = d; bi = i; }
     }
-    if (p_idx) *p_idx = bi;
+    if (p_idx)
+    {
+        *p_idx = bi;
+    }
     return sqrt(best);
 }
 
+/** @brief Host stub of course(). */
 static void course(int which)
 {
     tn = 1; tx[0] = 0; ty[0] = 0; g_th = 0.0;
@@ -166,12 +197,15 @@ static void course(int which)
 }
 
 /* ---------------- robot ---------------- */
-static double rx, ry, rth;
+static double rx;
+static double ry;
+static double rth;
 static nav_controller_t g_nav;
 static uint32_t g_path_counts;
 static int32_t g_last[2];
 static int g_phase;
 
+/** @brief Test helper: sensors. */
 static void sensors(int *p_l, int *p_r)
 {
     double const cx = rx + p_ahead_mm * cos(rth);
@@ -183,18 +217,23 @@ static void sensors(int *p_l, int *p_r)
            p_tape_half;
 }
 
+/** @brief Test helper: plant ms. */
 static void plant_ms(void)
 {
     double const dt = 0.001;
     for (int w = 0; w < 2; w++)
     {
-        double ss = 0.0, tau = p_coast_tau;
+        double ss = 0.0;
+        double tau = p_coast_tau;
         if ((1 == g_mode[w]) || (3 == g_mode[w]))
         {
             double const duty = fabs((double)g_pwm[w]) * 100.0 / 12499.0;
             ss = (duty > p_dead) ? (duty - p_dead) * p_gain[w] : 0.0;
             /* Regulated negative is a brake; directional negative reverses. */
-            if (g_pwm[w] < 0) ss = (3 == g_mode[w]) ? -ss : 0.0;
+            if (g_pwm[w] < 0)
+            {
+                ss = (3 == g_mode[w]) ? -ss : 0.0;
+            }
             tau = (fabs(ss) < fabs(g_rpm[w]) && duty <= p_dead) ? p_coast_tau
                                                                 : p_tau;
         }
@@ -219,6 +258,7 @@ static void plant_ms(void)
     ry += 0.5 * (vl + vr) * sin(rth) * dt;
 }
 
+/** @brief Test helper: path counts. */
 static uint32_t path_counts(void)
 {
     for (int w = 0; w < 2; w++)
@@ -234,7 +274,10 @@ static uint32_t path_counts(void)
 static void controller_period(void)
 {
     ir_shared_snapshot_t reading = {0};
-    bool b_junction = false, b_left = false, b_right = false, b_gap = false;
+    bool b_junction = false;
+    bool b_left = false;
+    bool b_right = false;
+    bool b_gap = false;
     (void)ir_shared_get_latest(&reading);
     (void)ir_shared_take_junction(&b_junction);
     (void)ir_shared_take_sides(&b_left, &b_right);
@@ -244,7 +287,10 @@ static void controller_period(void)
         reading.right = b_right ? 1U : 0U;
     }
     motion_line_seen(0U != reading.left, 0U != reading.right);
-    if (ir_shared_take_both_gap(&b_gap) < E_OK) b_gap = true;
+    if (ir_shared_take_both_gap(&b_gap) < E_OK)
+    {
+        b_gap = true;
+    }
     nav_sample_t sample = {0};
     sample.both_interrupted = (uint8_t)b_gap;
     sample.now_msec = g_now_ms;
@@ -256,8 +302,14 @@ static void controller_period(void)
     switch (decision.drive)
     {
         case NAV_OUTPUT_FOLLOW:
-            if (reading.left && reading.right) motion_apply(LINE_FORWARD);
-            else motion_apply(line_follow_decide(reading.left, reading.right));
+            if (reading.left && reading.right)
+            {
+                motion_apply(LINE_FORWARD);
+            }
+            else
+            {
+                motion_apply(line_follow_decide(reading.left, reading.right));
+            }
             break;
         case NAV_OUTPUT_FORWARD: motion_apply(LINE_FORWARD); break;
         case NAV_OUTPUT_LEFT: motion_apply_maneuver(NAV_LEFT); break;
@@ -277,12 +329,14 @@ typedef struct
 static double g_sq;
 static long g_sn;
 
+/** @brief Test helper: urand. */
 static double urand(unsigned *seed)
 {
     *seed = *seed * 1103515245u + 12345u;
     return ((*seed >> 8) & 0xFFFFu) / 65535.0;
 }
 
+/** @brief Host stub of run(). */
 static result_t run(unsigned seed)
 {
     unsigned sd = seed * 2654435761u + 1u;
@@ -311,18 +365,24 @@ static result_t run(unsigned seed)
     double off_sec = 0.0;
     for (int ms = 0; ms < (int)(LIMIT_SEC * 1000.0); ms++)
     {
-        int l, r;
+        int l;
+        int r;
         sensors(&l, &r);
         (void)ir_shared_publish((uint32_t)l, (uint32_t)r, 0U);
         if (0 == ((ms + g_phase) % (int)APP_CONTROLLER_PERIOD_MSEC))
+        {
             controller_period();
+        }
         plant_ms();
         g_now_ms++;
         g_now_us += 1000U;
         int idx;
         double const dev = track_dist(rx + p_ahead_mm * cos(rth),
                                       ry + p_ahead_mm * sin(rth), &idx);
-        if (dev < 80.0) g_hint = idx;
+        if (dev < 80.0)
+        {
+            g_hint = idx;
+        }
         if ((idx > 150) && (idx < 390))
         {
             /* Settled after the start, before the first bend: zig-zag. */
@@ -333,7 +393,10 @@ static result_t run(unsigned seed)
         /* Lost: far from the line for 3 s (a search may pivot off it for a
          * while), or wandered right away. */
         off_sec = (dev > 45.0) ? off_sec + 0.001 : 0.0;
-        if ((off_sec > 3.0) || (dev > 250.0)) break;
+        if ((off_sec > 3.0) || (dev > 250.0))
+        {
+            break;
+        }
         if (g_hint >= tn - 30) { res.ok = 1; break; }
     }
     res.pivot_secs = g_pivot_periods * (APP_CONTROLLER_PERIOD_MSEC / 1000.0);
@@ -357,12 +420,16 @@ static result_t trial(int which, unsigned seed)
         _exit(write(fd[1], &r, sizeof r) == (ssize_t)sizeof r ? 0 : 2);
     }
     close(fd[1]);
-    if (read(fd[0], &r, sizeof r) != (ssize_t)sizeof r) r.ok = 0;
+    if (read(fd[0], &r, sizeof r) != (ssize_t)sizeof r)
+    {
+        r.ok = 0;
+    }
     close(fd[0]);
     (void)waitpid(pid, NULL, 0);
     return r;
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     static char const *const names[] = {
@@ -386,14 +453,21 @@ int main(void)
     for (int c = 0; c < 6; c++)
     {
         int ok = 0;
-        double secs = 0.0, pivot = 0.0;
+        double secs = 0.0;
+        double pivot = 0.0;
         for (int t = 0; t < TRIALS; t++)
         {
             result_t const r = trial(c, (unsigned)(c * 1000 + t));
             ok += r.ok;
-            if (r.ok) secs += r.secs;
+            if (r.ok)
+            {
+                secs += r.secs;
+            }
             pivot += r.pivot_secs;
-            if (c < 4) wander += r.straight_mm / (4.0 * TRIALS);
+            if (c < 4)
+            {
+                wander += r.straight_mm / (4.0 * TRIALS);
+            }
         }
         printf("  %-22s %d/%d reached the end, %.1f s each, %.2f s "
                "searching\n", names[c], ok, TRIALS, ok ? secs / ok : 0.0,
@@ -415,3 +489,5 @@ int main(void)
            SIM_RPM);
     return 0;
 }
+/*** end of file ***/
+

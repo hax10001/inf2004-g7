@@ -18,9 +18,15 @@ def check():
     # Team-written MQTT client kept beside the lwIP port in lib/.
     files += [ROOT / "lib/libnet/lwip/mqtt_utk.c",
               ROOT / "lib/libnet/lwip/include/mqtt_utk.h"]
+    # Host unit tests and their stubs follow the same layout rules.
+    tests = sorted(list((ROOT / "tools").glob("*.c")) +
+                   list((ROOT / "tools/tests").rglob("*.c")) +
+                   list((ROOT / "tools/tests").rglob("*.h")))
+    files += tests
     for path in files:
         in_app = APP in path.parents
-        host = in_app and "host" in path.relative_to(APP).parts
+        host = ((in_app and "host" in path.relative_to(APP).parts) or
+                (ROOT / "tools") in path.parents)
         name = str(path.relative_to(ROOT))
         data = path.read_bytes()
         text = data.decode("utf-8")
@@ -48,6 +54,9 @@ def check():
                 errors.append(f"{name}: missing matching header (4.2.a)")
             if f'#include "{path.stem}.h"' not in text:
                 errors.append(f"{name}: missing own header include (4.3.c)")
+        elif path.suffix == ".h" and host:
+            if not re.search(r"#ifndef (\w+)\n#define \1", text):
+                errors.append(f"{name}: missing header guard (4.2.b)")
         elif path.suffix == ".h":
             guard = path.stem.upper() + "_H"
             if f"#ifndef {guard}\n#define {guard}" not in text:
@@ -70,11 +79,14 @@ def check():
         if re.search(r"\bwhile\s*\(\s*(?:1|true)\s*\)", code):
             errors.append(f"{name}: use for (;;) for infinite loops (8.4.c)")
         for macro in re.findall(r"^#define\s+(\w+)", text, flags=re.M):
-            if macro != macro.upper():
+            # Test stubs mirror vendor macro names (e.g. set_w, Inline).
+            if macro != macro.upper() and "/stubs/" not in name:
                 errors.append(f"{name}: lowercase macro {macro} (6.1.f)")
         for target in re.findall(r'^#include\s*[<"]([^>"]+)', text, re.M):
             if (target.startswith(("pico/", "hardware/")) or
-                    "pico-sdk" in target or target.endswith(".c")):
+                    "pico-sdk" in target or
+                    (target.endswith(".c") and not host)):
+                # Tests may include a module's .c to reach its statics.
                 errors.append(f"{name}: forbidden SDK/source include {target}")
         if re.search(r"\b(?:sleep_ms|sleep_us|stdio_init_all|pwm_set_gpio_level|"
                      r"gpio_init|gpio_get|gpio_put|i2c_init)\s*\(", code):
@@ -166,7 +178,8 @@ def structure_errors(name, text, code):
                              re.M):
         errors.append(f"{name}:{line_of(match.start())}: unparenthesised "
                       "negative macro body (6.1.c)")
-    if "/host/" not in name and "/test_" not in name:
+    if ("/host/" not in name and "/test_" not in name and
+            not name.startswith("tools/")):
         for index, line in enumerate(code.splitlines(), 1):
             if (re.search(r"\b(?:int|unsigned|signed|short|long)\b", line)
                     and not re.search(r"\bint\s+main\s*\(|tm_netlog_|"

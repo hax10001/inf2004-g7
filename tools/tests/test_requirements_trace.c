@@ -21,16 +21,19 @@ static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 static uint8_t g_coord_calls;
 static uint8_t g_coord_last;
 
+/** @brief Test helper: lock. */
 static void lock(void *p_ctx)
 {
     assert(0 == pthread_mutex_lock((pthread_mutex_t *)p_ctx));
 }
 
+/** @brief Test helper: unlock. */
 static void unlock(void *p_ctx)
 {
     assert(0 == pthread_mutex_unlock((pthread_mutex_t *)p_ctx));
 }
 
+/** @brief Test helper: coordinator. */
 static uint8_t coordinator(uint8_t command, void *p_ctx)
 {
     (void)p_ctx;
@@ -61,6 +64,7 @@ static uint8_t crc8_reference(uint8_t const *p_bytes, size_t count)
     return crc;
 }
 
+/** @brief Test helper: store ready. */
 static void store_ready(b1_store_t *p_store, uint8_t b_ready)
 {
     b1_mission_t mission = {0};
@@ -73,6 +77,7 @@ static void store_ready(b1_store_t *p_store, uint8_t b_ready)
     assert(0 == b1_ingest_mission(p_store, &mission));
 }
 
+/** @brief Test helper: send. */
 static int send(b1_store_t *p_store, uint8_t command, uint16_t transaction,
                 uint8_t const *p_map, b1_frame_t *p_ack)
 {
@@ -215,6 +220,7 @@ static void nfr13_frame(void)
          "reference, bad length/CRC rejected");
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     fr2_mapping();
@@ -223,3 +229,5 @@ int main(void)
     puts("Requirement trace (FR1/FR2/FR13/NFR13) PASS");
     return 0;
 }
+/*** end of file ***/
+

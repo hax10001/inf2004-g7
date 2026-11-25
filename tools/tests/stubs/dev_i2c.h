@@ -1,3 +1,6 @@
+/** @file dev_i2c.h
+ * @brief Host test harness.
+ */
 #ifndef HOST_DEV_I2C_H
 #define HOST_DEV_I2C_H
 #include <tk/tkernel.h>
@@ -10,3 +13,5 @@ typedef struct {
     UB *rcv_data;
 } T_I2C_EXEC;
 #endif
+/*** end of file ***/
+

@@ -1,3 +1,6 @@
+/** @file test_ramp_motion.c
+ * @brief Host test harness.
+ */
 #include <stdlib.h>
 /* Production PI, encoder estimator and PWM driver against a simple plant.
  * Plant parameters are assumptions, never physical qualification evidence. */
@@ -11,31 +14,51 @@
 #include "app/app_config.h"
 #include <bsp/libbsp.h>
 
-static uint32_t now_us, pins[32];
-static float rpm[2], positions[2];
+static uint32_t now_us;
+static uint32_t pins[32];
+static float rpm[2];
+static float positions[2];
 static encoder_sample_t enc[2];
 static FILE *recording;
+/** @brief Host stub of pwm_set_pin(). */
 ER pwm_set_pin(UINT p) {(void)p;return E_OK;}
+/** @brief Host stub of pwm_set_wrap(). */
 ER pwm_set_wrap(UINT p,UW v) {(void)p;(void)v;return E_OK;}
+/** @brief Host stub of pwm_set_cc(). */
 ER pwm_set_cc(UINT p,UW v) {pins[p]=v;return E_OK;}
+/** @brief Host stub of pwm_set_enabled(). */
 ER pwm_set_enabled(UINT p,BOOL v) {(void)p;(void)v;return E_OK;}
+/** @brief Host stub of tk_cre_mtx(). */
 ID tk_cre_mtx(const T_CMTX *c) {(void)c;return 42;}
+/** @brief Host stub of tk_loc_mtx(). */
 ER tk_loc_mtx(ID id,TMO t) {(void)id;(void)t;return E_OK;}
+/** @brief Host stub of tk_unl_mtx(). */
 ER tk_unl_mtx(ID id) {(void)id;return E_OK;}
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *f,...) {(void)f;return 0;}
+/** @brief Host stub of encoder_init(). */
 ER encoder_init(void) {return E_OK;}
+/** @brief Host stub of encoder_now_usec(). */
 uint32_t encoder_now_usec(void) {return now_us;}
+/** @brief Host stub of encoder_read(). */
 void encoder_read(encoder_wheel_t w,encoder_sample_t *s) {*s=enc[w];}
 static uint8_t g_capturing;
+/** @brief Host stub of bc_wave_capture_active(). */
 uint8_t bc_wave_capture_active(void) {return g_capturing;}
 
+/** @brief Test helper: effort. */
 static float effort(unsigned wheel)
 {
-    uint32_t a=pins[wheel?10:8], b=pins[wheel?11:9];
-    if (a==b && a) return -(float)a*100.0f/MOTOR_PWM_WRAP;
+    uint32_t a=pins[wheel?10:8];
+    uint32_t b=pins[wheel?11:9];
+    if (a==b && a)
+    {
+        return -(float)a*100.0f/MOTOR_PWM_WRAP;
+    }
     return (float)(wheel?a:b)*100.0f/MOTOR_PWM_WRAP;
 }
 
+/** @brief Test helper: advance. */
 static void advance(float gravity)
 {
     now_us+=50000U;
@@ -47,7 +70,10 @@ static void advance(float gravity)
         float equilibrium=gravity + (u>8.0f?(u-8.0f)*3.0f:0.0f) +
                                     (u<0.0f?u*2.0f:0.0f);
         rpm[w]+=0.15f*(equilibrium-rpm[w]);
-        if (rpm[w]<0) rpm[w]=0;
+        if (rpm[w]<0)
+        {
+            rpm[w]=0;
+        }
         positions[w]+=rpm[w]*1056.0f/1200.0f;
         int32_t count=(int32_t)positions[w];
         if (count!=enc[w].count)
@@ -59,13 +85,17 @@ static void advance(float gravity)
     }
 }
 
+/** @brief Host stub of run(). */
 static void run(float gravity,float pitch)
 {
     pitch *= (float)APP_DOWNHILL_NOSE_DOWN_SIGN;
     motion_status_t status={0};
     motion_reset_run();motion_apply(LINE_UNCERTAIN);
-    float error_sum=0, min=1000, max=0;
-    unsigned observations=0, brake_samples=0;
+    float error_sum=0;
+    float min=1000;
+    float max=0;
+    unsigned observations=0;
+    unsigned brake_samples=0;
     for (unsigned i=0;i<1600;i++)
     {
         advance(gravity);
@@ -78,6 +108,7 @@ static void run(float gravity,float pitch)
         assert(!motion_downhill_fault());
         assert(motion_get_status(&status)==E_OK);
         if (i%10U==0U)
+        {
             fprintf(recording,
                 "%.1f,%.1f,%u,%.3f,%.3f,%.3f,%.3f,%u,%u,%.3f,%.3f,"
                 "%u,%u,%u\n",gravity,pitch,now_us/1000U,
@@ -86,13 +117,23 @@ static void run(float gravity,float pitch)
                 status.left_pwm,status.right_pwm,effort(0),effort(1),
                 status.downhill_percent,status.downhill_engaged,
                 status.downhill_fault);
+        }
         assert(effort(0)>=-25.01f && effort(1)>=-25.01f);
-        if (effort(0)<0) brake_samples++;
+        if (effort(0)<0)
+        {
+            brake_samples++;
+        }
         if (i>=1400)
         {
             error_sum+=fabsf(rpm[0]-status.left_target_rpm);
-            if (rpm[0]<min) min=rpm[0];
-            if (rpm[0]>max) max=rpm[0];
+            if (rpm[0]<min)
+            {
+                min=rpm[0];
+            }
+            if (rpm[0]>max)
+            {
+                max=rpm[0];
+            }
             observations++;
         }
     }
@@ -114,8 +155,14 @@ static void run(float gravity,float pitch)
             motion_apply(side?LINE_CORRECT_RIGHT:LINE_CORRECT_LEFT);
         }
         assert(motion_get_status(&status)==E_OK);
-        if (side) assert(status.right_target_rpm<status.left_target_rpm);
-        else assert(status.left_target_rpm<status.right_target_rpm);
+        if (side)
+        {
+            assert(status.right_target_rpm<status.left_target_rpm);
+        }
+        else
+        {
+            assert(status.left_target_rpm<status.right_target_rpm);
+        }
     }
     motion_apply(LINE_UNCERTAIN);
     assert(!pins[8] && !pins[9] && !pins[10] && !pins[11]);
@@ -130,12 +177,14 @@ static void run(float gravity,float pitch)
     motor_stop();
 }
 
+/** @brief Test helper: transitions. */
 static void transitions(void)
 {
     motion_status_t status={0};
     motion_reset_run();motion_stop_now();
     unsigned int changes=0U;
-    float prior_effort=0.0f, cruise=0.0f;
+    float prior_effort=0.0f;
+    float cruise=0.0f;
     unsigned int prior_percent=100U;
     for(unsigned i=0;i<600;i++)
     {
@@ -149,11 +198,17 @@ static void transitions(void)
         motion_apply(LINE_FORWARD);
         assert(motion_get_status(&status)==E_OK && !motion_downhill_fault());
         /* The level run before the slope sets the cruise speed. */
-        if(i==99) cruise=status.left_target_rpm;
+        if(i==99)
+        {
+            cruise=status.left_target_rpm;
+        }
         if(i>=100)
         {
             float const change=fabsf(effort(0)-prior_effort);
-            if(change>0.01f) changes++;
+            if(change>0.01f)
+            {
+                changes++;
+            }
             assert(change<=2.02f);
             /* The governor moves its scale at most 5 % per period
              * (DOWNHILL_SCALE_STEP). Checked on the governor's own scale:
@@ -170,8 +225,11 @@ static void transitions(void)
         }
         assert(pins[8]<=MOTOR_PWM_WRAP && pins[9]<=MOTOR_PWM_WRAP);
         prior_effort=effort(0);prior_percent=status.downhill_percent;
-        if(i==200) assert(status.downhill_engaged &&
-                          status.downhill_percent==65U);
+        if(i==200)
+        {
+            assert(status.downhill_engaged &&
+                   status.downhill_percent==65U);
+        }
     }
     assert(changes>10U && status.downhill_percent==100U);
     /* A stopped inner wheel must stay physically zero even with a learned
@@ -206,6 +264,7 @@ static float base_rpm(motion_status_t const *s)
     return 0.5f*(s->left_target_rpm+s->right_target_rpm)/(1.0f-0.6f*mag);
 }
 
+/** @brief Test helper: scan entry. */
 static void scan_entry(void)
 {
     motion_status_t status={0};
@@ -238,6 +297,7 @@ static void scan_entry(void)
            "or brake\n",(double)cruise);
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     char path[256];
@@ -258,3 +318,5 @@ int main(void)
          "steering and zero-output STOP PASS (model only)");
     return 0;
 }
+/*** end of file ***/
+

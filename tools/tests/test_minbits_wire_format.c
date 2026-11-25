@@ -1,9 +1,13 @@
-/* Native regression: compact C representation must preserve wire semantics. */
+/** @file test_minbits_wire_format.c
+ * @brief Native regression: compact C representation must preserve wire
+ *        semantics.
+ */
 #include "buddy1.h"
 #include "telemetry_peers.h"
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+/** @brief Run every test case; any failed assert aborts. */
 int main(void) {
     b1_snapshot_payload_t input,back;
     uint8_t binary[13],framebuf[B1_MAX_FRAME],packed[3];
@@ -36,11 +40,19 @@ int main(void) {
     assert(again.type==frame.type&&again.session==313&&again.seq==77);
     assert(memcmp(again.payload,binary,13)==0);
     printf("snapshot_hex=");
-    for(i=0;i<13u;i++)printf("%02x",binary[i]);
+    for(i=0;i<13u;i++)
+    {
+        printf("%02x",binary[i]);
+    }
     printf("\nframe_hex=");
-    for(i=0;i<27u;i++)printf("%02x",framebuf[i]);
+    for(i=0;i<27u;i++)
+    {
+        printf("%02x",framebuf[i]);
+    }
     printf("\nstore_bytes=%zu\npeers_bytes=%zu\n",
         sizeof(b1_store_t),sizeof(g7_telemetry_peers_t));
     puts("PASS v9 bit-field/CRC/mapping/fault/native golden vector");
     return 0;
 }
+/*** end of file ***/
+

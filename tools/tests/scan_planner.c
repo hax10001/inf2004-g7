@@ -1,4 +1,6 @@
-/* Host-only tests for the supplied Buddy 5 scan planner. */
+/** @file scan_planner.c
+ * @brief Host-only tests for the supplied Buddy 5 scan planner.
+ */
 #include <assert.h>
 #include <stdio.h>
 #include "modules/obstacle/scan_plan.h"
@@ -9,6 +11,7 @@
 #define UNIFORM_POINTS \
     ((OBS_SCAN_LEFT_DEG + OBS_SCAN_RIGHT_DEG) / OBS_SCAN_STEP_DEG + 1)
 
+/** @brief Test helper: fill. */
 static void fill(scan_plan_point_t *points, int32_t range)
 {
     int32_t i = 0;
@@ -24,6 +27,7 @@ static void fill(scan_plan_point_t *points, int32_t range)
     assert(i == UNIFORM_POINTS);
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     scan_plan_point_t points[UNIFORM_POINTS];
@@ -168,12 +172,18 @@ int main(void)
     {
         scan_plan_sides_t sides={0};
         fill(points,1500);
-        for(int32_t k=-2;k<=2;k++) points[zero+k].range_mm=210;
+        for(int32_t k=-2;k<=2;k++)
+        {
+            points[zero+k].range_mm=210;
+        }
         /* Glancing off the face on the side the box sticks out on. */
         points[zero+side*3].range_mm=OBS_FAR_MM;
         points[zero+side*4].range_mm=OBS_FAR_MM;
         /* Less room on the other side: the old tie-break went there. */
-        for(int32_t k=3;k<=5;k++) points[zero-side*k].range_mm=900;
+        for(int32_t k=3;k<=5;k++)
+        {
+            points[zero-side*k].range_mm=900;
+        }
         scan_plan_build_side_report(points,UNIFORM_POINTS,0,0,&plan,&sides);
         assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
         assert(scan_plan_side_is_left(&plan)==(side<0));
@@ -196,7 +206,8 @@ int main(void)
         assert(sides.b_object && sides.b_left_ok && sides.b_right_ok);
         assert((int32_t)sides.left_need_mm-(int32_t)sides.right_need_mm >
                diff_limit);
-        puts("PASS obstacle offset left: bypass right, the side it blocks less");
+        puts(
+            "PASS obstacle offset left: bypass right, the side it blocks less");
 
         /* Mirror: object offset to the right, go round the left. */
         fill(points,1500);
@@ -207,7 +218,8 @@ int main(void)
         assert(scan_plan_side_is_left(&plan) && !sides.b_tie);
         assert((int32_t)sides.right_need_mm-(int32_t)sides.left_need_mm >
                diff_limit);
-        puts("PASS obstacle offset right: bypass left, the side it blocks less");
+        puts(
+            "PASS obstacle offset right: bypass left, the side it blocks less");
 
         /* Centred object: equal moves. No default side: the more open half
          * of the sweep decides, either way. */
@@ -267,7 +279,10 @@ int main(void)
 
         /* An object filling the sweep on one side: unseen-edge floor. */
         fill(points,1500);
-        for(int32_t i=zero;i<UNIFORM_POINTS;i++) points[i].range_mm=300;
+        for(int32_t i=zero;i<UNIFORM_POINTS;i++)
+        {
+            points[i].range_mm=300;
+        }
         scan_plan_build_side_report(points,UNIFORM_POINTS,0,0,&plan,&sides);
         assert(!sides.left.b_seen && sides.right.b_seen);
         assert(sides.left.reason==SCAN_PLAN_NEED_UNSEEN ||
@@ -326,9 +341,11 @@ int main(void)
                     /* 25 mm off centre: no tie band, so the side with the
                      * smaller move, however small. */
                     if(!sides.b_tie)
+                    {
                         assert(scan_plan_side_is_left(&plan)==
                                (sides.left.compare_mm<
                                 sides.right.compare_mm));
+                    }
                 }
                 else
                 {
@@ -346,11 +363,20 @@ int main(void)
         {
             static const int32_t logged[][2]={{-15,233},{-10,216},{-5,208},
                 {0,210},{5,207},{10,207},{15,211},{20,215}};
-            for(int32_t i=0;i<n;i++) fine[i].range_mm=4000;
+            for(int32_t i=0;i<n;i++)
+            {
+                fine[i].range_mm=4000;
+            }
             for(unsigned k=0;k<sizeof logged/sizeof logged[0];k++)
+            {
                 for(int32_t i=0;i<n;i++)
+                {
                     if(fine[i].angle_deg==logged[k][0])
+                    {
                         fine[i].range_mm=(uint16_t)logged[k][1];
+                    }
+                }
+            }
             scan_plan_build_side_report(fine,n,0,0,&plan,&sides);
             assert(sides.left.reason==SCAN_PLAN_NEED_MIN);
             assert(sides.left_need_mm==OBS_MIN_LATERAL_MM);
@@ -438,15 +464,19 @@ int main(void)
         /* Logged: box echoing 5..30 deg (wholly left of centre) at ~155
          * mm. Going right is the short way; it must not be a tie. */
         for(int32_t i=0;i<n;i++)
+        {
             pts[i].range_mm=(pts[i].angle_deg>=5&&pts[i].angle_deg<=30)?
                 155U:4000U;
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
         assert(!sides.b_tie && !scan_plan_side_is_left(&plan));
         /* Mirror: wholly right of centre goes left. */
         for(int32_t i=0;i<n;i++)
+        {
             pts[i].range_mm=(pts[i].angle_deg>=-30&&pts[i].angle_deg<=-5)?
                 155U:4000U;
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(!sides.b_tie && scan_plan_side_is_left(&plan));
         /* Centred box: equal moves. Something 700 mm away on one side,
@@ -455,18 +485,27 @@ int main(void)
         for(int32_t far_side=-60;far_side<=60;far_side+=120)
         {
             for(int32_t i=0;i<n;i++)
+            {
                 pts[i].range_mm=(pts[i].angle_deg>=-20&&
                                  pts[i].angle_deg<=20)?220U:4000U;
+            }
             for(int32_t i=0;i<n;i++)
-                if(pts[i].angle_deg==far_side) pts[i].range_mm=700U;
+            {
+                if(pts[i].angle_deg==far_side)
+                {
+                    pts[i].range_mm=700U;
+                }
+            }
             scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
             assert(sides.b_tie && sides.b_left_ok && sides.b_right_ok);
             assert(scan_plan_side_is_left(&plan)==(far_side<0));
         }
         /* Perfectly symmetric: nothing differs; still a route either way. */
         for(int32_t i=0;i<n;i++)
+        {
             pts[i].range_mm=(pts[i].angle_deg>=-20&&pts[i].angle_deg<=20)?
                 220U:4000U;
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(sides.b_tie && scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
         puts("PASS one-sided boxes go the short way; equal moves go to the "
@@ -489,7 +528,12 @@ int main(void)
         {
             pts[n].angle_deg=a;pts[n].range_mm=4000U;
             for(int32_t k=0;k<13;k++)
-                if(prof_deg[k]==a) pts[n].range_mm=(unsigned)prof_mm[k];
+            {
+                if(prof_deg[k]==a)
+                {
+                    pts[n].range_mm=(unsigned)prof_mm[k];
+                }
+            }
             ++n;
         }
         for(int32_t sign=-1;sign<=1;sign+=2)
@@ -500,8 +544,13 @@ int main(void)
             {
                 m[i]=pts[i];
                 if(sign<0)
+                {
                     m[i].range_mm=pts[n-1-i].range_mm;
-                if(m[i].angle_deg==40*sign) m[i].range_mm=320U;
+                }
+                if(m[i].angle_deg==40*sign)
+                {
+                    m[i].range_mm=320U;
+                }
             }
             scan_plan_build_side_report(m,n,0,0,&plan,&sides);
             assert(scan_plan_result(&plan)==SCAN_PLAN_ROUTE);
@@ -521,19 +570,35 @@ int main(void)
         /* Barely beyond the face (logged 18:59: 227 mm at 40 degrees, face
          * 214): the face itself still echoing, not a corner. */
         for(int32_t i=0;i<n;i++)
-            if(pts[i].angle_deg==40) pts[i].range_mm=240U;
+        {
+            if(pts[i].angle_deg==40)
+            {
+                pts[i].range_mm=240U;
+            }
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(!sides.b_centre);
         /* A far echo in the corner band is another object, not a corner. */
         for(int32_t i=0;i<n;i++)
-            if(pts[i].angle_deg==40) pts[i].range_mm=1135U;
+        {
+            if(pts[i].angle_deg==40)
+            {
+                pts[i].range_mm=1135U;
+            }
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(!sides.b_centre);
         /* Both corners: the centre is midway between them. */
         for(int32_t i=0;i<n;i++)
         {
-            if(pts[i].angle_deg==40) pts[i].range_mm=320U;  /* ~225 left */
-            if(pts[i].angle_deg==-40) pts[i].range_mm=265U; /* ~137 right */
+            if(pts[i].angle_deg==40)
+            {
+                pts[i].range_mm=320U;  /* ~225 left */
+            }
+            if(pts[i].angle_deg==-40)
+            {
+                pts[i].range_mm=265U; /* ~137 right */
+            }
         }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(sides.b_centre && sides.left.b_corner && sides.right.b_corner);
@@ -545,23 +610,45 @@ int main(void)
         /* A corner heard on one ping only (lone): kept when the next
          * corner bearing heard the same range, not on its own. */
         for(int32_t i=0;i<n;i++)
+        {
             if(pts[i].angle_deg==40||pts[i].angle_deg==-40)
+            {
                 pts[i].range_mm=4000U;
+            }
+        }
         for(int32_t i=0;i<n;i++)
-            if(pts[i].angle_deg==40) pts[i].lone_mm=279U;
+        {
+            if(pts[i].angle_deg==40)
+            {
+                pts[i].lone_mm=279U;
+            }
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(!sides.b_centre);
         for(int32_t i=0;i<n;i++)
-            if(pts[i].angle_deg==45) pts[i].lone_mm=290U;
+        {
+            if(pts[i].angle_deg==45)
+            {
+                pts[i].lone_mm=290U;
+            }
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(sides.b_centre && sides.left.b_corner && !sides.right.b_corner);
         assert(!scan_plan_side_is_left(&plan));
         /* Neighbour at a different range: a different thing, not kept. */
         for(int32_t i=0;i<n;i++)
-            if(pts[i].angle_deg==45) pts[i].lone_mm=400U;
+        {
+            if(pts[i].angle_deg==45)
+            {
+                pts[i].lone_mm=400U;
+            }
+        }
         scan_plan_build_side_report(pts,n,0,0,&plan,&sides);
         assert(!sides.b_centre);
-        for(int32_t i=0;i<n;i++) pts[i].lone_mm=0U;
+        for(int32_t i=0;i<n;i++)
+        {
+            pts[i].lone_mm=0U;
+        }
         /* The robot stopped 7.5 degrees off square, the normal to the
          * left: the face still echoes 35 degrees out on the left (delayed,
          * as at the zone's edge), which is not a corner. The same echo at
@@ -581,9 +668,18 @@ int main(void)
             for(int32_t i=0;i<n;i++)
             {
                 int32_t const a=t[i].angle_deg;
-                if(a==35) t[i].range_mm=4000U;
-                if(a==-35) t[i].range_mm=280U;
-                if(a==-25||a==-30) t[i].range_mm=4000U;
+                if(a==35)
+                {
+                    t[i].range_mm=4000U;
+                }
+                if(a==-35)
+                {
+                    t[i].range_mm=280U;
+                }
+                if(a==-25||a==-30)
+                {
+                    t[i].range_mm=4000U;
+                }
             }
             scan_plan_build_side_report(t,n,0,0,&plan,&sides);
             assert(sides.right.b_corner && !sides.left.b_corner);
@@ -596,3 +692,5 @@ int main(void)
     puts("All planner scenarios passed.");
     return 0;
 }
+/*** end of file ***/
+

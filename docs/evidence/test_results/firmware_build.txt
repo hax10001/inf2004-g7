@@ -1,13 +1,13 @@
-# make clean, then G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 PICO_SDK_PATH=$HOME/pico/pico-sdk-2.2.0 ./build_uf2.sh   (2026-11-25 14:18 +08)
+# make clean, then G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 PICO_SDK_PATH=$HOME/pico/pico-sdk-2.2.0 ./build_uf2.sh   (2026-11-25 14:53 +08)
 Using Pico SDK 2.2.0 from ~/pico/pico-sdk-2.2.0
-Application standard checks: 112 files, 0 errors.
+Application standard checks: 166 files, 0 errors.
 CONTROLLED BENCH PROFILE: boots STOPPED. Start only from MQTT.
 Network loss triggers a software STOP. Keep physical power stop ready.
 Build rules: restored 0 missing subdir.mk; preserved 67 existing
 Prepared 72 build output directories; source/config/credentials unchanged
-G7 build cache: verified firmware inputs unchanged
+G7 build cache: firmware inputs changed or not previously verified;
 python3 ../tools/check_app_standard.py
-Application standard checks: 112 files, 0 errors.
+Application standard checks: 166 files, 0 errors.
 Linker: mtk3pico_smp1_usb_cdc_wifi_dhcp.elf
 tools/elf2uf2 mtk3pico_smp1_usb_cdc_wifi_dhcp.elf mtk3pico_smp1_usb_cdc_wifi_dhcp.uf2
 PASS: verified G7DIAG-V7-9-RECONNECT-20261102 in linked ELF used to produce UF2.
@@ -20,4 +20,4 @@ Obstacle and collision stops follow APP_OBSTACLE_ENABLED / APP_COLLISION_ENABLED
 Live MQTT Start/Stop ON: boots held, requires mapping,
 fresh IR/IMU and broker. Link loss requests local STOP.
 Do not share this UF2: Wi-Fi/MQTT secrets may be embedded in the image.
-UF2 SHA-1: 3e5a39a8a3ad4efff2dc5d379df50e959ba83866
+UF2 SHA-1: 3351b17cfcab3c2a295db74a5b389d71428499f2

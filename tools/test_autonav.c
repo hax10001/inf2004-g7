@@ -11,7 +11,8 @@
     ++pass; } while (0)
 static int pass;
 /* Junction = 96 counts (~20 mm) of unbroken both-black, or 1500 ms. */
-static const nav_config_t cfg={150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,0U,0U,0U,0U};
+static const nav_config_t cfg={150U,250U,2500U,1800U,120U,96U,1500U,0U,0U,0U,0U,
+    0U,0U,0U,0U};
 static const nav_config_t cfg_wait={150U,250U,2500U,1800U,120U,96U,1500U,
                                     8000U,1500U,0U,0U,0U,0U,0U,0U};
 static const nav_config_t cfg_wait_straight={150U,250U,2500U,1800U,120U,96U,
@@ -19,12 +20,14 @@ static const nav_config_t cfg_wait_straight={150U,250U,2500U,1800U,120U,96U,
 static nav_controller_t n;
 static nav_sample_t s;
 static nav_result_t result;
+/** @brief Test helper: tick. */
 static void tick(uint32_t now,uint32_t distance,uint8_t left,uint8_t right)
 {
     s.now_msec=now;s.travel_counts=distance;
     s.left_black=left;s.right_black=right;
     result=nav_step(&n,&s);
 }
+/** @brief Test helper: ready. */
 static void ready(void)
 {
     nav_init(&n,&cfg);
@@ -32,6 +35,7 @@ static void ready(void)
     s=(nav_sample_t){0};
     CHECK(n.state==NAV_FOLLOW);
 }
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     ready();
@@ -205,7 +209,10 @@ int main(void)
     tick(1300U,800U,1U,1U);tick(1470U,900U,1U,1U);
     CHECK(n.state==NAV_CROSS);
     s.capture_active=1U;
-    for(uint32_t t=1500U;t<4500U;t+=50U) tick(t,900U+(t-1500U)/5U,1U,1U);
+    for(uint32_t t=1500U;t<4500U;t+=50U)
+    {
+        tick(t,900U+(t-1500U)/5U,1U,1U);
+    }
     CHECK(n.state==NAV_CROSS && result.drive==NAV_OUTPUT_FORWARD);
     s.capture_active=0U;
     tick(4550U,1500U,1U,1U);tick(5000U,1600U,0U,0U);tick(5200U,1650U,0U,0U);
@@ -283,7 +290,8 @@ int main(void)
      * well inside the square. */
     ready();
     {
-        uint32_t c=1000U, t=1300U;
+        uint32_t c=1000U;
+        uint32_t t=1300U;
         int steps=0;
         tick(t,c,0U,0U);
         while (n.state==NAV_FOLLOW && steps<40)
@@ -298,7 +306,8 @@ int main(void)
     ready();
     CHECK(nav_barcode(&n,5U,NAV_RIGHT,40U,1100U,500U)==1);
     {
-        uint32_t c=1000U, t=1300U;
+        uint32_t c=1000U;
+        uint32_t t=1300U;
         int steps=0;
         while (n.state==NAV_APPROACH && steps<40)
         {
@@ -326,7 +335,10 @@ int main(void)
         for (uint32_t i=0U;i<sizeof tape_counts/sizeof tape_counts[0];i++)
         {
             tick(2000U+50U*i,2000U+tape_counts[i],1U,1U);
-            if (result.event==NAV_EVENT_JUNCTION) break;
+            if (result.event==NAV_EVENT_JUNCTION)
+            {
+                break;
+            }
         }
         CHECK(result.event==NAV_EVENT_JUNCTION && n.state==NAV_TURN &&
               result.drive==NAV_OUTPUT_LEFT);
@@ -336,8 +348,11 @@ int main(void)
      * 826 counts (both wheels) per 90 degrees. */
     {
         static const nav_config_t piv={150U,250U,6000U,1800U,120U,24U,
-                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U,0U};
-        uint32_t t, c, k;
+                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U,
+                                           0U};
+        uint32_t t;
+        uint32_t c;
+        uint32_t k;
         /* Left: junction confirmed, drive to the centre, pivot. */
         nav_init(&n,&piv);nav_start(&n,1000U);s=(nav_sample_t){0};
         CHECK(nav_barcode(&n,11U,NAV_LEFT,50U,1100U,0U)==1);
@@ -377,7 +392,10 @@ int main(void)
             s.turn_counts=k*32U;            /* 32 counts per period */
             /* Black at 90 degrees (826) and again at 180 (1652). */
             tick(t,1643U,(uint8_t)(k==26U||k==52U),0U);
-            if (n.state!=NAV_TURN) break;
+            if (n.state!=NAV_TURN)
+            {
+                break;
+            }
         }
         CHECK(n.state==NAV_TURN && result.drive==NAV_OUTPUT_UTURN);
         for (; k<=60U && n.state==NAV_TURN; ++k, t+=50U)
@@ -441,9 +459,11 @@ int main(void)
      * is done at every junction until another barcode replaces it. */
     {
         static const nav_config_t one={150U,250U,6000U,1800U,120U,24U,
-                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U,0U};
+                                       1500U,8000U,1500U,643U,5000U,826U,0U,0U,
+                                           0U};
         static const nav_config_t rep={150U,250U,6000U,1800U,120U,24U,
-                                       1500U,8000U,1500U,643U,5000U,826U,1U,0U,0U};
+                                       1500U,8000U,1500U,643U,5000U,826U,1U,0U,
+                                           0U};
         /* Junction 1 at 1000 counts, crossed straight; junction 2 at 3000. */
         #define JUNCTION_AT(t0,c0) do { tick((t0),(c0),1U,1U); \
             tick((t0)+50U,(c0)+15U,1U,1U); tick((t0)+100U,(c0)+30U,1U,1U); \
@@ -694,11 +714,17 @@ int main(void)
         CHECK(n.state==NAV_FOLLOW);
         tick(2500U,1000U,1U,1U);tick(2600U,1100U,1U,1U);
         if (repeat)
+        {
             CHECK(n.state==NAV_TURN && result.drive==NAV_OUTPUT_LEFT);
+        }
         else
+        {
             CHECK(n.state==NAV_CROSS && result.drive==NAV_OUTPUT_FORWARD &&
                   result.value==NAV_STRAIGHT);
+        }
     }
     printf("AUTONAV PASS: %d assertions\n",pass);
     return 0;
 }
+/*** end of file ***/
+

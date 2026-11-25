@@ -8,7 +8,7 @@ The rest of the µT-Kernel port, the Pico SDK, lwIP, the CYW43 driver and TinyUS
 
 ## How the build enforces it
 
-`build_uf2.sh` runs [`tools/check_app_standard.py`](../../tools/check_app_standard.py) before compiling and stops on any error. `tools/run_host_tests.sh` runs it too. The current result is **112 files, 0 errors**.
+`build_uf2.sh` runs [`tools/check_app_standard.py`](../../tools/check_app_standard.py) before compiling and stops on any error. `tools/run_host_tests.sh` runs it too. It also checks the host unit tests and their stubs in `tools/`. The test code may include a module's `.c`, call `exit`, use plain `int` and mirror vendor macro names in its stubs. The current result is **166 files, 0 errors**.
 
 It checks:
 
@@ -89,9 +89,18 @@ The tested firmware had UF2 SHA-1 `d417c7f4…cd72`, built with the CZ2128Delta 
 | Macros to inline functions | `911877d7` | `run_scan` now calls `servo_*_limit_deg()` (a pure getter) once instead of twice. In `obstacle_bypass_step` the operands of a float addition swapped order, which gives the same result because IEEE addition is commutative. |
 | Dead code | `3e5a39a8` | Only the removed write-only counters and the no-op call went: `b1_mqtt_submit`, `mqtt_write`, `tcp_recv_cb` and `g7_telemetry_poll` got smaller. |
 
-Final clean build (all 163 objects recompiled): `3e5a39a8a3ad4efff2dc5d379df50e959ba83866`.
-- Host tests: 162 PASS lines with `HOST PASS`.
-- Dashboard tests: 107/107.
+Clean build after the style work (all 163 objects recompiled): `3e5a39a8a3ad4efff2dc5d379df50e959ba83866`.
+
+On 25 Nov two behaviour changes were reverted at Linus's request, and nothing else changed in the firmware:
+- `OBS_RETURN_DEG` went back from 75 to 60. The tolerance that had been relaxed for 75 in `obstacle_rejoin_sim.c` went back too.
+- `BC_LAYOUT_LOCAL_MARGIN` went back from 0.15 to 0.10.
+
+The clean build is now `3351b17cfcab3c2a295db74a5b389d71428499f2`. Against `3e5a39a8`:
+- every function keeps its size;
+- `.data` is identical;
+- 17 bytes of `.text` differ, all constants in `bc_layout_poll` (the margin), `set_measured_end` and `obstacle_bypass_step` (the return angle).
+- Host tests: 368 PASS lines with `HOST PASS` (after the 25 Nov test review).
+- Dashboard tests: 110/110.
 
 ## Remaining deviations
 

@@ -1,27 +1,38 @@
-/* Host-only proof that packed IR latches survive and clear independently. */
+/** @file test_ir_latches.c
+ * @brief Host-only proof that packed IR latches survive and clear
+ *        independently.
+ */
 #include "modules/line_barcode/ir_shared.h"
 #include <assert.h>
 #include <stdio.h>
 
 static unsigned held=0;
 static uint32_t now=0;
+/** @brief Host stub of tk_cre_mtx(). */
 ID tk_cre_mtx(const T_CMTX *config) {
     assert(config->mtxatr == TA_INHERIT);
     return 4;
 }
+/** @brief Host stub of tk_loc_mtx(). */
 ER tk_loc_mtx(ID mutex,TMO timeout) {
     assert(mutex==4 && timeout==TMO_FEVR && !held);
     held=1;return E_OK;
 }
+/** @brief Host stub of tk_unl_mtx(). */
 ER tk_unl_mtx(ID mutex) {
     assert(mutex==4 && held);
     held=0;return E_OK;
 }
+/** @brief Host stub of tk_get_otm(). */
 ER tk_get_otm(SYSTIM *time) {
     time->hi=0;time->lo=++now;return E_OK;
 }
+/** @brief Run every test case; any failed assert aborts. */
 int main(void) {
-    bool left=false,right=false,gap=false,junction=false;
+    bool left=false;
+    bool right=false;
+    bool gap=false;
+    bool junction=false;
     ir_shared_snapshot_t snapshot={0};
     ir_shared_diag_t d={0};
     assert(ir_shared_init()==E_OK);
@@ -48,3 +59,5 @@ int main(void) {
     puts("PASS V11 IR packed latches: no lost events; independent take/clear");
     return 0;
 }
+/*** end of file ***/
+

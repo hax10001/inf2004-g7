@@ -1,4 +1,7 @@
-/* Run the real ultrasonic worker's side/front watch with fake hardware. */
+/** @file obstacle_watch.c
+ * @brief Run the real ultrasonic worker's side/front watch with fake
+ *        hardware.
+ */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -8,20 +11,32 @@ typedef UINT RELTIM; /* Kernel time type needed by the embedded worker. */
 #include "modules/obstacle/task_obstacle.c"
 #include "modules/obstacle/scan_plan.c"
 
-static uint32_t clock_ms, side_count, front_count, side_time, max_gap;
-static int32_t current_angle, published_side;
+static uint32_t clock_ms;
+static uint32_t side_count;
+static uint32_t front_count;
+static uint32_t side_time;
+static uint32_t max_gap;
+static int32_t current_angle;
+static int32_t published_side;
 static int32_t watch_angle=-OBS_SIDE_LOOK_DEG;
 static ultrasonic_result_t echo_result=ULTRASONIC_OK;
-static int32_t front_range=1000, min_angle, max_angle;
+static int32_t front_range=1000;
+static int32_t min_angle;
+static int32_t max_angle;
 static UINT worker_flags;
 static scan_plan_bypass_t stored_plan;
 static unsigned int plan_count;
 
+/** @brief Host stub of tm_printf(). */
 INT tm_printf(UB const *format, ...) {(void)format;return 0;}
+/** @brief Host stub of tk_dly_tsk(). */
 ER tk_dly_tsk(UINT delay) {clock_ms+=delay;return E_OK;}
+/** @brief Host stub of tk_get_otm(). */
 ER tk_get_otm(SYSTIM *now) {now->hi=0;now->lo=clock_ms;return E_OK;}
 /* Trigger times, to check scan ping spacing. */
-static uint32_t last_trigger, min_trigger_gap=UINT32_MAX, pings;
+static uint32_t last_trigger;
+static uint32_t min_trigger_gap=UINT32_MAX;
+static uint32_t pings;
 /* Lone corner echo out of scan_range(). */
 static int32_t lone;
 static bool have_trigger;
@@ -31,41 +46,70 @@ static unsigned int flaky_n;
 /* A bearing that echoes on its first ping only. */
 static int32_t lone_echo_angle=999;
 static unsigned int lone_echo_n;
+/** @brief Host stub of ultrasonic_last_trigger(). */
 bool ultrasonic_last_trigger(uint32_t *msec)
-{if(!have_trigger)return false;*msec=last_trigger;return true;}
+{
+    if (!have_trigger)
+    {
+        return false;
+    }
+    *msec = last_trigger;
+    return true;
+}
 /* Simulated servo lag: it stops lag_deg short of each target, so the
  * real bearing depends on the direction it arrived from. */
-static int32_t lag_deg, move_dir, lag_lo=-10, lag_hi=10;
+static int32_t lag_deg;
+static int32_t move_dir;
+static int32_t lag_lo=-10;
+static int32_t lag_hi=10;
 /* Pings taken right after a move to the left (off the left limit). */
 static uint32_t left_approach_pings;
-static unsigned int left_moves, right_moves;
+static unsigned int left_moves;
+static unsigned int right_moves;
 /* First bearing a scan pings (set by the first ultrasonic_ping after
  * scan_order_armed). */
 static int32_t scan_order_first=999;
 static int32_t scan_order_first_sweep=999;
 static bool scan_order_armed;
+/** @brief Host stub of servo_set_angle(). */
 uint32_t servo_set_angle(int32_t angle)
 {
     unsigned movement=(unsigned)abs(angle-current_angle);
     if(angle>current_angle) {move_dir=1;++left_moves;}
     if(angle<current_angle) {move_dir=-1;++right_moves;}
     current_angle=angle;
-    if(angle<min_angle) min_angle=angle;
-    if(angle>max_angle) max_angle=angle;
+    if(angle<min_angle)
+    {
+        min_angle=angle;
+    }
+    if(angle>max_angle)
+    {
+        max_angle=angle;
+    }
     return OBS_SERVO_SETTLE_BASE_MSEC + movement*OBS_SERVO_SETTLE_PER_DEG_MSEC;
 }
+/** @brief Host stub of servo_angle_get(). */
 int32_t servo_angle_get(void) {return current_angle;}
+/** @brief Host stub of obs_state_watch_angle_get(). */
 int32_t obs_state_watch_angle_get(void) {return watch_angle;}
+/** @brief Host stub of ultrasonic_ping(). */
 ultrasonic_result_t ultrasonic_ping(int32_t *range)
 {
     if(have_trigger && clock_ms-last_trigger<min_trigger_gap)
+    {
         min_trigger_gap=clock_ms-last_trigger;
+    }
     last_trigger=clock_ms;have_trigger=true;++pings;
     if(move_dir==1 && current_angle<OBS_SERVO_LEFT_LIMIT_DEG)
+    {
         ++left_approach_pings;
+    }
     if(scan_order_armed)
     {
-        if(scan_order_first==999)scan_order_first=current_angle;
+        if(scan_order_first==999)
+        {
+            scan_order_first=current_angle;
+        }
         if(current_angle!=0)
         {
             scan_order_first_sweep=current_angle;
@@ -76,61 +120,89 @@ ultrasonic_result_t ultrasonic_ping(int32_t *range)
     if(current_angle==lone_echo_angle)
     {
         /* One echo, then nothing (a weak corner heard once). */
-        if(lone_echo_n++) return ULTRASONIC_OUT_OF_RANGE;
+        if(lone_echo_n++)
+        {
+            return ULTRASONIC_OUT_OF_RANGE;
+        }
         *range=232;
         return ULTRASONIC_OK;
     }
     if(current_angle==flaky_angle)
     {
         /* Echo, miss, echo, ... like 18 Nov's +20 degree edge. */
-        if((flaky_n++)%2U) return ULTRASONIC_OUT_OF_RANGE;
+        if((flaky_n++)%2U)
+        {
+            return ULTRASONIC_OUT_OF_RANGE;
+        }
         *range=232;
         return ULTRASONIC_OK;
     }
     if(lag_deg!=0)
     {
         int32_t const actual=current_angle-move_dir*lag_deg;
-        if(actual<lag_lo || actual>lag_hi) return ULTRASONIC_OUT_OF_RANGE;
+        if(actual<lag_lo || actual>lag_hi)
+        {
+            return ULTRASONIC_OUT_OF_RANGE;
+        }
         *range=240;
         return ULTRASONIC_OK;
     }
     *range=current_angle==0?front_range:240;
     return echo_result;
 }
+/** @brief Host stub of obs_state_flags_read(). */
 UINT obs_state_flags_read(void) {return worker_flags;}
+/** @brief Host stub of obs_state_flags_set(). */
 void obs_state_flags_set(UINT bits) {worker_flags|=bits;}
+/** @brief Host stub of obs_state_flags_clear(). */
 void obs_state_flags_clear(UINT bits) {worker_flags&=~bits;}
+/** @brief Host stub of obs_state_set_phase(). */
 void obs_state_set_phase(obs_state_phase_t phase) {(void)phase;}
+/** @brief Host stub of obs_state_set_distance_mm(). */
 void obs_state_set_distance_mm(int32_t mm) {(void)mm;}
+/** @brief Host stub of obs_state_faults_update(). */
 void obs_state_faults_update(uint32_t set,uint32_t clear)
 {(void)set;(void)clear;}
+/** @brief Host stub of obs_state_status_get(). */
 uint32_t obs_state_status_get(void) {return 0U;}
+/** @brief Host stub of obs_state_status_distance_cm(). */
 uint32_t obs_state_status_distance_cm(uint32_t word)
 {(void)word;return OBS_STOP_MM/10U;}
+/** @brief Host stub of obs_state_status_route(). */
 obs_state_route_t obs_state_status_route(uint32_t word)
 {(void)word;return OBS_ROUTE_NONE;}
+/** @brief Host stub of obs_state_plan_store(). */
 void obs_state_plan_store(scan_plan_bypass_t const *plan)
 {stored_plan=*plan;++plan_count;}
+/** @brief Host stub of servo_left_limit_deg(). */
 int32_t servo_left_limit_deg(void) {return OBS_SERVO_LEFT_LIMIT_DEG;}
+/** @brief Host stub of servo_right_limit_deg(). */
 int32_t servo_right_limit_deg(void) {return OBS_SERVO_RIGHT_LIMIT_DEG;}
+/** @brief Host stub of ultrasonic_median_of_three(). */
 int32_t ultrasonic_median_of_three(int32_t a,int32_t b,int32_t c)
 {
     if(a>b) {int32_t t=a;a=b;b=t;}
     if(b>c) {int32_t t=b;b=c;c=t;}
     return a>b?a:b;
 }
+/** @brief Host stub of obs_state_side_range_set(). */
 void obs_state_side_range_set(int32_t range)
 {
     assert(current_angle==watch_angle);
-    if(side_count && clock_ms-side_time>max_gap) max_gap=clock_ms-side_time;
+    if(side_count && clock_ms-side_time>max_gap)
+    {
+        max_gap=clock_ms-side_time;
+    }
     side_time=clock_ms;published_side=range;++side_count;
 }
+/** @brief Host stub of obs_state_front_range_set(). */
 void obs_state_front_range_set(int32_t range)
 {
     assert(current_angle==0 && range==1000);
     ++front_count;
 }
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     side_watch_t watch={false,0U,0};
@@ -142,7 +214,8 @@ int main(void)
     }
     assert(side_count==OBS_GLANCE_EVERY && front_count==0U);
     assert(published_side==240 && watch.b_aimed);
-    puts("PASS worker keeps the ultrasonic aimed at the obstacle while passing");
+    puts(
+        "PASS worker keeps the ultrasonic aimed at the obstacle while passing");
 
 #if (0 != OBS_PASS_FRONT_GLANCE)
     run_side_watch(&watch,pattern);
@@ -187,14 +260,21 @@ int main(void)
     leave_side_watch(&watch);
     assert(current_angle==0 && !watch.b_aimed && watch.pings==0U);
     assert(side_count==before);
-    puts("PASS leaving side watch parks the servo without a false clear sample");
+    puts(
+        "PASS leaving side watch parks the servo without a false clear sample");
     echo_result=ULTRASONIC_OK;
     monitor_t monitor={{0,0,0},0U,0U,0U,0U};
     front_range=OBS_STOP_MM+1;
-    for(unsigned i=0;i<10;i++) run_monitor(&monitor);
+    for(unsigned i=0;i<10;i++)
+    {
+        run_monitor(&monitor);
+    }
     assert(!(worker_flags&OBS_EVT_BLOCKED));
     front_range=OBS_STOP_MM-1;
-    for(unsigned i=0;i<10;i++) run_monitor(&monitor);
+    for(unsigned i=0;i<10;i++)
+    {
+        run_monitor(&monitor);
+    }
     assert(worker_flags&OBS_EVT_BLOCKED);
     assert(OBS_STOP_MM==250);
     puts("PASS front monitor triggers below 250 mm, 100 mm closer than before");
@@ -218,10 +298,17 @@ int main(void)
          * +-OBS_SCAN_RETURN_DEG, and never the end bearing twice. */
         uint32_t returning=0U;
         if (0==OBS_SCAN_DIRECTION)
+        {
             for (int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG;
                  a=scan_plan_next_angle(a))
+            {
                 if (a>=-OBS_SCAN_RETURN_DEG && a<=OBS_SCAN_RETURN_DEG &&
-                    a!=-OBS_SCAN_RIGHT_DEG) ++returning;
+                    a!=-OBS_SCAN_RIGHT_DEG)
+                {
+                    ++returning;
+                }
+            }
+        }
         uint32_t const anchor=OBS_FRESH_SCAN_CENTRE!=0?1U:0U;
         uint32_t const bearings=(uint32_t)OBS_SCAN_POINTS+returning+anchor;
         /* Slow edge vote (object ahead): OBS_EDGE_VOTE_PINGS more pings at
@@ -229,10 +316,17 @@ int main(void)
          * guaranteed waits are taken off before the sweep speed checks. */
         uint32_t voted=0U;
         if (0!=OBS_EDGE_VOTE)
+        {
             for (int32_t a=-OBS_SCAN_RIGHT_DEG;a<=OBS_SCAN_LEFT_DEG;
                  a=scan_plan_next_angle(a))
+            {
                 if (abs(a)>=OBS_EDGE_VOTE_MIN_DEG &&
-                    abs(a)<=OBS_EDGE_VOTE_MAX_DEG) ++voted;
+                    abs(a)<=OBS_EDGE_VOTE_MAX_DEG)
+                {
+                    ++voted;
+                }
+            }
+        }
         /* At least: out along the left band, across to the right band's
          * start and out along it (servo travel), then per voted bearing a
          * settle, the extra settle, each ping's echo wait and the gaps. */
@@ -404,3 +498,5 @@ int main(void)
 
     return 0;
 }
+/*** end of file ***/
+

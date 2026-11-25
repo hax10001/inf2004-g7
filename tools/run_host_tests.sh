@@ -100,6 +100,77 @@ done
 for CASE in steady read_failure movement magnitude persistent; do
   "$TMP/imu-calibration" "$CASE"
 done
+# Module unit tests on the real firmware sources (see each file's header for
+# the requirements covered).
+UT="$CC -std=c99 -O2 -Wall -Wextra -Werror -Itools/tests/stubs -I. -Iapp_program"
+BC=app_program/modules/barcode_scanning
+# FR5 barcode: Code 39 tables, run-length scanner, layout and template
+# decoders (the template decoder is built in its own configuration).
+$UT -I$BC tools/tests/test_bc_code.c $BC/bc_code.c -lm -o "$TMP/bc-code"
+"$TMP/bc-code"
+$UT -I$BC tools/tests/test_bc_scan.c $BC/bc_scan.c $BC/bc_code.c -lm \
+  -o "$TMP/bc-scan"
+"$TMP/bc-scan"
+$UT -I$BC tools/tests/test_bc_layout.c $BC/bc_code.c -lm -o "$TMP/bc-layout"
+"$TMP/bc-layout"
+$UT -I$BC -DAPP_BARCODE_TEMPLATE_ENABLED=1 tools/tests/test_bc_match.c \
+  $BC/bc_match.c $BC/bc_code.c -lm -o "$TMP/bc-match"
+"$TMP/bc-match"
+# FR9-FR11 obstacle: status word, resume when the path clears, width
+# report and the return turn.
+for T in obs_state obs_resume obs_bypass; do
+  $UT -ffunction-sections -fdata-sections "$GC_FLAG" \
+    -Iapp_program/modules/telemetry "tools/tests/test_$T.c" -lm \
+    -o "$TMP/$T"
+  "$TMP/$T"
+done
+# FR4/FR7/FR8/FR17/FR18 motion and terrain.
+$UT tools/tests/test_mt_steering.c app_program/modules/motion/steering.c \
+  app_program/modules/line_barcode/line_follow.c -lm -o "$TMP/mt-steering"
+"$TMP/mt-steering"
+$UT tools/tests/test_mt_wheel_speed.c \
+  app_program/modules/motion/wheel_speed.c -lm -o "$TMP/mt-wheel"
+"$TMP/mt-wheel"
+$UT tools/tests/test_mt_terrain.c app_program/modules/terrain/terrain.c \
+  app_program/modules/terrain/tilt_math.c -lm -o "$TMP/mt-terrain"
+"$TMP/mt-terrain"
+"$TMP/mt-terrain" wrap
+$UT -include tools/tests/sem_stub.h tools/tests/test_mt_imu.c \
+  app_program/modules/terrain/task_imu.c \
+  app_program/modules/terrain/terrain.c \
+  app_program/modules/terrain/tilt_math.c \
+  app_program/modules/terrain/lift_math.c -lm -o "$TMP/mt-imu"
+"$TMP/mt-imu"
+for SIGN in 0 1 -1; do
+  $UT -DAPP_DOWNHILL_NOSE_DOWN_SIGN="$SIGN" tools/tests/test_mt_downhill.c \
+    app_program/modules/motion/motion.c \
+    app_program/modules/motion/downhill.c \
+    app_program/modules/motion/steering.c \
+    app_program/modules/motion/wheel_speed.c -lm -o "$TMP/mt-downhill"
+  "$TMP/mt-downhill"
+done
+# FR12/FR13/FR15/FR16/NFR13 controller, telemetry, codec and MQTT client.
+$UT -ffunction-sections -fdata-sections "$GC_FLAG" \
+  tools/tests/test_ct_controller_ready.c app_program/app/nav_core.c \
+  app_program/modules/line_barcode/line_follow.c -o "$TMP/ct-ctrl"
+"$TMP/ct-ctrl"
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -DB1_ENABLE_MQTT -DTM_WIFI_NETIF=1 \
+  -Itools/tests/stubs -Itools/tests/stubs/lwip -Iapp_program \
+  -Iapp_program/modules/telemetry -Ilib/libnet/lwip/include \
+  tools/tests/test_ct_mqtt_link.c lib/libnet/lwip/mqtt_utk.c \
+  app_program/modules/telemetry/buddy1_protocol.c -o "$TMP/ct-mqtt"
+"$TMP/ct-mqtt"
+$UT -Iapp_program/modules/telemetry -include tools/tests/sem_stub.h \
+  tools/tests/test_ct_telemetry_poll.c \
+  app_program/modules/telemetry/telemetry_peers.c \
+  app_program/modules/telemetry/buddy1.c \
+  app_program/modules/telemetry/buddy1_protocol.c -lm -o "$TMP/ct-tel"
+"$TMP/ct-tel"
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -Iapp_program/modules/telemetry \
+  tools/tests/test_ct_protocol_codec.c \
+  app_program/modules/telemetry/buddy1.c \
+  app_program/modules/telemetry/buddy1_protocol.c -o "$TMP/ct-codec"
+"$TMP/ct-codec"
 python3 tools/test_no_heap.py
 python3 tools/test_requirement_constants.py
 python3 tools/check_app_standard.py
@@ -115,12 +186,12 @@ printf '\nCore host tests passed: lift estimation, STOP/START, governor, navigat
 mkdir -p "$TMP/v15"
 GC=-Wl,--gc-sections
 if [[ "$(uname -s)" == Darwin ]]; then GC=-Wl,-dead_strip; fi
-cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   -include tools/tests/sem_stub.h \
   tools/test_scan_handoff.c -o "$TMP"/v15/scan_handoff
 "$TMP"/v15/scan_handoff
-cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -I. -Iapp_program \
   tools/test_controller_handoff.c app_program/app/nav_core.c \
   app_program/modules/line_barcode/line_follow.c \
@@ -128,31 +199,31 @@ cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
 "$TMP"/v15/controller
 # Same production controller with the previous stopping behaviour: lift
 # stop latched, and unmapped/lost barcodes as navigation safety stops.
-cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -I. -Iapp_program \
   -DAPP_LIFT_RESUME_ENABLED=0 -DAPP_NAV_SCAN_FAIL_STOP=1 \
   tools/test_controller_handoff.c app_program/app/nav_core.c \
   app_program/modules/line_barcode/line_follow.c \
   -o "$TMP"/v15/controller_lift_latched
 "$TMP"/v15/controller_lift_latched
-cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   tools/test_scanner_ready.c -o "$TMP"/v15/scanner_ready
 "$TMP"/v15/scanner_ready
 # Same real scanner reusing the startup white (setting on).
-cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   -DAPP_BARCODE_KEEP_STARTUP_WHITE=1 \
   tools/test_scanner_ready.c -o "$TMP"/v15/scanner_ready_keep
 "$TMP"/v15/scanner_ready_keep
 # Same real scanner with the capture gate off (previous trigger, no drop).
-cc -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
+"$CC" -std=c99 -O2 -Wall -Wextra -Werror -ffunction-sections \
   -fdata-sections "$GC" -Itools/tests/stubs -Iapp_program \
   -DAPP_BARCODE_TRIGGER_RISE=0U -DAPP_BARCODE_MIN_DARK_UNITS=0U \
   tools/test_scanner_ready.c -o "$TMP"/v15/scanner_ready_gate_off
 "$TMP"/v15/scanner_ready_gate_off
 for SIGN in 0 1 -1; do
-  cc -std=c99 -O2 -Wall -Wextra -Werror -Itools/tests/stubs -Iapp_program \
+  "$CC" -std=c99 -O2 -Wall -Wextra -Werror -Itools/tests/stubs -Iapp_program \
     -DAPP_DOWNHILL_NOSE_DOWN_SIGN="$SIGN" \
     tools/test_ramp_motion.c app_program/modules/motion/motion.c \
     app_program/modules/motion/downhill.c app_program/drivers/motor.c \

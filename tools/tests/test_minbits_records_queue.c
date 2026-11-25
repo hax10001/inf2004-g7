@@ -1,4 +1,7 @@
-/* V10 host regression: minimum-width field semantics and bounded SPSC queue. */
+/** @file test_minbits_records_queue.c
+ * @brief V10 host regression: minimum-width field semantics and bounded SPSC
+ *        queue.
+ */
 #include "app/nav_core.h"
 #include "modules/barcode_scanning/bc_fastq.h"
 #include "modules/barcode_scanning/bc_scan.h"
@@ -10,6 +13,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/** @brief Run every test case; any failed assert aborts. */
 int main(void)
 {
     nav_sample_t sample = {0};
@@ -107,3 +111,5 @@ int main(void)
     puts("PASS V10 boundaries, packed states, barcode SPSC and overflow");
     return 0;
 }
+/*** end of file ***/
+

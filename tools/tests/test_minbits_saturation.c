@@ -1,4 +1,7 @@
-/* V11: native bit widths and safe saturation before packed assignments. */
+/** @file test_minbits_saturation.c
+ * @brief V11: native bit widths and safe saturation before packed
+ *        assignments.
+ */
 #include "modules/telemetry/buddy1.h"
 #include "modules/telemetry/telemetry_peers.h"
 #include "modules/barcode_scanning/bc_wave.h"
@@ -13,7 +16,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/** @brief Test helper: noop. */
 static void noop(void *ctx) { (void)ctx; }
+/** @brief Test helper: boundary snapshot. */
 static void boundary_snapshot(void) {
     b1_store_t store;
     b1_motion_t motion = {0};
@@ -54,6 +59,7 @@ static void boundary_snapshot(void) {
     assert(received.max_hump_mm==1023u);
     assert(received.obstacle_cm==1023u);
 }
+/** @brief Test helper: field limits. */
 static void field_limits(void) {
     b1_event_t event={0};
     b1_terrain_t terrain={0};
@@ -102,11 +108,15 @@ static void field_limits(void) {
            sizeof(b1_terrain_t),sizeof(b1_mission_t),sizeof(b1_obstacle_t),
            sizeof(b1_store_t),sizeof(g7_telemetry_peers_t),
            sizeof(bc_wave_status_t),sizeof(obstacle_drive_t),
-           sizeof(steering_t),sizeof(motion_status_t),sizeof(bc_fast_adc_stats_t),
+           sizeof(steering_t),sizeof(motion_status_t),sizeof(
+               bc_fast_adc_stats_t),
            sizeof(bc_port_stats_t));
 }
+/** @brief Run every test case; any failed assert aborts. */
 int main(void) {
     boundary_snapshot();field_limits();
     puts("PASS V11 saturation, state boundaries, and packed semantic fields");
     return 0;
 }
+/*** end of file ***/
+
