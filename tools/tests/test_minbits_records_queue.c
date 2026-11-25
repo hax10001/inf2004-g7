@@ -103,7 +103,7 @@ int main(void)
            sizeof(bc_scan_t), sizeof(bc_fastq_sample_t),
            sizeof(bc_fastq_sample_t) * BC_FASTQ_CAPACITY,
            sizeof(bc_layout_result_t), sizeof(bc_match_result_t),
-           sizeof(B1_Store));
+           sizeof(b1_store_t));
     puts("PASS V10 boundaries, packed states, barcode SPSC and overflow");
     return 0;
 }

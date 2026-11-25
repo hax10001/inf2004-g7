@@ -5,15 +5,16 @@
 #define BUDDY1_MQTT_H
 #include "buddy1_protocol.h"
 #include <stdint.h>
-/* Nonblocking, fixed-size SPSC frame queues. The network owner performs
- * serialization and transport; app code never calls raw MQTT/lwIP APIs. */
-int b1_mqtt_submit(const B1_Frame *f);
-int b1_mqtt_receive_command(B1_Frame *f);
-uint32_t b1_mqtt_queue_drops(void);
-/* Broker subscription ready; false when Wi-Fi/MQTT is disconnected. */
+/* Nonblocking, fixed-size SPSC frame queues. The network owner encodes and
+ * sends; application code never calls MQTT or lwIP directly. */
+/** @brief Queue a frame for sending; -1 if the queue is full. */
+int32_t b1_mqtt_submit(const b1_frame_t *p_frame);
+/** @brief Take a received command: 1 frame, 0 none, -1 bad frame. */
+int32_t b1_mqtt_receive_command(b1_frame_t *p_frame);
+/** @brief 1 once subscribed to the command topic; 0 when offline. */
 uint8_t b1_mqtt_connected(void);
-/* Connected and the telemetry queue has a free slot: only then take a
- * frame out of the store, so offline telemetry stays in its rings. */
+/** @brief 1 when connected and the telemetry queue has a free slot. Take a
+ *  frame from the store only then, so offline telemetry stays buffered. */
 uint8_t b1_mqtt_can_send(void);
 #endif
 /*** end of file ***/

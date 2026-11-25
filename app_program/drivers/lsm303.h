@@ -1,5 +1,5 @@
 /** @file lsm303.h
- * @brief LSM303DLHC register operations through the micro T-Kernel I2C device.
+ * @brief LSM303DLHC register access through the micro T-Kernel I2C device.
  */
 #ifndef LSM303_H
 #define LSM303_H
@@ -10,7 +10,7 @@
 
 /** @brief Configure the accelerometer and magnetometer on an open device. */
 bool lsm303_init (ID h_device);
-/** @brief Read signed 12-bit accelerometer axes in the original mg scale. */
+/** @brief Read signed 12-bit accelerometer axes, in mg. */
 bool lsm303_read_accel (ID h_device, int16_t * p_x, int16_t * p_y,
                         int16_t * p_z);
 /** @brief Read signed magnetometer axes in X-Z-Y register order. */

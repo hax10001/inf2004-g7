@@ -1,5 +1,5 @@
 /** @file test_report.c
- * @brief Report on-target checks through the existing monitor console.
+ * @brief Report on-target checks on the monitor console.
  */
 #include "test_report.h"
 #include <tm/tmonitor.h>

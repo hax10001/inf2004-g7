@@ -8,10 +8,12 @@
 
 #include <tk/tkernel.h>
 
-/** @brief Return USB enumeration state, or the original UART fallback. */
+/* Console states: USB enumerated by the host, terminal open (DTR). */
+#define CONSOLE_STATE_ENUMERATED 2U
+#define CONSOLE_STATE_OPEN       3U
+
+/** @brief Return USB enumeration state, or OPEN for a UART console. */
 UW console_state (void);
-/** @brief Return USB diagnostic progress, or the UART ready level. */
-INT console_diag_level (void);
 
 #endif /* CONSOLE_H */
 

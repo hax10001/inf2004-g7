@@ -10,8 +10,8 @@
 /** @brief Reserve alarm 2 after encoder initialization; do not arm yet. */
 ER bc_fast_init (void);
 
-/** @brief Arm only after the existing GP27 driver has initialized it.
- * @note Called once from existing 10 ms IR hook; subsequent hooks ignored.
+/** @brief Arm only after the GP27 driver has initialized the pin.
+ * @note Called from the 10 ms IR hook; calls after the first are ignored.
  */
 ER bc_fast_arm (void);
 
@@ -24,7 +24,7 @@ ER bc_fast_error (void);
 /** @brief Drain and process each sample in task context, never in ISR. */
 ER bc_fast_drain (void);
 
-/** ADC range over processed samples since the previous diagnostic report.
+/** @brief ADC range of processed samples since the last diagnostic report.
  * Read/reset only from the same barcode worker that calls drain.
  */
 typedef struct
@@ -34,9 +34,9 @@ typedef struct
     /* These are copied from the validated 12-bit ADC queue entry.
      * Only the barcode worker updates/resets this statistics record;
      * the timer ISR only writes to the separate SPSC sample ring. */
-    unsigned int latest:12;
-    unsigned int minimum:12;
-    unsigned int maximum:12;
+    uint32_t     latest:12;
+    uint32_t     minimum:12;
+    uint32_t     maximum:12;
     uint32_t filtered_spikes; /**< Unconfirmed colour pulses suppressed. */
 } bc_fast_adc_stats_t;
 

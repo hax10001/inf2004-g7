@@ -1,83 +1,110 @@
-# BARR-C:2018 compliance pass (23 Nov)
+# BARR-C:2018 compliance notes
 
-**Scope.** This pass covered the team's own C sources under `app_program/`. These were not touched:
+This document covers the team's own C sources:
+- everything under `app_program/`, including the host test harnesses;
+- the MQTT client `lib/libnet/lwip/mqtt_utk.c` and its header. They are not in the µT-Kernel port; the team added them.
 
-- Vendor and SDK code: `kernel/`, `lib/` (including `lib/libnet/lwip/mqtt_utk.c`), `include/`, `device/`, `config/`, `etc/` and the pico-sdk.
-- The dashboard JavaScript.
-- `app_program/modules/obstacle/*` and its tests (`tools/tests/obstacle_*.c`, `scan_planner.c`). The pending scan-offset work is in progress there. They are byte-identical to the checkpoint.
+The rest of the µT-Kernel port, the Pico SDK, lwIP, the CYW43 driver and TinyUSB are vendor code and are out of scope.
 
-**Checkpoint before the pass:**
+## How the build enforces it
 
-All in `~/g7-checkpoints/`:
+`build_uf2.sh` runs [`tools/check_app_standard.py`](../../tools/check_app_standard.py) before compiling and stops on any error. `tools/run_host_tests.sh` runs it too. The current result is **112 files, 0 errors**.
 
-- `g7-pre-barrc-checkpoint-20261123-133350.tar.gz`: the whole tree as it was before the pass, except `.git`, `out/` and `node_modules`.
-- `g7-pre-barrc-20261123-133350.diff`: `git diff` at the start.
-- `g7-post-barrc-20261123.diff`: `git diff` after the pass.
-- `g7-improve-movement-mqtt-pre-barrc-20261123-133350.uf2`: the firmware image, the same bytes before and after.
+It checks:
 
-The first copies were written next to the repo in `~/Downloads/`, but something removed them from there at about 13:47. The tarball above was rebuilt from the pre-pass copy of `app_program/` kept for comparison. The pass's own changes were then reverted in it: the new tests and docs removed, and `run_host_tests.sh` restored.
-
-**Behaviour proof.** The build is reproducible, so each step was rebuilt and the UF2 compared. After every firmware change, `out/g7-improve-movement-mqtt.uf2` is byte-identical to the image built before the pass: SHA-1 `8629fce61706442fdd6f3e26ae41ba0c7f663b3f` both before and after. The firmware the car runs has not changed, and it does not need re-flashing. Host builds use `-Wall -Wextra -Werror`, and they cover the host-only paths that are not in the UF2.
-
-## Results
-
-| | Before | After |
-|---|---|---|
-| `bash tools/run_host_tests.sh` | 150 PASS lines, `HOST PASS` | 162 PASS lines, `HOST PASS` |
-| `npm test` (dashboard) | 107/107 | 107/107 |
-| `./build_uf2.sh` (usb_cdc, live 1) | OK, style check 0 errors | OK, style check 0 errors, same UF2 |
-
-## Files touched (firmware sources)
-
-`app/nav_core.c`, `app/task_controller.c`, `drivers/motor.c`, `modules/barcode_scanning/{bc_cal.h, bc_port.c, bc_wave.c, scan_handoff.h}`, `modules/motion/{downhill.c, motion.c}`, `modules/telemetry/{buddy1.c, buddy1_protocol.c, buddy1_rt.c, telemetry_peers.c}`, `modules/terrain/{task_imu.c, terrain.c, tilt_math.c}`.
-
-Host-only file: `modules/telemetry/host/test_tel.c` (braces only).
-
-New test files:
-
-- `tools/tests/test_requirements_trace.c`
-- `tools/tests/test_line_search.c`
-- `tools/test_requirement_constants.py`
-
-`tools/run_host_tests.sh` gained three entries for them. `build_make/.g7_firmware_sources.sha256` is the build's source fingerprint and is updated by the build itself.
-
-## Categories of fixes
-
-1. **Braces on every `if` / `else` / `for` / `while` body (rule 1.3.a, Allman style per 1.3.d).** There were about 170 sites. Most were done by a script that only wraps a single statement and skips macros, preprocessor branches and nested cases. The remaining 5 were edited by hand (`buddy1.c`, `buddy1_protocol.c`).
-2. **`//` comments changed to `/* */` (rule 2.1.a).** 31 lines in `task_imu.c`, `terrain.c`, `tilt_math.c`, `task_controller.c` and `motion.c`. A commented-out `tm_printf` became a labelled "Disabled trace" block comment.
-3. **Fixed-width types (rule 5.2.a).** Non-bit-field locals and static parameters moved from `unsigned int` / `unsigned` / `int` to `uint32_t` / `int32_t` in `motion.c`, `downhill.c`, `buddy1_protocol.c` (bit reader and writer, loop counters) and `buddy1_rt.c`. Width and signedness are the same on both targets, and none is printed.
-4. **Magic numbers replaced by named constants (BARR-C "no magic numbers" guidance, plus the "not hard coded" rubric item).**
-   - `task_controller.c`: mission state codes `CTRL_MISSION_*`, START readiness bits `CTRL_BLOCK_*`, fault sources `CTRL_FAULT_*`, navigation stop reasons, and the IMU freshness and loss times. Each block's comment names the dashboard table it mirrors (`missionNames`, `READINESS_REASONS`, `controllerFaults`).
-   - `nav_core.c`: letter and action limits, and the duplicate-barcode window.
-   - `buddy1.c`: STATUS, HEARTBEAT and SNAPSHOT periods, the stale-source age, the challenge window and the 10/12-bit sentinels.
-   - `buddy1_rt.c`: task priority and period, frames per period, Wi-Fi deadline, network log interval and the "no mission" sentinel.
-   - `telemetry_peers.c`: the 10-bit "unavailable" value 1023 and the 1022 maximum.
-   - `motion.c`: ramp effort limits, integral clamp and IMU freshness.
-5. **Macro body parenthesised (rule 6.1.c).** `BC_CAL_LEFT_FORWARD_SIGN` became `(-1)`.
-6. **Already compliant (checked, no change needed):**
-   - Every `switch` has `default:` (rule 1.7.c).
-   - Header guards, module `@file` / `@brief` blocks, the EOF marker, line length ≤ 80, no tabs, upper-case macros, and no `goto`, `continue`, `short` or `long` (all enforced by `tools/check_app_standard.py`).
-   - Every non-static function is used from another file.
-   - No other non-static file-scope variables, apart from the two below.
-
-## Rules intentionally skipped, and why
-
-| Rule | Why skipped |
+| Rule | Check |
 |---|---|
-| 5.2 for bit-fields (`unsigned int x:3`, `unsigned char x:1`) | C99 bit-fields are only portable as `int`/`unsigned int`. Changing the `unsigned char` ones changes struct size and layout, which the minimum-bit evidence (`docs/min-bits/*`) and the RAM figures depend on. |
-| 5.2 for public `int` return codes (`b1_*`, `g7_nav_*`, `nav_barcode`, `motion_line_hint`) | On arm-none-eabi `int32_t` is `long`, a different type from `int`. Changing the prototypes ripples through callers and tests, and could trigger `-Wformat` on `%d` prints. It is an API change, not a mechanical one. |
-| 5.2 for `char` strings | BARR-C allows plain `char` for character data. |
-| 8.x static for `g7_usermain_stage` / `g7_usermain_error` (`app_main.c`) | These are deliberately global `volatile` debug markers, read from the ELF by a debugger. |
-| Event-kind literals in `telemetry_peers.c` (`event_kind=1u` and others) | `firmware-wiring.test.js` asserts the literal text `event_kind=1u`. Renaming would need a matching test change. Left for a coordinated change. |
-| Remaining magic numbers in the barcode decoder (`bc_layout.c`, `bc_match.c`, `bc_wave.c`, about 170 lines) and wire payload offsets (`f.payload[20]` and others) | Most are tuned decoder model coefficients or byte offsets documented in `buddy1_protocol.h`. Naming 170 tuning values one by one is a large, low-value edit. A rename slip in the decoder is a real risk just before the tribunal. |
-| Obstacle module (`app_program/modules/obstacle/*`) | Pending scan-offset work by another thread. Not touched at all. It has about 23 brace sites and some plain `int` uses still to fix. |
-| Naming prefixes (`g_`, `p_`, `b_`) on existing identifiers | Most code already follows them. Renaming the rest touches many lines for no behaviour value, and some names are read by Python tools (`audit_fields.py`, min-bits CSVs). |
-| Function header comment on every function | Many public prototypes already have Doxygen briefs. Adding one to every static helper is a large documentation-only edit, so it was deferred. |
-| Converting function-like macros to `static inline` | Only `B1_SOURCE_INGEST` in `buddy1.c` qualifies. It generates several functions, so it cannot become a single inline. |
-| Brace in `task_controller.c` around `else` + `#endif` + `if` | The `else` belongs to a `#ifndef B1_LIVE_COMMANDS` branch. Braces there would change which statements each build profile compiles. |
-| `lib/libnet/lwip/mqtt_utk.c` | Under `lib/` (lwIP glue), so out of scope by rule. It is only read by the new constants test. |
+| 1.2 | Lines of 80 columns or less; no trailing whitespace, tabs or CR. |
+| 1.3.a | Every `if` / `else` / `for` / `while` body is braced. |
+| 1.7 / 8.3.b | Every `switch` has `default`. |
+| 2.1.a | No `//` comments. |
+| 2.2 / 3.3 | Every file has an `@file` / `@brief` header and ends with `/*** end of file ***/` and a blank line. |
+| Function headers | Every function definition, or its prototype, has a comment directly above it. |
+| 4.1 / 4.2 / 4.3 | Module names are lower case and unique in the first 8 characters. Each `.c` has a matching `.h` and includes it first. Headers have include guards. |
+| 5.2.a | No plain `int` / `unsigned` / `signed` / `short` / `long`. The only exceptions are `main()` and the fixed `tm_netlog_take()` API. |
+| 6.1 | Macro names are upper case. No unparenthesised negative macro body. |
+| 7.1 | One declaration per line. |
+| 8.2.c | No assignment inside an `if` / `while` condition. |
+| 8.5 | No `goto`, `continue`, `abort`, `exit`, `setjmp`, `longjmp`, `auto` or `register` in firmware code. |
+| Platform boundary | No direct Pico SDK peripheral calls from application code. |
 
-## Known coverage gaps found while tracing
+## What was changed
 
-- FR10 "resume when the way clears" has no behaviour test. Only its constants are traced.
-- `test_calibration.c` (FR3) and an NFR7 no-heap scan were added to the suite afterwards (`tools/tests/encoder_read_stub.c`, `tools/test_no_heap.py`).
+The work was done in three passes (23–25 Nov):
+- **Layout:** braces on every body, with braces on their own line. One statement and one declaration per line. Lines of 80 columns or less, 4-space indent. The telemetry files were converted from K&R style.
+- **Types (5.2):**
+  - Every bit-field is now declared on a fixed-width type (`uint8_t`, `uint32_t`, `int32_t`).
+  - The public return codes (`b1_*`, `g7_nav_*`, `nav_barcode`, `motion_line_hint`) are now `int32_t` throughout: declarations, definitions, callers and tests.
+  - Plain `int` / `unsigned` locals and casts are now fixed-width types. Diagnostic `printf` calls use `PRIu32` with matching casts.
+- **Named constants:** about 400 literals were replaced by named constants. This covers:
+  - the barcode decoder (`BC_*`);
+  - the telemetry wire offsets, lengths, field widths and EVENT kinds (`B1_*`, in `buddy1_protocol.h` and `buddy1.h`);
+  - mission, readiness and fault codes (`CTRL_*`, each noting the dashboard table that mirrors it);
+  - the obstacle, motion, terrain and driver modules;
+  - the MQTT packet constants (`MQTT_*`).
+  
+  `event_kind=1u` became `B1_EVT_BARCODE`, and the dashboard test now checks for that name and its value.
+- **Naming (7.1):**
+  - Telemetry types renamed to lower case with a `_t` suffix (`b1_store_t`, `b1_frame_t`, …, `g7_telemetry_peers_t`, `terrain_snapshot_t`), with the tests and min-bits tables updated to match.
+  - Globals use `g_` / `gp_` / `gb_` / `gh_` prefixes. Pointer parameters use `p_`.
+  - The debug globals are now `g_usermain_stage` / `g_usermain_error`. They keep external linkage because the USB console prints them.
+- **Macros:**
+  - Function-like macros converted to `static inline` functions: `SAT_INC8`, `SCAN_MIN`, `OBS_COSF` / `OBS_SINF` / `OBS_ATAN2F`, `ENC_*` and `B1_BARRIER`.
+  - Every remaining macro body and expression parameter is parenthesised.
+- **Structure:** the `else` that joined two build variants in `task_controller.c` was restructured so both variants are braced.
+- **`mqtt_utk.c`:** rewritten in the same style. Helper functions were split out, and the code that reset the connection, written out in two places, now lives in one function.
+- **Comments:** history notes, dates, version tags, commit references, test-session stories and commented-out code were removed. Each remaining comment states the reason in the present tense. Every function has a short `@brief`. A code comparison with comments and whitespace removed confirms no code changed in this step.
+
+## Dead code removed
+
+Each item had no remaining references (grep across `app_program`, `lib`, `tools` and the build files). After each removal the build and every test still passed.
+
+- **Encoder-calibration logger:** `bc_enc.c` and `bc_enc.h`, never called (`bc_enc_run` had no caller). Also removed: the `BC_CAL_ENCODER_ONLY` flag, the host harness `barcode_scanning/host/test_encoder.c`, and its three orphan host headers. The linker had already discarded this code.
+- **Unused functions:**
+  - `console_diag_level()`;
+  - `ir_shared_lock()` / `ir_shared_unlock()`;
+  - `b1_runtime_store()` (and `buddy1_integration.h`);
+  - `b1_mqtt_queue_drops()`;
+  - `g7_nav_note_decoded()`, a no-op, and its one call.
+- **Write-only state:** in `mqtt_utk.c`, `g_tx_drops` and `g_rx_drops`, `g_last_tx_ms` and `g_awaiting_ping` (nothing ever read them), and the unused `B1_KEEPALIVE_MS`.
+- **Unused macros:** `BC_CODE_LETTER_MASK`, `OBS_ALIGN_TOL_DDEG` and `CONSOLE_DIAG_READY`.
+
+## Behaviour verification
+
+The tested firmware had UF2 SHA-1 `d417c7f4…cd72`, built with the CZ2128Delta config. Every batch was rebuilt and its hash compared with the previous build.
+
+**Identical UF2 (no generated code changed):**
+- layout and braces;
+- the bit-field types (the record sizes in `docs/min-bits/record_sizes.csv` are also unchanged);
+- the `int32_t` interfaces;
+- the type and identifier renames;
+- the named constants;
+- the comments.
+
+**Changed UF2:** each change was checked by comparing the per-function code sizes in the ELF and disassembling the changed functions.
+
+| Step | UF2 | What changed in the generated code |
+|---|---|---|
+| `mqtt_utk.c` rewrite | `44b2b859` | Only `mqtt_utk.c` functions changed:<br>• `discard` and `tcp_error` now share `reset_session`;<br>• `process_packet` is inlined into `tcp_recv_cb`.<br>`.text` is 112 B smaller; `.data` and `.bss` are unchanged. |
+| Macros to inline functions | `911877d7` | `run_scan` now calls `servo_*_limit_deg()` (a pure getter) once instead of twice. In `obstacle_bypass_step` the operands of a float addition swapped order, which gives the same result because IEEE addition is commutative. |
+| Dead code | `3e5a39a8` | Only the removed write-only counters and the no-op call went: `b1_mqtt_submit`, `mqtt_write`, `tcp_recv_cb` and `g7_telemetry_poll` got smaller. |
+
+Final clean build (all 163 objects recompiled): `3e5a39a8a3ad4efff2dc5d379df50e959ba83866`.
+- Host tests: 162 PASS lines with `HOST PASS`.
+- Dashboard tests: 107/107.
+
+## Remaining deviations
+
+| # | Rule | Where | Reason |
+|---|---|---|---|
+| D1 | Signed bit-fields | `int32_t x:N` fields holding signed values (sides −1/0/+1, tilt, speed, pitch ×10) | The values are signed. Making the fields unsigned would need explicit sign extension at every read, which changes the arithmetic. |
+| D2 | Macro instead of an inline function | `B1_SOURCE_INGEST` (`buddy1.c`) | It generates whole functions with token pasting, so no function can replace it. Its expression parameters are parenthesised. |
+| D3 | Macro instead of an inline function | `SERVO_MIN_OF` (`servo.c`) | It is used in constant expressions (`SERVO_LEFT_DEG` / `SERVO_RIGHT_DEG`). Fully parenthesised. |
+| D4 | 5.2 plain types | `int main()` in host tests; the `tm_netlog_take()` prototype and call in `mqtt_utk.c` | `main` must return `int`. `tm_netlog_take()` is the lib/libtm USB-console API, so its types are fixed there. |
+| D5 | `const` pointer parameters | Remaining non-`const` pointer parameters | A script listed every pointer parameter that is only read. All of them were already `const`. The rest are output or in/out parameters, or must match RTOS, lwIP or callback signatures (`b1_lock_fn_t`, task entry functions). |
+| D6 | No magic numbers | Lookup-table data (`g_sine_milli`, `g_phi`, `g_scales`, `g_anchor_percent`, `g_offsets`), and `0`, `1` and `2` used for halving or doubling | Table data stays as data; the table sizes are named. |
+| D7 | Unused definitions | `B1_BAD_MAPPING`, `B1_PENDING`, `OBS_FAULT_LINE_LOST`, `OBS_FAULT_SERVO` | They document wire result codes and fault bits the dashboard decodes, even though the firmware never sends them today. |
+| D8 | Build variants | `G7_LIVE_CONTROL=0` (legacy, non-live) | It already failed to compile before this work (`line_heading_publish` undeclared). It is not the configuration that is flashed. |
+| D9 | Build variants | `make TEST=1` on-target self-tests (`test_*.c`) | Not built or run by the scripts. Kept as tests. |
+| D10 | Scope | Vendor files in `lib/`, `kernel/` and `device/` | Out of scope. The team's two-line rename of the boot-stage globals in `lib/libtm/.../usb_console.c` is the only edit there. |
+| D11 | Evidence | `docs/min-bits/MINIMUM_BITS.md` instance totals (103,594 → 69,598 B) | The per-record table and the CSVs were regenerated from the final ELF. The instance-weighted RAM totals were not recomputed. |

@@ -19,13 +19,13 @@ typedef struct
      * readings are 0..3999 mm or 4000 mm for no echo (12 bits). The
      * scanner task builds this local record; no ISR or task shares it.
      * Values outside these ranges must be normalized before assignment. */
-    signed int angle_deg:8;
-    unsigned int range_mm:12;
+    int32_t    angle_deg:8;
+    uint32_t     range_mm:12;
     /** Corner band only: the nearest echo heard on a single ping, which no
      *  second ping confirmed (range_mm leaves it out), 0 if none. 0..3999,
      *  12 bits. The planner trusts it only when the next corner bearing
      *  heard the same range. Zero it when building points by hand. */
-    unsigned int lone_mm:12;
+    uint32_t     lone_mm:12;
 } scan_plan_point_t;
 
 /** @brief A bypass plan packed into two words, with distances in cm. */
@@ -47,18 +47,18 @@ typedef struct
     /* Bearings are -70..70 degrees (8 signed bits). The edge offset is
      * clamped to -2048..2047 mm (12 signed bits); ranges are clamped to
      * 0..4095 mm (12 bits). Only the scanner task uses this local record. */
-    signed int   edge_deg:8;    /**< Outermost object sample on this side. */
-    signed int   edge_mm:12;    /**< Edge offset outward from the line. */
-    unsigned int b_seen:1;      /**< The edge is inside the sweep. */
-    unsigned int reason:2;      /**< SCAN_PLAN_NEED_*. */
-    unsigned int b_blocked:1;   /**< Another object sits in the corridor. */
-    signed int   blocker_deg:8; /**< Nearest blocking sample, if blocked. */
-    unsigned int blocker_mm:12;
-    unsigned int open_mm:12;    /**< Nearest echo beyond the edge. */
-    unsigned int angle_index:2; /**< Turn-out angle index for this side. */
-    unsigned int compare_mm:12; /**< Need before the MIN_LATERAL floor. */
-    unsigned int b_corner:1;    /**< A corner echo was found this side. */
-    unsigned int corner_mm:12;  /**< Its sideways offset from the line. */
+    int32_t      edge_deg:8;    /**< Outermost object sample on this side. */
+    int32_t      edge_mm:12;    /**< Edge offset outward from the line. */
+    uint32_t     b_seen:1;      /**< The edge is inside the sweep. */
+    uint32_t     reason:2;      /**< SCAN_PLAN_NEED_*. */
+    uint32_t     b_blocked:1;   /**< Another object sits in the corridor. */
+    int32_t      blocker_deg:8; /**< Nearest blocking sample, if blocked. */
+    uint32_t     blocker_mm:12;
+    uint32_t     open_mm:12;    /**< Nearest echo beyond the edge. */
+    uint32_t     angle_index:2; /**< Turn-out angle index for this side. */
+    uint32_t     compare_mm:12; /**< Need before the MIN_LATERAL floor. */
+    uint32_t     b_corner:1;    /**< A corner echo was found this side. */
+    uint32_t     corner_mm:12;  /**< Its sideways offset from the line. */
 } scan_plan_side_info_t;
 
 /** @brief How the bypass side was chosen, for the scanner task's log. */
@@ -67,23 +67,23 @@ typedef struct
     /* Sideways move each side needs, 0..4095 mm (12 bits); larger values
      * are clamped to 4095 before assignment. Flags are single bits. Only
      * the scanner task writes and reads this local record. */
-    unsigned int left_need_mm:12;
-    unsigned int right_need_mm:12;
-    unsigned int b_left_ok:1;  /**< Left corridor is clear. */
-    unsigned int b_right_ok:1; /**< Right corridor is clear. */
-    unsigned int b_tie:1;      /**< About centred: room past it decided. */
-    unsigned int b_object:1;   /**< An object was found ahead. */
+    uint32_t     left_need_mm:12;
+    uint32_t     right_need_mm:12;
+    uint32_t     b_left_ok:1;  /**< Left corridor is clear. */
+    uint32_t     b_right_ok:1; /**< Right corridor is clear. */
+    uint32_t     b_tie:1;      /**< About centred: room past it decided. */
+    uint32_t     b_object:1;   /**< An object was found ahead. */
     /* Object bearings -70..70 degrees; depth and width 0..4095 mm. */
-    signed int   low_deg:8;    /**< Rightmost object sample. */
-    signed int   high_deg:8;   /**< Leftmost object sample. */
-    unsigned int near_mm:12;   /**< Nearest face, forward of the sensor. */
-    unsigned int width_mm:12;  /**< Edge to edge across the line. */
-    unsigned int b_centre:1;   /**< centre_mm is from corner echoes. */
-    signed int   centre_mm:12; /**< Object centre off the line, + = left. */
-    signed int   tilt_x2:7;    /**< Face normal, half degrees, + = left. */
-    unsigned int front_width_mm:12; /**< Projected width, 0 if unresolved. */
-    unsigned int front_left_mm:12;  /**< Width on the left of sonar zero. */
-    unsigned int b_front_estimate:1; /**< At least one edge is inferred. */
+    int32_t      low_deg:8;    /**< Rightmost object sample. */
+    int32_t      high_deg:8;   /**< Leftmost object sample. */
+    uint32_t     near_mm:12;   /**< Nearest face, forward of the sensor. */
+    uint32_t     width_mm:12;  /**< Edge to edge across the line. */
+    uint32_t     b_centre:1;   /**< centre_mm is from corner echoes. */
+    int32_t      centre_mm:12; /**< Object centre off the line, + = left. */
+    int32_t      tilt_x2:7;    /**< Face normal, half degrees, + = left. */
+    uint32_t     front_width_mm:12; /**< Projected width, 0 if unresolved. */
+    uint32_t     front_left_mm:12;  /**< Width on the left of sonar zero. */
+    uint32_t     b_front_estimate:1; /**< At least one edge is inferred. */
     scan_plan_side_info_t left;
     scan_plan_side_info_t right;
 } scan_plan_sides_t;

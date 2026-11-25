@@ -1,9 +1,11 @@
 /** @file app_config.h
- * @brief Preserve the tested scheduling and startup configuration.
+ * @brief Build-time tunables: task scheduling, barcode capture, junction
+ *        navigation, lift stop and downhill limits.
  */
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
 
+/* FreeRTOS stack size for each application task, in bytes. */
 #define APP_TASK_STACK_BYTES 4096
 /* Barcode data-collection build (G7_BARCODE_TEST=1): no motor output and
  * no obstacle task, so the robot is pushed by hand; every capture dumps
@@ -14,6 +16,7 @@
 #define APP_MOTOR_MOVEMENT_ENABLED 0
 #define APP_BARCODE_WAVE_DUMP_ENABLED 1
 #endif
+/* FreeRTOS task priorities (higher runs first). */
 #define APP_IR_PRIORITY 5
 #define APP_CONTROLLER_PRIORITY 6
 #define APP_IMU_PRIORITY 7
@@ -21,20 +24,22 @@
 #define APP_OBSTACLE_ENABLED 1
 #endif
 #define APP_OBSTACLE_PRIORITY 6
+/* Delay before the tasks start, in ms, so USB serial can attach. */
 #define APP_STARTUP_DELAY_MSEC 2000
-/* Live control: the controller waits at most this long each period for the
- * STOP/START mailbox, which the telemetry task holds briefly. If it still
- * cannot read it this many periods in a row, it stops as a fail-safe. One
- * busy period only delays a STOP by one period (50 ms). */
+/* Live control: the controller waits at most this long (ms) each period for
+ * the STOP/START mailbox, which the telemetry task holds briefly. After
+ * this many consecutive missed periods it stops as a fail-safe. One busy
+ * period only delays a STOP by one period (50 ms). */
 #define APP_REMOTE_LOCK_WAIT_MSEC 2
 #define APP_REMOTE_LOCK_MISS_LIMIT 4
+/* Controller period and the oldest IR reading it accepts, in ms. */
 #define APP_CONTROLLER_PERIOD_MSEC 50U
 #define APP_IR_MAX_AGE_MSEC 200U
 /* The IR task prints "[IR] Task stalled N ms" when its 1 ms loop goes this
  * long without running: tells CPU starvation apart from other stale causes. */
 #define APP_IR_STALL_REPORT_MSEC 100U
-/* Faster than the controller, so each decision sees a recent reading and a
- * brief touch of the line edge is caught for the controller's latches.
+/* IR sample period, in ms. Faster than the controller, so each decision
+ * sees a recent reading and a brief touch of the line edge is latched.
  */
 #define APP_IR_PERIOD_MSEC 1
 /* Barcode AO -> GP27/ADC1, 0..3.3 V only. Left/right remain digital.
@@ -44,8 +49,9 @@
 #ifndef APP_BARCODE_ANALOG_ENABLED
 #define APP_BARCODE_ANALOG_ENABLED 1
 #endif
-/* Recorded F trace: 1200 merged white gaps; 2200 recovered *F* offline.
- * Trial boundaries 2150/2250; verify across print sizes and orientations.
+/* Black/white ADC threshold and hysteresis, in ADC codes. 1200 merges
+ * white gaps; 2150..2250 is the working band. Verify across print sizes
+ * and orientations. BLACK_HIGH = 1: black reads as the higher code.
  */
 #define APP_BARCODE_ADC_THRESHOLD 2200U
 #define APP_BARCODE_ADC_HYSTERESIS 50U
@@ -55,15 +61,14 @@
  * Set to 0 to compare against the unfiltered analog input.
  */
 #define APP_BARCODE_EDGE_FILTER_ENABLED 1
-/* Experimental waveform decoder. Legacy decoder remains the comparison. */
+/* 1 = buffered waveform decoder; 0 = edge-by-edge decoder only. */
 #ifndef APP_BARCODE_BUFFERED_ENABLED
 #define APP_BARCODE_BUFFERED_ENABLED 1
 #endif
 /* White reference for the barcode sensor:
- *   0 = re-learn white after every barcode (recommended). The logged track
- *       is not one white: learned white varied ~180..370 ADC within a run,
- *       and a fixed reference made floor noise count as bars ("many_bars"
- *       on every pass, 18 Nov runs).
+ *   0 = re-learn white after every barcode (recommended). The track is not
+ *       one white (learned white varies ~180..370 ADC within a run), and a
+ *       fixed reference makes floor noise count as bars.
  *   1 = learn white once, at the first arming after boot, and reuse it
  *       only while a rearm's fresh reading is within the startup sigma + 8
  *       of it (well inside the 3 sigma + 8 capture trigger); otherwise that
@@ -74,45 +79,45 @@
 #define APP_BARCODE_KEEP_STARTUP_WHITE 0
 #endif
 /* Start a capture only when the barcode sensor reads at least this many
- * ADC counts darker than the learned white (and the 3 sigma + 8 noise
- * margin). Logged runs: every decoded barcode rose >= 1364 above white,
- * while 184 of 338 failed captures (shadows, floor patches) never rose
- * more than 600. Samples before the trigger are kept (512-sample
- * pretrigger), so the first bar's leading edge is not lost. 0 = previous
- * behaviour (trigger at 3 sigma + 8). */
+ * ADC codes darker than the learned white (and the 3 sigma + 8 noise
+ * margin). Real barcodes rise >= ~1360 above white; shadows and floor
+ * patches stay below ~600. Samples before the trigger are kept (512-sample
+ * pretrigger), so the first bar's leading edge is not lost. 0 = trigger
+ * at 3 sigma + 8 only. */
 #ifndef APP_BARCODE_TRIGGER_RISE
 #define APP_BARCODE_TRIGGER_RISE 600U
 #endif
 /* Drop a capture early, without decoding, when its dark part ends (white
  * for the end-of-barcode gap) before spanning this many encoder units: a
  * tape, line or mark crossing, not a barcode. The robot stays armed and
- * returns to cruise speed at once. Logged: the shortest decoded barcode
- * was 1374 units; 1000 drops 234 of 338 failed captures. 0 = off. */
+ * returns to cruise speed at once. The shortest barcode spans ~1370
+ * units. 0 = off. */
 #ifndef APP_BARCODE_MIN_DARK_UNITS
 #define APP_BARCODE_MIN_DARK_UNITS 1000U
 #endif
 /* 1 = no new capture while navigation centres on, pivots at or reacquires
  * the line after a junction: the barcode sensor sweeps across the track
- * lines then. 0 = capture there too (previous behaviour). */
+ * lines then. 0 = capture there too. */
 #ifndef APP_BARCODE_SUPPRESS_IN_TURNS
 #define APP_BARCODE_SUPPRESS_IN_TURNS 1
 #endif
 /* Barcodes are read at the driving speed (MOTION_TARGET_RPM in
  * modules/motion/motion.c): a capture does not slow or stop the robot.
  * The decoder was tuned at 15 RPM; reading uses encoder distance, so the
- * speed only matters through vibration and sensor height. */
+ * speed only matters through vibration and sensor height.
+ * WAVE_MIN_VOTES: agreeing reads needed; WAVE_MAX_FIT_PERCENT: largest
+ * accepted model-fit error, in percent. */
 #define APP_BARCODE_WAVE_MIN_VOTES 3U
 #define APP_BARCODE_WAVE_MAX_FIT_PERCENT 30U
-/* Wide-bar layout + blurred-model decoder (bc_layout.c) decides. Tuned on
- * saved passes.
- * The older segmentation and template decoders then do not run: together
- * they took ~5 s per pass and read small prints poorly.
+/* 1 = the wide-bar layout + blurred-model decoder (bc_layout.c) decides,
+ * and the slower segmentation and template decoders (~5 s per pass, poor
+ * on small prints) do not run.
  */
 #ifndef APP_BARCODE_LAYOUT_ENABLED
 #define APP_BARCODE_LAYOUT_ENABLED 1
 #endif
-/* Experimental analog templates, all A-Z and both orientations. Scores
- * use white-noise units; the margin is a heuristic, not a probability.
+/* Analog templates, all A-Z and both orientations. Scores use white-noise
+ * units x100; the margin is a heuristic, not a probability.
  */
 #ifndef APP_BARCODE_TEMPLATE_ENABLED
 #if APP_BARCODE_LAYOUT_ENABLED
@@ -135,8 +140,8 @@
  */
 #ifndef APP_BARCODE_WAVE_DUMP_ENABLED
 #ifdef B1_LIVE_COMMANDS
-/* USB raw waveform dumps are bench diagnostics, not live operation.
- * They can block a captured scan for tens of seconds and spam CDC. */
+/* Off in live builds: a dump can block a scan for tens of seconds and
+ * floods USB CDC. */
 #define APP_BARCODE_WAVE_DUMP_ENABLED 0
 #else
 #define APP_BARCODE_WAVE_DUMP_ENABLED 1
@@ -149,38 +154,38 @@
 #ifndef APP_BARCODE_TRACE_ENABLED
 #define APP_BARCODE_TRACE_ENABLED 0
 #endif
-/* Preserve active movement from the incoming drive-test profile. */
+/* 1 = drive the motors; 0 = motors held off (hand-pushed testing). */
 #ifndef APP_MOTOR_MOVEMENT_ENABLED
 #define APP_MOTOR_MOVEMENT_ENABLED 1
 #endif
 
 /* At a junction: readings ignored while coasting, then how long a line must
- * be seen after being placed back before following resumes. A lift during
- * the hold is not seen, so the hold is kept just long enough to stop.
+ * be seen after being placed back before following resumes, in ms. A lift
+ * during the hold is not seen, so the hold is just long enough to stop.
  */
 #define APP_JUNCTION_HOLD_MSEC 250U
 #define APP_JUNCTION_SETTLE_MSEC 150U
-/* Legacy controller: stop for an ambiguous both-black junction.
+/* Basic controller: stop for an ambiguous both-black junction.
  * The live-navigation controller uses confirmed readings and a pending
  * mapped barcode, and stops safely on an unmapped/ambiguous crossing.
  */
 #define APP_JUNCTION_STOP_ENABLED 0
-/* AUTONOMOUS BENCH DEFAULTS — NOT floor-calibrated turning geometry.
- * Two digital IR sensors cannot distinguish all lifted/black/junction
- * cases; require confirmed black plus a pending mapped barcode action. */
+/* Bench defaults, not floor-calibrated turning geometry, in ms. Two
+ * digital IR sensors cannot distinguish all lifted/black/junction cases;
+ * require confirmed black plus a pending mapped barcode action. */
 #define APP_NAV_JUNCTION_CONFIRM_MSEC 150U
 #define APP_NAV_MIN_TURN_MSEC 250U
 /* Time bound on a pivot; a U-turn takes ~2.6 s at MOTION_PIVOT_COUNTS. */
 #define APP_NAV_MAX_TURN_MSEC 6000U
 #define APP_NAV_MAX_CROSS_MSEC 1800U
+/* Least travel (encoder counts) between a barcode and its junction. */
 #define APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS 120U
 /* Junction = both line sensors black over this much forward travel, with
- * no white gap seen by the IR sampler. The crossing bar is tape: logged
- * crossings were both-black for only ~15 mm (~73 counts), so this must
- * stay below that. Require 7 mm so a brief both-black reading on a curve
- * is less likely to confirm at 35 RPM. Set to 5 for the previous threshold.
- * Counts: 1056 per rev over a 219.8 mm circumference (70 mm wheel), about
- * 4.8 counts per mm; 7 mm = 33 counts. */
+ * no white gap seen by the IR sampler. The crossing bar is tape and reads
+ * both-black for only ~15 mm (~73 counts), so this must stay below that;
+ * 7 mm keeps a brief both-black reading on a curve from confirming at
+ * 35 RPM. Counts: 1056 per rev over a 219.8 mm circumference (70 mm
+ * wheel), about 4.8 counts per mm; 7 mm = 33 counts. */
 #ifndef APP_NAV_JUNCTION_CONFIRM_MM
 #define APP_NAV_JUNCTION_CONFIRM_MM 7U
 #endif
@@ -195,16 +200,12 @@
 #define APP_IR_BOTH_GAP_SAMPLES 2U
 /* Print a [JCT] line per 50 ms period in which either line sensor saw
  * black: sample counts, gap flag, run length and navigation decision.
- * Tuning only: ~20 lines/s of USB output, and heavy console output is
- * when the SMP port's spurious E_CTX on the IR mutex has been seen. */
+ * Tuning only: ~20 lines/s of USB output, and heavy console output can
+ * trigger the SMP port's spurious E_CTX on the IR mutex. */
 #define APP_JUNCTION_DEBUG_LOG 0
 /* Short-brake the motors (both H-bridge inputs high) for this long when
  * navigation stops at a junction, then release to coast. 0 = coast only. */
 #define APP_JUNCTION_BRAKE_MSEC 200U
-/* Junction reached while the barcode before it is still decoding (decodes
- * take ~2-3 s): stop and wait up to this long for the letter, then do its
- * mapped action. No letter (failed decode) goes straight on
- * (APP_NAV_STRAIGHT_DEFAULT) or repeats the remembered action. */
 /* JUNCTION ACTION MODE
  *   0 = single action: a barcode's action is done at the next junction
  *       only, then discarded; a later junction with no new barcode goes
@@ -213,14 +214,14 @@
  *   1 = repeat action: the action is done at EVERY junction until another
  *       barcode replaces it. It survives an obstacle bypass; STOP (or MQTT
  *       loss) clears it, so each START begins with no action queued.
- * In both modes a junction reached while a barcode is still decoding waits
- * for that letter; in repeat mode a failed decode falls back to the
- * remembered action instead of a safety stop. */
+ * In both modes a junction reached while a barcode is still decoding
+ * (~2-3 s) waits for that letter; in repeat mode a failed decode falls
+ * back to the remembered action instead of a safety stop. */
 #define APP_NAV_REPEAT_ACTION 0U
 /* Junction with no usable action (no barcode read since START, or a decode
  * that gave no letter with nothing remembered):
  *   1 = drive straight across it and carry on line following.
- *   0 = navigation safety stop (the previous behaviour).
+ *   0 = navigation safety stop.
  * A junction confirmed too soon after a queued barcode
  * (APP_NAV_BARCODE_TO_JUNCTION_MIN_COUNTS) is set by
  * APP_NAV_SCAN_FAIL_STOP below: crossed straight (0) or a stop (1). */
@@ -233,11 +234,13 @@
  *   - the barcode handoff to navigation failing to start.
  *   0 = never stop: ignore the barcode (cross that junction straight) and
  *       carry on line following; a failed handoff is retried every period.
- *   1 = navigation safety stop (the previous behaviour): STOP, then START.
+ *   1 = navigation safety stop: STOP, then START.
  * A barcode that could not be decoded never stops the robot. */
 #ifndef APP_NAV_SCAN_FAIL_STOP
 #define APP_NAV_SCAN_FAIL_STOP 0
 #endif
+/* Longest wait at a junction for a barcode still decoding, and the extra
+ * time allowed once the decode has ended, in ms. */
 #define APP_NAV_DECODE_WAIT_MSEC 8000U
 #define APP_NAV_DECODE_GRACE_MSEC 1500U
 /* Junction turns (left, right, U-turn) pivot on the spot with the wheel
@@ -254,13 +257,14 @@
 /* 90 degree pivot: each wheel rolls a quarter circle of the track's
  * radius, so both together roll (pi/2) x track. Only gates when the line
  * may end the turn, so some slip is tolerated. EFFECTIVE track, not the
- * 110 mm measured one: pivoting scrubs the wheels, and a logged U-turn
- * took 2107 counts for ~185-200 degrees by the compass (~20 % more than
- * 110 mm predicts). Calibrate from "[NAV] Turn ... counts" log lines:
+ * 110 mm measured one: pivoting scrubs the wheels, and a U-turn takes
+ * ~20 % more counts than 110 mm predicts. Calibrate from
+ * "[NAV] Turn ... counts" log lines:
  * track = 130 x (counts for 180 degrees / 1960). */
 #define APP_NAV_TRACK_MM 130U
 #define APP_NAV_TURN90_COUNTS \
     ((((APP_NAV_TRACK_MM * 1571U) / 1000U) * 1056U * 10U) / 2198U)
+/* Wait for a USB serial host at boot: attempts x period, then settle (ms). */
 #define APP_USB_WAIT_ATTEMPTS 200
 #define APP_USB_WAIT_PERIOD_MSEC 100
 #define APP_USB_SETTLE_MSEC 500
@@ -310,7 +314,7 @@
  */
 #define APP_IMU_DEBUG_LOG 0
 
-/* V13 downhill governor: 0 means the Pico pitch sign is NOT calibrated.
+/* Downhill governor: 0 means the Pico pitch sign is NOT calibrated.
  * For a verified nose-down ramp, set +1 when measured pitch is positive,
  * -1 when negative. Do not guess the sign from a drawing.
  * Only enable after stationary pitch checks on the real mounted sensor.
@@ -323,14 +327,15 @@
      (APP_DOWNHILL_NOSE_DOWN_SIGN != 1))
 #error APP_DOWNHILL_NOSE_DOWN_SIGN must be -1, 0, or 1
 #endif
-/* Preliminary 65% target. Tune only with supported wheels / ramp trials. */
+/* Downhill speed, in percent of the target. Preliminary; tune only with
+ * supported wheels / ramp trials. */
 #define APP_DOWNHILL_REDUCED_PERCENT 65U
-/* Initial runaway guard, NOT a calibrated descent speed. Normal RPM
+/* Runaway guard in RPM, NOT a calibrated descent speed. Normal RPM
  * feedback errors reduce duty through PI without causing STOP/ON pulsing.
  * Only sustained gross overspeed raises a latched safety STOP. */
 #define APP_DOWNHILL_RUNAWAY_RPM 40.0f
 
-/* Zero drives open loop, still logging RPM; use it to calibrate the target. */
+/* 0 drives open loop, still logging RPM; use it to calibrate the target. */
 #define APP_SPEED_CONTROL_ENABLED 1
 
 /* One CSV line per control period, for tuning: paste into a spreadsheet. */

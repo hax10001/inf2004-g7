@@ -1,5 +1,5 @@
 /** @file test_live.c
- * @brief Register-model regression tests of actual barcode integration.
+ * @brief Register-model tests of the real barcode integration path.
  */
 #include "test_live.h"
 
@@ -28,12 +28,12 @@ static int32_t g_right;
 static void (*g_handler)(UINT);
 static ER g_create_error = 7;
 static ER g_start_error = E_OK;
-static int g_fail;
-static int g_checks;
-static int g_detected;
-static int g_rejected;
-static int g_measure_messages;
-static int g_edges;
+static int32_t g_fail;
+static int32_t g_checks;
+static int32_t g_detected;
+static int32_t g_rejected;
+static int32_t g_measure_messages;
+static int32_t g_edges;
 static uint8_t g_batch_capture;
 static uint32_t g_batch_count;
 #ifdef BC_TEST_DRIVE_CAL
@@ -51,6 +51,7 @@ static void check (uint8_t ok, char const * p_label)
     }
 }
 
+/** @brief Host stub for tk_cre_mtx() (test double). */
 ID tk_cre_mtx (T_CMTX const * p_config)
 {
     (void)p_config;
@@ -59,6 +60,7 @@ ID tk_cre_mtx (T_CMTX const * p_config)
     return E_OBJ;
 }
 
+/** @brief Host stub for tk_cre_sem() (test double). */
 ID tk_cre_sem (T_CSEM const * p_config)
 {
     check((1 == p_config->isemcnt) && (1 == p_config->maxsem) &&
@@ -66,6 +68,7 @@ ID tk_cre_sem (T_CSEM const * p_config)
     return 7;
 }
 
+/** @brief Host stub for tk_wai_sem() (test double). */
 ER tk_wai_sem (ID semaphore, INT count, TMO timeout)
 {
     (void)semaphore;
@@ -74,6 +77,7 @@ ER tk_wai_sem (ID semaphore, INT count, TMO timeout)
     return E_OK;
 }
 
+/** @brief Host stub for tk_sig_sem() (test double). */
 ER tk_sig_sem (ID semaphore, INT count)
 {
     (void)semaphore;
@@ -81,6 +85,7 @@ ER tk_sig_sem (ID semaphore, INT count)
     return E_OK;
 }
 
+/** @brief Host stub for tasks_create() (test double). */
 ID tasks_create (tasks_entry_t entry, PRI priority)
 {
     (void)entry;
@@ -88,6 +93,7 @@ ID tasks_create (tasks_entry_t entry, PRI priority)
     return g_create_error;
 }
 
+/** @brief Host stub for tk_sta_tsk() (test double). */
 ER tk_sta_tsk (ID id, INT code)
 {
     (void)id;
@@ -95,17 +101,20 @@ ER tk_sta_tsk (ID id, INT code)
     return g_start_error;
 }
 
+/** @brief Host stub for tk_dly_tsk() (test double). */
 ER tk_dly_tsk (UINT delay)
 {
     (void)delay;
     return E_OK;
 }
 
+/** @brief Host stub for console_state() (test double). */
 UW console_state (void)
 {
     return 3U;
 }
 
+/** @brief Host stub for tm_printf() (test double). */
 INT tm_printf (UB const * p_format, ...)
 {
     va_list args;
@@ -120,17 +129,20 @@ INT tm_printf (UB const * p_format, ...)
     return (INT)strlen(g_message);
 }
 
+/** @brief Host stub for encoder_read() (test double). */
 void encoder_read (encoder_wheel_t wheel, encoder_sample_t * p_sample)
 {
     p_sample->count = (ENCODER_LEFT == wheel) ? g_left : g_right;
     p_sample->edge_usec = g_now;
 }
 
+/** @brief Host stub for encoder_now_usec() (test double). */
 uint32_t encoder_now_usec (void)
 {
     return g_now;
 }
 
+/** @brief Register-read double for the timer and GPIO model. */
 UW in_w (UW address)
 {
     if (TIMER_INTE == address)
@@ -149,6 +161,7 @@ UW in_w (UW address)
     return 0U;
 }
 
+/** @brief Register-write double for the timer alarm model. */
 void out_w (UW address, UW value)
 {
     if (TIMER_ALARM2 == address)
@@ -167,6 +180,7 @@ void out_w (UW address, UW value)
     }
 }
 
+/** @brief Host stub for tk_def_int() (test double). */
 ER tk_def_int (UINT number, T_DINT const * p_handler)
 {
     (void)number;
@@ -174,17 +188,20 @@ ER tk_def_int (UINT number, T_DINT const * p_handler)
     return E_OK;
 }
 
+/** @brief Host stub for ClearInt() (test double). */
 void ClearInt (UINT number)
 {
     (void)number;
 }
 
+/** @brief Host stub for EnableInt() (test double). */
 void EnableInt (UINT number, INT priority)
 {
     (void)number;
     (void)priority;
 }
 
+/** @brief Fire the alarm ISR once with the given level and encoders. */
 static void capture (uint8_t raw, int32_t left, int32_t right)
 {
     g_now = g_alarm;
@@ -201,6 +218,7 @@ static void capture (uint8_t raw, int32_t left, int32_t right)
     }
 }
 
+/** @brief Drive a complete *F* frame through the live capture path. */
 static void frame_f (void)
 {
     uint32_t widths[29] = {0};
@@ -252,7 +270,8 @@ static void frame_f (void)
     }
 }
 
-int test_live_run (char const * p_case)
+/** @brief Run the named live-path test case. */
+int32_t test_live_run(char const * p_case)
 {
     bc_port_result_t result = {0};
 #ifdef BC_TEST_DRIVE_CAL
@@ -420,6 +439,7 @@ int test_live_run (char const * p_case)
     return g_fail;
 }
 
+/** @brief Test entry point: run every case and report. */
 int main (int argc, char ** pp_argv)
 {
     return (0 == test_live_run((argc > 1) ? pp_argv[1] : "scan")) ? 0 : 1;

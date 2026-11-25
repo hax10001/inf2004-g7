@@ -7,14 +7,14 @@
 #include <tk/tkernel.h>
 #include <stdint.h>
 
-/** @brief Run the tested robot state machine at its original period. */
+/** @brief Run the robot state machine every APP_CONTROLLER_PERIOD_MSEC. */
 void task_controller_task (INT start_code, void * p_context);
 #ifdef B1_LIVE_COMMANDS
-/** @brief Create controller command mutex before tasks are started. */
+/** @brief Create the remote-command mutex before tasks start. */
 ER g7_controller_remote_init (void);
-/** Last autonomous navigation event for compact MQTT mission stream. */
-void g7_controller_navigation_report(uint8_t *kind, uint8_t *value,
-                                     uint16_t *sequence);
+/** @brief Read the last navigation event for the MQTT mission stream. */
+void g7_controller_navigation_report(uint8_t *p_kind, uint8_t *p_value,
+                                     uint16_t *p_sequence);
 #endif
 
 #endif /* TASK_CONTROLLER_H */

@@ -54,12 +54,12 @@ typedef struct
     uint32_t start_units;
     uint32_t start_msec;
     uint32_t result_msec;
-    /* The scanner is one-task-owned; 3+5+1+4 bits replace four bytes.
+    /* The scanner is owned by one task; fields pack into 3+5+1+4 bits.
      * No ISR or second task writes these packed fields concurrently. */
-    unsigned char state:3;      /**< bc_scan_state_t, 0..5. */
-    unsigned char run_count:5;  /**< 0..29. */
-    unsigned char last_black:1; /**< 0 or 1. */
-    unsigned char error:4;      /**< BC_SCAN_ERROR_*, 0..8. */
+    uint8_t       state:3;      /**< bc_scan_state_t, 0..5. */
+    uint8_t       run_count:5;  /**< 0..29. */
+    uint8_t       last_black:1; /**< 0 or 1. */
+    uint8_t       error:4;      /**< BC_SCAN_ERROR_*, 0..8. */
 } bc_scan_t;
 
 /** @brief Initialize capture; return false for invalid configuration. */

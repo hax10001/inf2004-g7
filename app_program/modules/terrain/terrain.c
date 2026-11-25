@@ -7,13 +7,19 @@
 #include "app/app_config.h"
 #include "app/tasks.h"
 
+/* Highest even bit: the integer square root's first test bit. */
 #define TERRAIN_ROOT_START_BIT (1U << 30U)
+/* Square root: the test bit moves two places per result bit. */
+#define TERRAIN_ROOT_STEP_BITS 2U
+/* Half and full turn, degrees, to wrap an angle difference. */
+#define TERRAIN_HALF_TURN_DEG 180.0F
+#define TERRAIN_FULL_TURN_DEG 360.0F
 
 /* Initialise before tasks start; protect all subsequent shared access. */
 static ID volatile gh_calibration_mutex = 0;
 static ID volatile gh_snapshot_mutex = 0;
-static terrain_calibration volatile g_calibration = {0};
-static terrain_snapshot volatile g_snapshot = {0};
+static terrain_calibration_t volatile g_calibration = {0};
+static terrain_snapshot_t volatile g_snapshot = {0};
 /** @brief Compute an integer square root without the floating-point library. */
 static uint32_t integer_sqrt (uint32_t number);
 /** @brief Wrap an angle difference into -180..180 degrees. */
@@ -30,7 +36,6 @@ ER terrain_init(void)
         return E_OBJ;
     }
 
-    /* Create calibration mutex */
     ID h_calibration = tk_cre_mtx(&mutex_config);
 
     if (h_calibration <= E_OK)
@@ -40,7 +45,6 @@ ER terrain_init(void)
                    : h_calibration;
     }
 
-    /* Create snapshot mutex */
     ID h_snapshot = tk_cre_mtx(&mutex_config);
 
     if (h_snapshot <= E_OK)
@@ -55,9 +59,9 @@ ER terrain_init(void)
     gh_calibration_mutex = h_calibration;
     gh_snapshot_mutex = h_snapshot;
 
-    g_calibration = (terrain_calibration){0.0F, 0.0F, false};
+    g_calibration = (terrain_calibration_t){0.0F, 0.0F, false};
 
-    g_snapshot = (terrain_snapshot){0};
+    g_snapshot = (terrain_snapshot_t){0};
 
     return E_OK;
 }
@@ -68,7 +72,7 @@ ER terrain_start (void)
 
     if (h_task <= E_OK)
     {
-        /* Keep the original rejection of a zero task handle. */
+        /* A zero task handle is also a failure. */
         return (E_OK == h_task) ? E_OBJ : h_task;
     }
 
@@ -82,10 +86,7 @@ ER terrain_start (void)
 ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                  float *p_roll_deg, float *p_pitch_deg)
 {
-    /* Remember that the x,y,z needs to be remap */
-    /* robotX = -Y */
-    /* robotY = X */
-    /* robotZ = Z */
+    /* Sensor to robot axes: robot X = -Y, robot Y = X, robot Z = Z. */
     if (!tilt_math_angles(-(axis_y), axis_x, axis_z, p_roll_deg, p_pitch_deg))
     {
         return E_PAR;
@@ -96,8 +97,7 @@ ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
 
 ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z)
 {
-    terrain_calibration reference = {0.0F, 0.0F, false};
-    /* Uses pointers to avoid unnecessary copies of the struct. */
+    terrain_calibration_t reference = {0.0F, 0.0F, false};
     ER error = terrain_tilt(axis_x, axis_y, axis_z,
                             &reference.roll_zero_deg,
                             &reference.pitch_zero_deg);
@@ -195,7 +195,7 @@ ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
         return error;
     }
 
-    terrain_calibration reference = g_calibration;
+    terrain_calibration_t reference = g_calibration;
     error = tk_unl_mtx(gh_calibration_mutex);
 
     if (error < E_OK)
@@ -232,13 +232,13 @@ static float angle_difference (float current_deg, float reference_deg)
 {
     float difference = current_deg - reference_deg;
 
-    if (difference > 180.0F)
+    if (difference > TERRAIN_HALF_TURN_DEG)
     {
-        difference -= 360.0F;
+        difference -= TERRAIN_FULL_TURN_DEG;
     }
-    else if (difference < -180.0F)
+    else if (difference < -TERRAIN_HALF_TURN_DEG)
     {
-        difference += 360.0F;
+        difference += TERRAIN_FULL_TURN_DEG;
     }
     else
     {
@@ -255,7 +255,7 @@ static uint32_t integer_sqrt (uint32_t number)
 
     while (root_bit > number)
     {
-        root_bit >>= 2U;
+        root_bit >>= TERRAIN_ROOT_STEP_BITS;
     }
 
     while (0U != root_bit)
@@ -270,13 +270,13 @@ static uint32_t integer_sqrt (uint32_t number)
             result >>= 1U;
         }
 
-        root_bit >>= 2U;
+        root_bit >>= TERRAIN_ROOT_STEP_BITS;
     }
 
     return result;
 }
 
-ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot)
+ER terrain_publish_snapshot (terrain_snapshot_t const *p_snapshot)
 {
     if (NULL == p_snapshot)
     {
@@ -302,7 +302,7 @@ ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot)
     return tk_unl_mtx(gh_snapshot_mutex);
 }
 
-ER terrain_get_snapshot(terrain_snapshot *p_snapshot)
+ER terrain_get_snapshot(terrain_snapshot_t *p_snapshot)
 {
     if (NULL == p_snapshot)
     {
@@ -324,7 +324,6 @@ ER terrain_get_snapshot(terrain_snapshot *p_snapshot)
         return error;
     }
 
-    /* Critical section: copy shared snapshot */
     *p_snapshot = g_snapshot;
 
     return tk_unl_mtx(gh_snapshot_mutex);

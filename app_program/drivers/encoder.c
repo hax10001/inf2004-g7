@@ -21,10 +21,37 @@
 #define ENC_TICK_ENABLE (1U << 9)
 
 /* Each GPIO has four event bits; eight GPIOs share one 32-bit register. */
-#define ENC_BANK_OFFSET(pin) (((pin) / 8U) * 4U)
-#define ENC_EDGE_LOW(pin) (1U << ((((pin) % 8U) * 4U) + 2U))
-#define ENC_EDGE_HIGH(pin) (1U << ((((pin) % 8U) * 4U) + 3U))
-#define ENC_EDGES(pin) (ENC_EDGE_LOW(pin) | ENC_EDGE_HIGH(pin))
+#define ENC_PINS_PER_BANK 8U
+#define ENC_BITS_PER_PIN 4U
+#define ENC_BANK_BYTES 4U
+#define ENC_EDGE_LOW_BIT 2U
+#define ENC_EDGE_HIGH_BIT 3U
+
+/** @brief Byte offset of the interrupt register holding a GPIO. */
+static inline uint32_t enc_bank_offset (uint32_t pin)
+{
+    return (pin / ENC_PINS_PER_BANK) * ENC_BANK_BYTES;
+}
+
+/** @brief Falling-edge (level low) event bit of a GPIO. */
+static inline uint32_t enc_edge_low (uint32_t pin)
+{
+    return 1U << (((pin % ENC_PINS_PER_BANK) * ENC_BITS_PER_PIN) +
+                  ENC_EDGE_LOW_BIT);
+}
+
+/** @brief Rising-edge (level high) event bit of a GPIO. */
+static inline uint32_t enc_edge_high (uint32_t pin)
+{
+    return 1U << (((pin % ENC_PINS_PER_BANK) * ENC_BITS_PER_PIN) +
+                  ENC_EDGE_HIGH_BIT);
+}
+
+/** @brief Both edge event bits of a GPIO. */
+static inline uint32_t enc_edges (uint32_t pin)
+{
+    return enc_edge_low(pin) | enc_edge_high(pin);
+}
 
 typedef struct
 {
@@ -75,8 +102,8 @@ ER encoder_init (void)
 
         g_state[wheel].count     = 0;
         g_state[wheel].edge_usec = encoder_now_usec();
-        out_w(ENC_INTR_BASE + ENC_BANK_OFFSET(g_pins[wheel].a_pin),
-              ENC_EDGES(g_pins[wheel].a_pin));
+        out_w(ENC_INTR_BASE + enc_bank_offset(g_pins[wheel].a_pin),
+              enc_edges(g_pins[wheel].a_pin));
     }
 
     T_DINT const dint = {.intatr = TA_HLNG, .inthdr = (FP)encoder_isr};
@@ -98,8 +125,8 @@ ER encoder_init (void)
 
     for (uint32_t wheel = 0U; wheel < (uint32_t)ENCODER_WHEEL_COUNT; wheel++)
     {
-        set_w(inte_base + ENC_BANK_OFFSET(g_pins[wheel].a_pin),
-              ENC_EDGES(g_pins[wheel].a_pin));
+        set_w(inte_base + enc_bank_offset(g_pins[wheel].a_pin),
+              enc_edges(g_pins[wheel].a_pin));
     }
 
     ClearInt(ENC_IO_IRQ_BANK0);
@@ -150,8 +177,8 @@ static void encoder_isr (UINT intno)
     for (uint32_t wheel = 0U; wheel < (uint32_t)ENCODER_WHEEL_COUNT; wheel++)
     {
         UINT const a_pin  = g_pins[wheel].a_pin;
-        UW const   offset = ENC_BANK_OFFSET(a_pin);
-        UW const   edges  = in_w(g_ints_base + offset) & ENC_EDGES(a_pin);
+        UW const   offset = enc_bank_offset(a_pin);
+        UW const   edges  = in_w(g_ints_base + offset) & enc_edges(a_pin);
 
         if (0U != edges)
         {
@@ -162,12 +189,12 @@ static void encoder_isr (UINT intno)
             int32_t        delta = 0;
 
             /* Quadrature: A equal to B after the edge is one direction. */
-            if (0U != (edges & ENC_EDGE_HIGH(a_pin)))
+            if (0U != (edges & enc_edge_high(a_pin)))
             {
                 delta += (1U == b) ? 1 : -1;
             }
 
-            if (0U != (edges & ENC_EDGE_LOW(a_pin)))
+            if (0U != (edges & enc_edge_low(a_pin)))
             {
                 delta += (0U == b) ? 1 : -1;
             }

@@ -37,7 +37,7 @@ typedef struct { const char *name; float peak_mm, climb_mm; int real; } hump_t;
 static void sample(float roll_deg, float travel_mm, uint32_t *now,
                    bool *b_desc)
 {
-    terrain_snapshot s = {0};
+    terrain_snapshot_t s = {0};
     g_counts += (int32_t)lroundf(travel_mm / CLIMB_MM_PER_COUNT);
     s.roll_deg = roll_deg;
     s.b_valid = 1;
@@ -99,15 +99,30 @@ int main(void)
     for (size_t i = 0; i < sizeof humps / sizeof humps[0]; i++) {
         bool desc;
         int const kept = run(&humps[i], &desc);
-        if (humps[i].real ? (!kept || !desc) : (kept || desc)) {
+        /* HUMP_MIN_CLIMB_MM 0 (24 Nov): low-climb humps are recorded
+         * too, but still never reach the descending phase (3 mm gate). */
+        int const want_kept = humps[i].real ||
+                              (humps[i].climb_mm >= HUMP_MIN_CLIMB_MM);
+        if ((kept != want_kept) || (humps[i].real ? !desc : desc)) {
             printf("FAIL %s\n", humps[i].name);
             failed++;
         }
-        if (!humps[i].real) assert(g_discards == 1);
+        if (!humps[i].real) assert(g_discards == (want_kept ? 0 : 1));
+        if (kept) {
+            /* Reported height = larger of tilt and climb, less the
+             * 25 Nov calibration HUMP_HEIGHT_BIAS_MM, never below 0. */
+            float const raw = (humps[i].peak_mm > humps[i].climb_mm)
+                                  ? humps[i].peak_mm : humps[i].climb_mm;
+            float const want = (raw > HUMP_HEIGHT_BIAS_MM)
+                                   ? raw - HUMP_HEIGHT_BIAS_MM : 0.0F;
+            assert(fabsf((float)g_hump.last_peak_mm - want) <= 1.0F);
+        }
     }
     assert(0 == failed);
-    puts("PASS hump climb check: 5 real humps kept with slow-down, 11 "
-         "false ones discarded with no slow-down");
+    printf("PASS hump climb check (minimum climb %.1f mm): 5 real humps "
+           "kept with slow-down; low-climb ones %s, never slowed\n",
+           (double)HUMP_MIN_CLIMB_MM,
+           (HUMP_MIN_CLIMB_MM > 2.1F) ? "discarded" : "recorded");
     return 0;
 }
 /*** end of file ***/

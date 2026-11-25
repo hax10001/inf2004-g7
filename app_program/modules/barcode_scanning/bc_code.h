@@ -9,7 +9,10 @@
 
 #define BC_CODE_ELEMENTS 29U
 #define BC_CODE_LETTER_INVALID 31U
-#define BC_CODE_LETTER_MASK 0x1FU
+#define BC_CODE_LETTERS 26U         /* letters A..Z in the table */
+#define BC_CODE_SYMBOL_ELEMENTS 9U  /* bars and spaces in one symbol */
+#define BC_CODE_TOP_BIT 8U          /* mask bit of a symbol's first bar */
+#define BC_CODE_SYMBOLS 3U          /* symbols in *X* */
 
 /** Nine elements per symbol; a set bit denotes a wide element.
  * First bar is bit 8, last bar is bit 0.
@@ -24,10 +27,10 @@ typedef struct
 typedef struct
 {
     /* Decoder local/result-copy record: 5+2+1+1 bits, no shared RMW. */
-    unsigned char letter:5;  /**< 0..25, or 31 invalid. */
-    unsigned char quality:2; /**< 0 invalid, 1 marginal, 2 good, 3 strong. */
-    unsigned char reverse:1; /**< 1 when scanned backwards. */
-    unsigned char valid:1;   /**< Exactly 0 or 1. */
+    uint8_t       letter:5;  /**< 0..25, or 31 invalid. */
+    uint8_t       quality:2; /**< 0 invalid, 1 marginal, 2 good, 3 strong. */
+    uint8_t       reverse:1; /**< 1 when scanned backwards. */
+    uint8_t       valid:1;   /**< Exactly 0 or 1. */
 } bc_code_result_t;
 
 /** @brief Copy the Code 39 pattern for letter 0..25.

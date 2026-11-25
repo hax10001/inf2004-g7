@@ -22,10 +22,10 @@ typedef struct
      * This SPSC queue writes an entire record before publishing its
      * release-ordered index; the other core reads only after acquire.
      * The packed word is never concurrently modified by both cores. */
-    unsigned int adc_raw:12;    /**< 0..4095 raw ADC sample. */
-    unsigned int gpio_level:1; /**< Digital pin level, 0 or 1. */
-    unsigned int valid:1;      /**< Capture interval valid. */
-    unsigned int adc_valid:1;  /**< ADC conversion available. */
+    uint32_t     adc_raw:12;    /**< 0..4095 raw ADC sample. */
+    uint32_t     gpio_level:1; /**< Digital pin level, 0 or 1. */
+    uint32_t     valid:1;      /**< Capture interval valid. */
+    uint32_t     adc_valid:1;  /**< ADC conversion available. */
 } bc_fastq_sample_t;
 
 /** @brief Reset only before producer starts or after it stops. */

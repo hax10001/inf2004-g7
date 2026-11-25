@@ -46,7 +46,7 @@ void motion_downhill_sample(float p,float r,bool f,bool m)
 bool motion_downhill_faulted(void) {return false;}
 void motion_downhill_reset(void) {}
 void g7_nav_clear_decoded(void) {++g_decoded_clears;}
-int g7_nav_take_decoded(uint8_t *l,uint8_t *a,uint16_t *s)
+int32_t g7_nav_take_decoded(uint8_t *l,uint8_t *a,uint16_t *s)
 {(void)l;(void)a;(void)s;return 0;}
 void encoder_read(encoder_wheel_t wheel,encoder_sample_t *out)
 {(void)wheel;*out=(encoder_sample_t){0};}
@@ -96,21 +96,21 @@ ER tk_unl_mtx(ID id)
 
 uint8_t b1_mqtt_connected(void) {return g_connected;}
 bool terrain_is_calibrated(void) {return true;}
-ER terrain_get_snapshot(terrain_snapshot *s)
+ER terrain_get_snapshot(terrain_snapshot_t *s)
 {
-    *s=(terrain_snapshot){.b_valid=1U,.timestamp_msec=99U};
+    *s=(terrain_snapshot_t){.b_valid=1U,.timestamp_msec=99U};
     return E_OK;
 }
 void motor_last_command(uint16_t *l,uint16_t *r) {*l=0U;*r=0U;}
 void motion_reset_run(void) {motion_downhill_reset();}
-void motion_observe_terrain(terrain_snapshot const *s,uint32_t now)
+void motion_observe_terrain(terrain_snapshot_t const *s,uint32_t now)
 {(void)s;(void)now;}
 uint8_t motion_downhill_fault(void)
 {return (uint8_t)motion_downhill_faulted();}
 uint8_t bc_wave_capture_active(void) {return 0U;}
-int g7_nav_begin_run(void) {return 1;}
-int g7_nav_continue_run(void) {return 1;}
-int g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
+int32_t g7_nav_begin_run(void) {return 1;}
+int32_t g7_nav_continue_run(void) {return 1;}
+int32_t g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
                      uint32_t *ms,uint32_t *done,uint8_t *pending)
 {*ms=0U;*done=100U;*pending=0U;return g7_nav_take_decoded(l,a,s);}
 ER ir_shared_get_latest(ir_shared_snapshot_t * out)

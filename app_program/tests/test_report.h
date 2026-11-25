@@ -1,5 +1,5 @@
 /** @file test_report.h
- * @brief Small on-target test reporter without parameterised macros.
+ * @brief On-target test result reporter.
  */
 #ifndef TEST_REPORT_H
 #define TEST_REPORT_H

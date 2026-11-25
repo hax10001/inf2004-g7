@@ -1,5 +1,5 @@
 /** @file test_lbar.c
- * @brief Non-mutating on-target checks of the implemented IR subsystem.
+ * @brief Non-mutating on-target checks of the IR subsystem.
  */
 #include "test_lbar.h"
 #include "line_follow.h"

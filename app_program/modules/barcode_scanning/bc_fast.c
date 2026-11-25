@@ -14,8 +14,11 @@
 #include <bsp/libbsp.h>
 #include <tm/tmonitor.h>
 
+#define BC_FAST_ADC_MAX 4095U /* largest valid 12-bit ADC reading */
+
 static bc_fast_adc_stats_t g_adc_stats;
 
+/** @brief Copy and clear the barcode ADC statistics. */
 void bc_fast_adc_report (bc_fast_adc_stats_t * p_stats)
 {
     *p_stats = g_adc_stats;
@@ -29,6 +32,7 @@ void bc_fast_adc_report (bc_fast_adc_stats_t * p_stats)
 #define BC_FAST_ALARM_MASK (1U << 2U)
 #define BC_FAST_PRIORITY 2
 #define BC_FAST_ARM_MARGIN_USEC 100U
+#define BC_FAST_PROGRAM_ATTEMPTS 2U /* alarm writes before giving up */
 
 static uint8_t gb_fast_registered = 0U;
 static uint8_t gb_fast_armed = 0U;
@@ -37,14 +41,14 @@ static ER volatile g_fast_error = E_OK;
 
 #if APP_BARCODE_ANALOG_ENABLED && APP_BARCODE_EDGE_FILTER_ENABLED && \
     !APP_BARCODE_BUFFERED_ENABLED
-/* Preserve the existing jitter allowance when sampling faster. */
+/* Maximum gap between confirming observations (jitter allowance). */
 #define BC_FAST_FILTER_MAX_GAP_USEC 8000U
 static bc_fastq_sample_t g_filter_pending;
 static uint8_t gb_filter_pending;
 static uint8_t g_filter_level;
 static uint8_t gb_filter_initialized;
 
-/** Delay every sample by one observation so encoder time never moves
+/** @brief Delay every sample by one observation so encoder time never moves
  * backwards. Two matching observations confirm a change at the FIRST
  * observation's position. An isolated pulse retains the previous colour.
  * Raw ADC diagnostics are collected before this function changes colour.
@@ -90,7 +94,7 @@ static uint8_t bc_fast_program (uint32_t deadline, uint8_t * p_valid)
 {
     UINT intsts = 0U;
     DI(intsts);
-    for (uint8_t attempt = 0U; attempt < 2U; ++attempt)
+    for (uint8_t attempt = 0U; attempt < BC_FAST_PROGRAM_ATTEMPTS; ++attempt)
     {
         uint32_t now = encoder_now_usec();
         if ((int32_t)(deadline - now) <
@@ -117,6 +121,7 @@ static uint8_t bc_fast_program (uint32_t deadline, uint8_t * p_valid)
     return 0U;
 }
 
+/** @brief 2 ms timer ISR: queue one barcode ADC and encoder sample. */
 static void bc_fast_isr (UINT interrupt_number)
 {
     bc_fastq_sample_t sample = {0};
@@ -143,9 +148,9 @@ static void bc_fast_isr (UINT interrupt_number)
     uint8_t gpio_level = 0U;
     sample.adc_valid = ir_barcode_capture(&adc_raw,
                                           &gpio_level) ? 1U : 0U;
-    sample.adc_raw = (adc_raw <= 4095U) ? adc_raw : 0U;
+    sample.adc_raw = (adc_raw <= BC_FAST_ADC_MAX) ? adc_raw : 0U;
     sample.gpio_level = gpio_level ? 1U : 0U;
-    if (adc_raw > 4095U)
+    if (adc_raw > BC_FAST_ADC_MAX)
     {
         sample.adc_valid = 0U;
     }
@@ -251,12 +256,11 @@ ER bc_fast_error (void)
     return g_fast_error;
 }
 
-/* No sample for this long while armed: the self-rearming alarm chain has
- * stopped (seen after a long test-mode raw dump: samples=0, no error).
- * 25 sample periods; restart the alarm rather than lose scanning. */
+/* No sample for 25 periods while armed means the self-rearming alarm chain
+ * has stopped; the alarm is restarted rather than losing scanning. */
 #define BC_FAST_STALL_USEC (25U * BC_FAST_PERIOD_USEC)
 
-/** Restart a stalled sampler from task context. */
+/** @brief Restart a stalled sampler from task context. */
 static void bc_fast_watchdog (uint8_t b_got_sample)
 {
     static uint32_t last_sample_usec = 0U;

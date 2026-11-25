@@ -24,7 +24,7 @@ ER controller_start (void)
     {
         /* UB views the same string bytes; tm_printf does not modify them. */
         tm_printf((UB *)"[MAIN] Controller creation failed: %d\n", h_task);
-        /* Keep the original rejection of a zero task handle. */
+        /* A zero task handle is treated as a failure. */
         return (E_OK == h_task) ? E_OBJ : h_task;
     }
 

@@ -14,10 +14,10 @@ typedef enum
     LINE_UNCERTAIN
 } line_follow_action_t;
 
-/** @brief Map sensor levels to the tested movement action. */
+/** @brief Map sensor levels (1 = black) to a movement action. */
 line_follow_action_t line_follow_decide (uint32_t left, uint32_t right);
 
-/** @brief Return the existing diagnostic label for an action. */
+/** @brief Return the diagnostic label for an action. */
 char const * line_follow_text (line_follow_action_t action);
 
 #endif /* LINE_FOLLOW_H */

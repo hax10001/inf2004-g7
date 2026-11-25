@@ -8,8 +8,8 @@
 #include <stdint.h>
 #include <tk/tkernel.h>
 
-/** @brief Configure left, barcode, then right input in the tested order.
- * @param p_b_sleep_on_error Reports the original task's failure disposition.
+/** @brief Configure left, barcode, then right input, in that order.
+ * @param p_b_sleep_on_error Set when the caller should sleep on failure.
  * @return E_OK or the first BSP error; the task owns sleeping or returning.
  */
 ER ir_init (bool * p_b_sleep_on_error);

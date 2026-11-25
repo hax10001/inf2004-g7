@@ -1,5 +1,5 @@
 /** @file line_follow.c
- * @brief Preserve the tested IR truth table and diagnostic labels.
+ * @brief Two-sensor IR truth table and diagnostic labels.
  */
 #include "line_follow.h"
 

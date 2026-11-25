@@ -6,15 +6,16 @@ This folder collects the evidence for the Tribunal 2 requirements in one place.
 - **Full traceability table:** [`docs/tribunal2/requirements_traceability.md`](../tribunal2/requirements_traceability.md)
 - **Coding standard (BARR-C:2018) notes:** [`docs/tribunal2/barr_c_compliance_notes.md`](../tribunal2/barr_c_compliance_notes.md)
 - **Demo videos:** [`videos/`](videos/)
+- **PID report:** [`docs/pid/G7_PID_report.pdf`](../pid/G7_PID_report.pdf)
 - **Latest test and build output:** [`test_results/`](test_results/)
 
-## Latest results (23 Nov 2026)
+## Latest results (25 Nov 2026)
 
 | Check | Result | Output |
 |---|---|---|
 | Host tests `bash tools/run_host_tests.sh` | 162 PASS lines, `HOST PASS` | [host_tests.txt](test_results/host_tests.txt) |
 | Dashboard tests `npm test` | 107/107 pass | [dashboard_tests.txt](test_results/dashboard_tests.txt) |
-| Firmware build `./build_uf2.sh` (USB console, live control) | Built, BARR-C style check 117 files, 0 errors | [firmware_build.txt](test_results/firmware_build.txt), [style_check.txt](test_results/style_check.txt) |
+| Firmware clean build `./build_uf2.sh` (USB console, live control) | Built; BARR-C style check 112 files, 0 errors; UF2 SHA-1 `3e5a39a8` | [firmware_build.txt](test_results/firmware_build.txt), [style_check.txt](test_results/style_check.txt) |
 
 ## How to reproduce
 

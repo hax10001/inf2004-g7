@@ -20,7 +20,7 @@
  * mostly within 50 mg; a hand picking the robot up exceeds it. */
 #define LIFT_MATH_START_MG 50
 #define LIFT_MATH_START_SAMPLES 3U
-/* Changes smaller than this are sensor noise and are not integrated. */
+/* Net acceleration below this, mg, is noise and is not integrated. */
 #define LIFT_MATH_DEADBAND_MG 10
 /* Acceleration staying inside this band for this many samples means the
  * robot is at rest (on the floor or held still): the speed is zeroed and
@@ -31,9 +31,9 @@
 /* While a line sensor sees the floor the robot cannot be lifted, so the
  * height is held at zero; the speed is kept for this many samples (100 ms)
  * so a pickup is measured from its first push, then the estimate resets.
- * Longer let driving vibration build up a false height that showed the
- * moment both sensors went black on a junction (logged: lift stop 10 ms
- * after stopping on a junction). */
+ * A longer window lets driving vibration build a false height that shows
+ * as soon as both sensors go black on a junction.
+ */
 #define LIFT_MATH_FLOOR_SAMPLES 5U
 /* A longer gap between samples than this restarts the estimate. */
 #define LIFT_MATH_MAX_STEP_MSEC 100U
@@ -51,9 +51,9 @@ typedef struct
     int16_t bias_mg;       /**< Resting offset from calibrated gravity. */
     int16_t still_min_mg;  /**< Lowest reading of the rest window. */
     int16_t still_max_mg;  /**< Highest reading of the rest window. */
-    unsigned int start_count:2; /**< 0..3; at the limit, lift is active. */
-    unsigned int still_count:5; /**< 0..25. */
-    unsigned int floor_count:3; /**< 0..5. */
+    uint32_t     start_count:2; /**< 0..3; at the limit, lift is active. */
+    uint32_t     still_count:5; /**< 0..25. */
+    uint32_t     floor_count:3; /**< 0..5. */
 } lift_math_state_t;
 
 /** @brief Forget any lift: height zero, at rest. */

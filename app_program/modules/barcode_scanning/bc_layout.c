@@ -13,6 +13,7 @@
 #include "bc_layout.h"
 #include "bc_code.h"
 #ifdef BC_LAYOUT_DEBUG
+#include <inttypes.h>
 #include <stdio.h>
 #endif
 
@@ -27,17 +28,14 @@
 #define BC_LAYOUT_SEP 60.0F           /* merge peaks closer than this */
 #define BC_LAYOUT_MAX_RAW 96U         /* dark segments considered */
 #define BC_LAYOUT_MAX_BARS 10U        /* candidates kept for the search */
-/* *X* has 15 bars. Every correct replayed read had 6-11 dark segments; a
- * small T read as F had 92 (noise fitted at the wrong scale). Refuse
- * captures this messy rather than decode them. */
+/* *X* has 15 bars; clean reads give 6-11 dark segments. Far more means
+ * noise would be fitted at the wrong scale, so the capture is refused. */
 #define BC_LAYOUT_MAX_CLEAN_BARS 24U
 #define BC_LAYOUT_FIT_TOL 0.8F        /* modules */
 #define BC_LAYOUT_CLASS_MARGIN 0.25F  /* modules */
-/* Narrow module, L+R units. The course uses any print size, unstated
- * range; the smallest seen are ~10 cm (~37 units, ~17 units/mm). Accept
- * one continuous range: 30 (~8 cm) to 100 (~27 cm, the capture stage's
- * 4800-unit limit / 47). Two bands (33-41, 66-80) refused every
- * mid-size print. Replay of all passes with 25-100: no wrong reads. */
+/* Narrow module, L+R units (~17 units/mm). One continuous range covers
+ * any print size: 30 (~8 cm symbol) to 100 (~27 cm, the 4800-unit
+ * capture limit / 47 modules). */
 #define BC_LAYOUT_MODULE_MIN 30.0F
 #define BC_LAYOUT_MODULE_MAX 100.0F
 #ifndef BC_LAYOUT_BLUR
@@ -68,16 +66,39 @@
 /* Local comparison of the top two group letters (see layout_local). */
 #define BC_LAYOUT_LOCAL_DIFF 0.25F    /* of one bar's model contrast */
 #define BC_LAYOUT_LOCAL_MIN 6U        /* samples where the models differ */
-/* Local misfit ratio - 1 needed to accept. Whole-symbol gaps had been
- * 0-1.6%, which is how a big P was read as F. Replay of 81 correct reads:
- * lowest 7.1%, 9.4%, 9.7%; a big T scanned backwards was read as G at
- * 6.6%. 10% refuses that and three correct reads, never a wrong one. */
-#define BC_LAYOUT_LOCAL_MARGIN 0.10F
+/* Local misfit ratio - 1 the winner needs over the runner-up. Correct
+ * reads sit well above 0.15; near ties (C/M, F/P, T backwards/G) fall
+ * below and are refused, as a refused read is safer than a wrong turn. */
+#define BC_LAYOUT_LOCAL_MARGIN 0.15F
 /* Local gap (per mille) the sensor-distance read needs to overrule a
  * centre-distance tie (see layout_combine). */
 #ifndef BC_LAYOUT_OVERRULE_PERMILLE
 #define BC_LAYOUT_OVERRULE_PERMILLE 250U
 #endif
+#define BC_LAYOUT_DIRS 2U             /* forward and reverse */
+#define BC_LAYOUT_CANDIDATES 52U      /* letters x directions */
+#define BC_LAYOUT_BAR_ENDS 2U         /* left and right edge of a bar */
+#define BC_LAYOUT_STOP_SYMBOL 2U      /* index of the closing star */
+#define BC_LAYOUT_COLOURS 2U          /* bars and spaces alternate */
+#define BC_LAYOUT_PEAK_LAG 2U         /* samples before a peak test */
+#define BC_LAYOUT_CLIP 1.5F           /* signal clip, x peak level */
+#define BC_LAYOUT_OFF_NUM 3.0F        /* bar closes at 3/8 of the level */
+#define BC_LAYOUT_OFF_DEN 8.0F        /* denominator of that fraction */
+#define BC_LAYOUT_SHAPE_TOL 0.001F    /* modules: wide-bar shapes equal */
+#define BC_LAYOUT_DEBUG_SHOWN 5U      /* layouts printed on the host */
+#define BC_LAYOUT_ERR_MAX 600.0F      /* largest error reported exactly */
+#define BC_LAYOUT_CENTI 100.0F        /* modules to hundredths */
+#define BC_LAYOUT_X10 10.0F           /* module width to tenths */
+#define BC_LAYOUT_REPORT_CAP 60000U   /* saturated uint16 report */
+#define BC_LAYOUT_REPORT_CAP_D 60000.0 /* same cap, double */
+#define BC_LAYOUT_PERMILLE 1000.0     /* ratio to per mille */
+#define BC_LAYOUT_ROUND 0.5F          /* round to nearest */
+#define BC_LAYOUT_SIG_MAX 32767       /* int16 cache ceiling */
+#define BC_LAYOUT_SUBSTEPS_F 256.0F   /* grid interpolation steps */
+#define BC_LAYOUT_SUBSTEPS 256        /* same, integer */
+#define BC_LAYOUT_SHIFT_STEP 0.1F     /* modules per shift index */
+#define BC_LAYOUT_SHIFT_MID 5.0F      /* shift index of zero shift */
+#define BC_LAYOUT_SXX_FLOOR 1.0e-9    /* keeps the slope finite */
 
 typedef enum
 {
@@ -136,14 +157,14 @@ static uint8_t g_has_left;
 static uint8_t g_variant;
 static uint8_t g_tables_ready;
 
-static float g_wide[26][BC_LAYOUT_WIDE];
-static float g_wide_mean[26];
-static float g_wide_sxx[26];
+static float g_wide[BC_CODE_LETTERS][BC_LAYOUT_WIDE];
+static float g_wide_mean[BC_CODE_LETTERS];
+static float g_wide_sxx[BC_CODE_LETTERS];
 /* Wide-bar centres along the scan for letter x direction (index
  * 2 * letter + reverse), shifted to start at 0. Equal shapes cannot be
  * told apart by wide bars alone (Z backwards = G forwards). */
-static float g_shape[52][BC_LAYOUT_WIDE];
-static float g_black[BC_LAYOUT_BLACKS][2];
+static float g_shape[BC_LAYOUT_CANDIDATES][BC_LAYOUT_WIDE];
+static float g_black[BC_LAYOUT_BLACKS][BC_LAYOUT_BAR_ENDS];
 static int16_t g_grid[BC_LAYOUT_GRID];
 static float g_cache_pos[BC_LAYOUT_CACHE];
 static int16_t g_cache_sig[BC_LAYOUT_CACHE];
@@ -161,22 +182,22 @@ static uint32_t g_bars;
 
 static uint32_t g_pick[BC_LAYOUT_WIDE];
 static uint8_t g_combos_done;
-static layout_fit_t g_fit[26][2];
+static layout_fit_t g_fit[BC_CODE_LETTERS][BC_LAYOUT_DIRS];
 
-static uint8_t g_group[52];             /* 2 * letter + reverse */
+static uint8_t g_group[BC_LAYOUT_CANDIDATES]; /* 2 * letter + reverse */
 static uint32_t g_group_count;
 static uint32_t g_group_index;
 static uint8_t g_best_reverse;
 static float g_best_err;
 static uint32_t g_stride;
 static uint32_t g_fit_index;
-static double g_mse[52];
-static uint8_t g_mse_valid[52];
+static double g_mse[BC_LAYOUT_CANDIDATES];
+static uint8_t g_mse_valid[BC_LAYOUT_CANDIDATES];
 /* Best model fit per candidate: scale/shift index, gain and offset. */
-static uint8_t g_mfit[52];
-static double g_gain[52];
-static double g_icpt[52];
-static double g_var[52];               /* signal variance in that fit */
+static uint8_t g_mfit[BC_LAYOUT_CANDIDATES];
+static double g_gain[BC_LAYOUT_CANDIDATES];
+static double g_icpt[BC_LAYOUT_CANDIDATES];
+static double g_var[BC_LAYOUT_CANDIDATES]; /* signal variance in that fit */
 /* Second model table: the runner-up during the local comparison. */
 static int16_t g_grid2[BC_LAYOUT_GRID];
 
@@ -185,11 +206,13 @@ static bc_layout_result_t g_result;
 
 /* ------------------------------------------------------------ geometry */
 
+/** @brief Absolute value of a float. */
 static float layout_abs (float value)
 {
     return (value < 0.0F) ? -value : value;
 }
 
+/** @brief Approximate the normal cumulative distribution from a table. */
 static float layout_phi (float z)
 {
     float magnitude = layout_abs(z) * BC_LAYOUT_PHI_STEPS;
@@ -203,32 +226,33 @@ static float layout_phi (float z)
     return (z < 0.0F) ? 1.0F - value : value;
 }
 
-/** Element widths and black flags of *letter*, in module units. */
+/** @brief Element edges, black and wide flags of *letter*, in modules. */
 static void layout_elements (uint8_t letter, float * p_x0, float * p_x1,
                              uint8_t * p_black, uint8_t * p_wide)
 {
     bc_code_pattern_t pattern = {0U};
-    uint16_t patterns[3];
+    uint16_t patterns[BC_CODE_SYMBOLS];
     float x = 0.0F;
     uint32_t out = 0U;
 
     (void)bc_code_get(letter, &pattern);
     patterns[0] = BC_LAYOUT_STAR;
     patterns[1] = pattern.element_pattern;
-    patterns[2] = BC_LAYOUT_STAR;
-    for (uint32_t c = 0U; c < 3U; ++c)
+    patterns[BC_LAYOUT_STOP_SYMBOL] = BC_LAYOUT_STAR;
+    for (uint32_t c = 0U; c < BC_CODE_SYMBOLS; ++c)
     {
         if (c > 0U)
         {
             x += 1.0F; /* inter-character gap */
         }
-        for (uint32_t i = 0U; i < 9U; ++i)
+        for (uint32_t i = 0U; i < BC_CODE_SYMBOL_ELEMENTS; ++i)
         {
-            uint8_t wide = (uint8_t)((patterns[c] >> (8U - i)) & 1U);
+            uint8_t wide =
+                (uint8_t)((patterns[c] >> (BC_CODE_TOP_BIT - i)) & 1U);
             float width = (0U != wide) ? BC_LAYOUT_RATIO : 1.0F;
             p_x0[out] = x;
             p_x1[out] = x + width;
-            p_black[out] = (uint8_t)((i % 2U) == 0U);
+            p_black[out] = (uint8_t)((i % BC_LAYOUT_COLOURS) == 0U);
             p_wide[out] = wide;
             x += width;
             ++out;
@@ -236,6 +260,7 @@ static void layout_elements (uint8_t letter, float * p_x0, float * p_x1,
     }
 }
 
+/** @brief Build the layout model tables for every letter. */
 static void layout_tables (void)
 {
     float x0[BC_LAYOUT_ELEMENTS];
@@ -243,7 +268,7 @@ static void layout_tables (void)
     uint8_t black[BC_LAYOUT_ELEMENTS];
     uint8_t wide[BC_LAYOUT_ELEMENTS];
 
-    for (uint8_t letter = 0U; letter < 26U; ++letter)
+    for (uint8_t letter = 0U; letter < BC_CODE_LETTERS; ++letter)
     {
         uint32_t n = 0U;
         float sum = 0.0F;
@@ -270,8 +295,9 @@ static void layout_tables (void)
         {
             /* Reversed: mirrored centres, ascending along the scan. */
             uint32_t const back = BC_LAYOUT_WIDE - 1U - k;
-            g_shape[2U * letter][k] = g_wide[letter][k] - g_wide[letter][0];
-            g_shape[2U * letter + 1U][k] =
+            g_shape[BC_LAYOUT_DIRS * letter][k] =
+                g_wide[letter][k] - g_wide[letter][0];
+            g_shape[BC_LAYOUT_DIRS * letter + 1U][k] =
                 (BC_LAYOUT_TOTAL - g_wide[letter][back]) -
                 (BC_LAYOUT_TOTAL - g_wide[letter][BC_LAYOUT_WIDE - 1U]);
         }
@@ -281,6 +307,7 @@ static void layout_tables (void)
 
 /* ------------------------------------------------------------- samples */
 
+/** @brief Travel position for the active distance variant. */
 static float layout_position (uint32_t units, uint32_t left)
 {
     float u = (float)units;
@@ -294,7 +321,7 @@ static float layout_position (uint32_t units, uint32_t left)
     return position;
 }
 
-/** Read sample i; *p_left carries the running left-wheel sum. */
+/** @brief Read one sample; *p_left carries the running left-wheel sum. */
 static void layout_sample (uint32_t index, uint32_t * p_left,
                            float * p_position, int32_t * p_signal)
 {
@@ -310,6 +337,7 @@ static void layout_sample (uint32_t index, uint32_t * p_left,
     *p_signal = (signal > 0) ? signal : 0;
 }
 
+/** @brief Record a peak height in the tallest-peaks list. */
 static void layout_top_insert (int32_t height)
 {
     ++g_peaks;
@@ -324,6 +352,7 @@ static void layout_top_insert (int32_t height)
     }
 }
 
+/** @brief Find the bar peaks in the smoothed waveform. */
 static void layout_peaks (void)
 {
     uint32_t left = 0U;
@@ -344,7 +373,7 @@ static void layout_peaks (void)
         float p_next = 0.0F;
         int32_t s_next = 0;
         layout_sample(i, &left, &p_next, &s_next);
-        if ((i >= 2U) && (s_cur >= s_prev) && (s_cur > s_next))
+        if ((i >= BC_LAYOUT_PEAK_LAG) && (s_cur >= s_prev) && (s_cur > s_next))
         {
             if ((0U != have) && ((p_cur - cluster_pos) < BC_LAYOUT_SEP))
             {
@@ -375,6 +404,7 @@ static void layout_peaks (void)
     }
 }
 
+/** @brief Keep only the tallest candidate bars. */
 static void layout_keep_tallest (void)
 {
     uint8_t chosen[BC_LAYOUT_MAX_RAW] = {0U};
@@ -398,7 +428,7 @@ static void layout_keep_tallest (void)
     {
         if (0U != chosen[i])
         {
-            /* Insertion by centre, as the replay sorts kept bars. */
+            /* Insertion sort by centre. */
             uint32_t j = n;
             while ((j > 0U) && (g_bar[j - 1U] > g_raw_centre[i]))
             {
@@ -412,12 +442,13 @@ static void layout_keep_tallest (void)
     g_bars = n;
 }
 
+/** @brief Turn the waveform into candidate bar intervals. */
 static void layout_bars (void)
 {
     float const ref = (float)g_top[BC_LAYOUT_WIDE - 1U];
-    float const clip_at = 1.5F * ref;
+    float const clip_at = BC_LAYOUT_CLIP * ref;
     float const on = ref / 2.0F;
-    float const off = ref * 3.0F / 8.0F;
+    float const off = ref * BC_LAYOUT_OFF_NUM / BC_LAYOUT_OFF_DEN;
     uint32_t left = 0U;
     uint8_t black = 0U;
     double sum_pw = 0.0;
@@ -451,7 +482,7 @@ static void layout_bars (void)
                 height = signal;
             }
         }
-        /* A sample may open a bar or close one, not both (replay order). */
+        /* A sample may open a bar or close one, not both. */
         if ((0U != black) && (0U == opened) &&
             ((clipped <= off) || (i + 1U == g_count)))
         {
@@ -485,15 +516,17 @@ static void layout_bars (void)
 
 /* -------------------------------------------------------- wide layout */
 
+/** @brief Nonzero when a fitted module width is in the accepted range. */
 static uint8_t layout_module_ok (float a)
 {
     return (uint8_t)((a >= BC_LAYOUT_MODULE_MIN) &&
                      (a <= BC_LAYOUT_MODULE_MAX));
 }
 
+/** @brief Score one combination of wide bars, both directions. */
 static void layout_try_combo (void)
 {
-    for (uint8_t reverse = 0U; reverse < 2U; ++reverse)
+    for (uint8_t reverse = 0U; reverse < BC_LAYOUT_DIRS; ++reverse)
     {
         float cs[BC_LAYOUT_WIDE];
         float c_mean = 0.0F;
@@ -504,7 +537,7 @@ static void layout_try_combo (void)
             c_mean += cs[k];
         }
         c_mean /= (float)BC_LAYOUT_WIDE;
-        for (uint8_t letter = 0U; letter < 26U; ++letter)
+        for (uint8_t letter = 0U; letter < BC_CODE_LETTERS; ++letter)
         {
             float m_mean = (0U != reverse) ?
                 BC_LAYOUT_TOTAL - g_wide_mean[letter] : g_wide_mean[letter];
@@ -546,7 +579,7 @@ static void layout_try_combo (void)
     }
 }
 
-/** Advance g_pick to the next ordered six of g_bars; 0 when exhausted. */
+/** @brief Advance g_pick to the next six of g_bars; 0 when exhausted. */
 static uint8_t layout_next_combo (void)
 {
     uint32_t k = BC_LAYOUT_WIDE;
@@ -570,6 +603,7 @@ static uint8_t layout_next_combo (void)
     return found;
 }
 
+/** @brief Advance the bounded combination search by one poll. */
 static void layout_search (void)
 {
     for (uint32_t n = 0U;
@@ -583,12 +617,14 @@ static void layout_search (void)
     }
 }
 
+/** @brief Return 1 if two candidate shapes differ. */
 static uint8_t layout_key_differs (uint32_t candidate, uint32_t best)
 {
     uint8_t differs = 0U;
     for (uint32_t k = 0U; k < BC_LAYOUT_WIDE; ++k)
     {
-        if (layout_abs(g_shape[candidate][k] - g_shape[best][k]) > 0.001F)
+        if (layout_abs(g_shape[candidate][k] - g_shape[best][k]) >
+            BC_LAYOUT_SHAPE_TOL)
         {
             differs = 1U;
         }
@@ -596,14 +632,14 @@ static uint8_t layout_key_differs (uint32_t candidate, uint32_t best)
     return differs;
 }
 
-/** Choose the wide-bar layout; fill the group or record a refusal. */
+/** @brief Choose the wide-bar layout; fill the group or refuse. */
 static void layout_pick (bc_layout_result_t * p_out)
 {
     uint8_t best_letter = BC_LAYOUT_NONE;
     g_best_err = BC_LAYOUT_BIG_ERR;
-    for (uint8_t letter = 0U; letter < 26U; ++letter)
+    for (uint8_t letter = 0U; letter < BC_CODE_LETTERS; ++letter)
     {
-        for (uint8_t reverse = 0U; reverse < 2U; ++reverse)
+        for (uint8_t reverse = 0U; reverse < BC_LAYOUT_DIRS; ++reverse)
         {
             float err = g_fit[letter][reverse].err;
             if (err < g_best_err)
@@ -617,23 +653,24 @@ static void layout_pick (bc_layout_result_t * p_out)
 #ifdef BC_LAYOUT_DEBUG
     /* Host replay only: the five best wide-bar layouts. */
     {
-        uint8_t shown[52] = {0U};
-        printf("    [v%u layouts]", (unsigned)g_variant);
-        for (uint32_t r = 0U; r < 5U; ++r)
+        uint8_t shown[BC_LAYOUT_CANDIDATES] = {0U};
+        printf("    [v%" PRIu32 " layouts]", (uint32_t)g_variant);
+        for (uint32_t r = 0U; r < BC_LAYOUT_DEBUG_SHOWN; ++r)
         {
-            uint32_t pick = 52U;
-            for (uint32_t c = 0U; c < 52U; ++c)
+            uint32_t pick = BC_LAYOUT_CANDIDATES;
+            for (uint32_t c = 0U; c < BC_LAYOUT_CANDIDATES; ++c)
             {
-                if ((0U == shown[c]) && ((52U == pick) ||
-                    (g_fit[c / 2U][c % 2U].err <
-                     g_fit[pick / 2U][pick % 2U].err)))
+                if ((0U == shown[c]) && ((BC_LAYOUT_CANDIDATES == pick) ||
+                    (g_fit[c / BC_LAYOUT_DIRS][c % BC_LAYOUT_DIRS].err <
+                     g_fit[pick / BC_LAYOUT_DIRS][pick % BC_LAYOUT_DIRS].err)))
                 {
                     pick = c;
                 }
             }
             shown[pick] = 1U;
-            printf(" %c%s=%.2f", 'A' + (int)(pick / 2U),
-                   (pick % 2U) ? "r" : "", g_fit[pick / 2U][pick % 2U].err);
+            printf(" %c%s=%.2f", (char)('A' + (pick / BC_LAYOUT_DIRS)),
+                   (pick % BC_LAYOUT_DIRS) ? "r" : "",
+                   g_fit[pick / BC_LAYOUT_DIRS][pick % BC_LAYOUT_DIRS].err);
         }
         printf("\n");
     }
@@ -642,22 +679,23 @@ static void layout_pick (bc_layout_result_t * p_out)
     if ((BC_LAYOUT_NONE == best_letter) || (g_best_err > BC_LAYOUT_FIT_TOL))
     {
         p_out->reason = BC_LAYOUT_NO_FIT;
-        p_out->err_centi = (g_best_err < 600.0F) ?
-                           (uint16_t)(g_best_err * 100.0F) : 60000U;
+        p_out->err_centi = (g_best_err < BC_LAYOUT_ERR_MAX) ?
+                           (uint16_t)(g_best_err * BC_LAYOUT_CENTI) :
+                           BC_LAYOUT_REPORT_CAP;
     }
     else
     {
         float other_err = BC_LAYOUT_BIG_ERR;
-        p_out->err_centi = (uint16_t)(g_best_err * 100.0F);
+        p_out->err_centi = (uint16_t)(g_best_err * BC_LAYOUT_CENTI);
         p_out->module_x10 = (uint16_t)
-            (g_fit[best_letter][g_best_reverse].a * 10.0F);
-        for (uint8_t letter = 0U; letter < 26U; ++letter)
+            (g_fit[best_letter][g_best_reverse].a * BC_LAYOUT_X10);
+        for (uint8_t letter = 0U; letter < BC_CODE_LETTERS; ++letter)
         {
-            for (uint8_t reverse = 0U; reverse < 2U; ++reverse)
+            for (uint8_t reverse = 0U; reverse < BC_LAYOUT_DIRS; ++reverse)
             {
                 float err = g_fit[letter][reverse].err;
-                if ((0U != layout_key_differs(2U * letter + reverse,
-                                              2U * best_letter +
+                if ((0U != layout_key_differs(BC_LAYOUT_DIRS * letter + reverse,
+                                              BC_LAYOUT_DIRS * best_letter +
                                               g_best_reverse)) &&
                     (err <= g_best_err + BC_LAYOUT_CLASS_MARGIN) &&
                     (err < other_err))
@@ -674,11 +712,12 @@ static void layout_pick (bc_layout_result_t * p_out)
         else
         {
             /* Same wide-bar shape, either direction: the model decides. */
-            for (uint32_t c = 0U; c < 52U; ++c)
+            for (uint32_t c = 0U; c < BC_LAYOUT_CANDIDATES; ++c)
             {
-                if ((0U == layout_key_differs(c, 2U * best_letter +
+                if ((0U == layout_key_differs(c, BC_LAYOUT_DIRS * best_letter +
                                               g_best_reverse)) &&
-                    (g_fit[c / 2U][c % 2U].err < BC_LAYOUT_BIG_ERR))
+                    (g_fit[c / BC_LAYOUT_DIRS][c % BC_LAYOUT_DIRS].err <
+                     BC_LAYOUT_BIG_ERR))
                 {
                     g_group[g_group_count] = (uint8_t)c;
                     g_mse_valid[c] = 0U;
@@ -691,6 +730,7 @@ static void layout_pick (bc_layout_result_t * p_out)
 
 /* ---------------------------------------------------- blurred model */
 
+/** @brief Load the bar edges of a letter's *X* symbol into g_black. */
 static void layout_load_blacks (uint8_t letter)
 {
     float x0[BC_LAYOUT_ELEMENTS];
@@ -710,6 +750,7 @@ static void layout_load_blacks (uint8_t letter)
     }
 }
 
+/** @brief Evaluate the fitted layout model at one position. */
 static float layout_model_value (float x)
 {
     float value = 0.0F;
@@ -726,7 +767,7 @@ static float layout_model_value (float x)
     return value;
 }
 
-/** Tabulate the blurred model of letter into p_grid (Q14). */
+/** @brief Tabulate the blurred model of a letter into p_grid (Q14). */
 static void layout_build_grid (uint8_t letter, int16_t * p_grid)
 {
     layout_load_blacks(letter);
@@ -734,16 +775,18 @@ static void layout_build_grid (uint8_t letter, int16_t * p_grid)
     {
         float const value = layout_model_value(-BC_LAYOUT_EDGE +
             (float)k / BC_LAYOUT_GRID_STEPS);
-        p_grid[k] = (int16_t)(value * BC_LAYOUT_Q + 0.5F);
+        p_grid[k] = (int16_t)(value * BC_LAYOUT_Q + BC_LAYOUT_ROUND);
     }
 }
 
-/** Cache every stride-th sample near the symbol, placed by candidate's
- * wide-bar fit, so the model fits reuse them. */
+/** @brief Cache every stride-th sample near the symbol, placed by the
+ * candidate's wide-bar fit, so the 33 model fits need not reread the
+ * whole capture.
+ */
 static void layout_cache (uint8_t candidate)
 {
     layout_fit_t const * const p_fit =
-        &g_fit[candidate / 2U][candidate % 2U];
+        &g_fit[candidate / BC_LAYOUT_DIRS][candidate % BC_LAYOUT_DIRS];
     uint32_t left = 0U;
     uint32_t inside = 0U;
     uint32_t phase = 0U;
@@ -764,8 +807,6 @@ static void layout_cache (uint8_t candidate)
     {
         g_stride = 1U;
     }
-    /* Keep every stride-th sample near the symbol once; the 33 fits then
-     * reuse them instead of rereading the whole capture. */
     left = 0U;
     g_cache_count = 0U;
     for (uint32_t i = 0U; i < g_count; ++i)
@@ -789,7 +830,8 @@ static void layout_cache (uint8_t candidate)
             {
                 g_cache_pos[g_cache_count] = position;
                 g_cache_sig[g_cache_count] = (int16_t)((signal < 0) ? 0 :
-                    ((signal > 32767) ? 32767 : signal));
+                    ((signal > BC_LAYOUT_SIG_MAX) ? BC_LAYOUT_SIG_MAX :
+                     signal));
                 ++g_cache_count;
             }
         }
@@ -801,20 +843,21 @@ static void layout_cache (uint8_t candidate)
     }
 }
 
+/** @brief Prepare the fit of the current group letter. */
 static void layout_inside (void)
 {
     uint8_t const candidate = g_group[g_group_index];
     layout_cache(candidate);
     g_fit_index = 0U;
-    layout_build_grid((uint8_t)(candidate / 2U), g_grid);
+    layout_build_grid((uint8_t)(candidate / BC_LAYOUT_DIRS), g_grid);
 }
 
-/** Tabulated model (Q14) at x, -3 < x < 50 modules, linear between. */
+/** @brief Tabulated model (Q14) at x, -3 < x < 50 modules, linear. */
 static int32_t layout_table_value (int16_t const * p_grid, float x)
 {
     int32_t const at = (int32_t)((x + BC_LAYOUT_EDGE) *
-                                 BC_LAYOUT_GRID_STEPS * 256.0F);
-    int32_t const index = at / 256;
+                                 BC_LAYOUT_GRID_STEPS * BC_LAYOUT_SUBSTEPS_F);
+    int32_t const index = at / BC_LAYOUT_SUBSTEPS;
     int32_t value = p_grid[BC_LAYOUT_GRID - 1U];
     if (at <= 0)
     {
@@ -824,7 +867,8 @@ static int32_t layout_table_value (int16_t const * p_grid, float x)
     {
         int32_t const low = p_grid[index];
         int32_t const high = p_grid[index + 1];
-        value = low + ((high - low) * (at - index * 256)) / 256;
+        value = low + ((high - low) * (at - index * BC_LAYOUT_SUBSTEPS)) /
+                BC_LAYOUT_SUBSTEPS;
     }
     else
     {
@@ -833,20 +877,22 @@ static int32_t layout_table_value (int16_t const * p_grid, float x)
     return value;
 }
 
+/** @brief Look up the model grid at one position. */
 static int32_t layout_grid_value (float x)
 {
     return layout_table_value(g_grid, x);
 }
 
-/** One scale/shift fit of the current group letter (integer sums). */
+/** @brief One scale/shift fit of the current group letter. */
 static void layout_model_fit (void)
 {
     uint8_t const candidate = g_group[g_group_index];
-    uint8_t const reverse = (uint8_t)(candidate % 2U);
-    layout_fit_t const * const p_fit = &g_fit[candidate / 2U][reverse];
+    uint8_t const reverse = (uint8_t)(candidate % BC_LAYOUT_DIRS);
+    layout_fit_t const * const p_fit =
+        &g_fit[candidate / BC_LAYOUT_DIRS][reverse];
     float const scale = g_scales[g_fit_index / BC_LAYOUT_SHIFTS];
-    float const shift = 0.1F * ((float)(g_fit_index % BC_LAYOUT_SHIFTS) -
-                                5.0F);
+    float const shift = BC_LAYOUT_SHIFT_STEP *
+        ((float)(g_fit_index % BC_LAYOUT_SHIFTS) - BC_LAYOUT_SHIFT_MID);
     float const inverse = 1.0F / (p_fit->a * scale);
     float const offset = p_fit->b;
     uint32_t n = 0U;
@@ -886,7 +932,7 @@ static void layout_model_fit (void)
         double const syy_c = (double)syy - dsy * dsy / count;
         if (sxx <= 0.0)
         {
-            sxx = 1.0e-9;
+            sxx = BC_LAYOUT_SXX_FLOOR;
         }
         if (sxy / sxx > 0.0)
         {
@@ -907,30 +953,30 @@ static void layout_model_fit (void)
     ++g_fit_index;
 }
 
-/** Model coordinate of a cached position under candidate's best fit. */
+/** @brief Model coordinate of a position under a candidate's best fit. */
 static float layout_model_x (uint8_t candidate, float position)
 {
     layout_fit_t const * const p_fit =
-        &g_fit[candidate / 2U][candidate % 2U];
+        &g_fit[candidate / BC_LAYOUT_DIRS][candidate % BC_LAYOUT_DIRS];
     uint8_t const k = g_mfit[candidate];
     float const scale = g_scales[k / BC_LAYOUT_SHIFTS];
-    float const shift = 0.1F * ((float)(k % BC_LAYOUT_SHIFTS) - 5.0F);
+    float const shift = BC_LAYOUT_SHIFT_STEP *
+        ((float)(k % BC_LAYOUT_SHIFTS) - BC_LAYOUT_SHIFT_MID);
     float x = (position - p_fit->b) / (p_fit->a * scale) + shift;
-    if (0U != (candidate % 2U))
+    if (0U != (candidate % BC_LAYOUT_DIRS))
     {
         x = BC_LAYOUT_TOTAL - x;
     }
     return x;
 }
 
-/** Misfit of two candidates only where their models differ.
+/** @brief Misfit of two candidates only where their models differ.
  *
- * Group members share every wide bar, so the whole-symbol misfit differs
- * by well under 1% (F/P, Y/R, Z backwards/G): the deciding narrow detail
- * is a few samples among hundreds. Summing squared residuals only where
- * the two blurred models differ by BC_LAYOUT_LOCAL_DIFF of a bar's
- * contrast compares exactly that detail. Each keeps its own whole-symbol
- * scale, shift, gain and offset, so the window cannot refit freely.
+ * Group members share every wide bar, so their whole-symbol misfits are
+ * nearly equal; the deciding narrow detail is a few samples. Residuals
+ * are summed only where the models differ by BC_LAYOUT_LOCAL_DIFF of a
+ * bar's contrast. Each candidate keeps its own whole-symbol fit, so the
+ * window cannot refit freely.
  * @return Samples compared.
  */
 static uint32_t layout_local (uint8_t c1, uint8_t c2,
@@ -941,8 +987,8 @@ static uint32_t layout_local (uint8_t c1, uint8_t c2,
     *p_s1 = 0.0;
     *p_s2 = 0.0;
     layout_cache(c1);
-    layout_build_grid((uint8_t)(c1 / 2U), g_grid);
-    layout_build_grid((uint8_t)(c2 / 2U), g_grid2);
+    layout_build_grid((uint8_t)(c1 / BC_LAYOUT_DIRS), g_grid);
+    layout_build_grid((uint8_t)(c2 / BC_LAYOUT_DIRS), g_grid2);
     for (uint32_t k = 0U; k < g_cache_count; ++k)
     {
         float const x1 = layout_model_x(c1, g_cache_pos[k]);
@@ -968,8 +1014,9 @@ static uint32_t layout_local (uint8_t c1, uint8_t c2,
     return n;
 }
 
-/** Decide among the group: rank by whole-symbol misfit, then let the
- * local comparison of the top two decide, refusing a near tie. */
+/** @brief Rank the group by whole-symbol misfit, then let the local
+ * comparison of the top two decide, refusing a near tie.
+ */
 static void layout_decide (bc_layout_result_t * p_out)
 {
     uint8_t best = BC_LAYOUT_NONE;
@@ -991,7 +1038,7 @@ static void layout_decide (bc_layout_result_t * p_out)
     {
         uint8_t c = g_group[k];
         if ((BC_LAYOUT_NONE != best) && (0U != g_mse_valid[c]) &&
-            ((c / 2U) != (best / 2U)) &&
+            ((c / BC_LAYOUT_DIRS) != (best / BC_LAYOUT_DIRS)) &&
             ((BC_LAYOUT_NONE == runner) || (g_mse[c] < g_mse[runner])))
         {
             runner = c;
@@ -1003,18 +1050,20 @@ static void layout_decide (bc_layout_result_t * p_out)
         return;
     }
 #ifdef BC_LAYOUT_DEBUG
-    printf("    [v%u model] best=%c r2=%.3f\n", (unsigned)g_variant,
-           'A' + (int)(best / 2U),
+    printf("    [v%" PRIu32 " model] best=%c r2=%.3f\n", (uint32_t)g_variant,
+           (char)('A' + (best / BC_LAYOUT_DIRS)),
            (g_var[best] > 0.0) ? 1.0 - g_mse[best] / g_var[best] : 0.0);
 #endif
-    if ((BC_LAYOUT_NONE != runner) && ((best / 2U) != (runner / 2U)))
+    if ((BC_LAYOUT_NONE != runner) &&
+        ((best / BC_LAYOUT_DIRS) != (runner / BC_LAYOUT_DIRS)))
     {
         double s_best = 0.0;
         double s_runner = 0.0;
         uint32_t const n = layout_local(best, runner, &s_best, &s_runner);
         double const low = (s_best < s_runner) ? s_best : s_runner;
         double const high = (s_best < s_runner) ? s_runner : s_best;
-        double gap = (low > 0.0) ? (high / low - 1.0) * 1000.0 : 60000.0;
+        double gap = (low > 0.0) ? (high / low - 1.0) * BC_LAYOUT_PERMILLE :
+                     BC_LAYOUT_REPORT_CAP_D;
         if (s_runner < s_best)
         {
             /* The deciding detail fits the runner-up better. */
@@ -1022,27 +1071,29 @@ static void layout_decide (bc_layout_result_t * p_out)
             best = runner;
             runner = swap;
         }
-        p_out->gap_permille = (gap < 60000.0) ? (uint16_t)gap : 60000U;
+        p_out->gap_permille = (gap < BC_LAYOUT_REPORT_CAP_D) ?
+                              (uint16_t)gap : BC_LAYOUT_REPORT_CAP;
         if ((n < BC_LAYOUT_LOCAL_MIN) ||
-            (gap < BC_LAYOUT_LOCAL_MARGIN * 1000.0))
+            (gap < BC_LAYOUT_LOCAL_MARGIN * BC_LAYOUT_PERMILLE))
         {
             /* Too close to call: a wrong letter misroutes the robot. */
             p_out->reason = BC_LAYOUT_AMBIGUOUS;
-            p_out->other = (uint8_t)(runner / 2U);
-            p_out->runner = (uint8_t)(best / 2U);
+            p_out->other = (uint8_t)(runner / BC_LAYOUT_DIRS);
+            p_out->runner = (uint8_t)(best / BC_LAYOUT_DIRS);
             return;
         }
     }
     p_out->valid = 1U;
     p_out->reason = BC_LAYOUT_OK;
-    p_out->letter = (uint8_t)(best / 2U);
-    p_out->reverse = (uint8_t)(best % 2U);
+    p_out->letter = (uint8_t)(best / BC_LAYOUT_DIRS);
+    p_out->reverse = (uint8_t)(best % BC_LAYOUT_DIRS);
     p_out->runner = (BC_LAYOUT_NONE == runner) ? BC_LAYOUT_NONE :
-                    (uint8_t)(runner / 2U);
+                    (uint8_t)(runner / BC_LAYOUT_DIRS);
 }
 
 /* -------------------------------------------------------------- driver */
 
+/** @brief Reset the current variant's result and start at PEAKS. */
 static void layout_start_variant (void)
 {
     bc_layout_result_t * const p_out = &g_variant_result[g_variant];
@@ -1053,6 +1104,7 @@ static void layout_start_variant (void)
     g_phase = LAYOUT_PEAKS;
 }
 
+/** @brief Combine the centre and sensor-offset layout results. */
 static void layout_combine (void)
 {
     bc_layout_result_t const * const p_centre = &g_variant_result[0];
@@ -1072,9 +1124,8 @@ static void layout_combine (void)
                   (p_sensor->gap_permille >= BC_LAYOUT_OVERRULE_PERMILLE)))
         {
             /* A centre tie between two letters is real doubt: the sensor
-             * distance may overrule it only when clearly decisive (a big
-             * T backwards was read as G at 16% that way). Other centre
-             * refusals may still fall back. */
+             * read overrules it only with a clearly decisive local gap.
+             * Other centre refusals may fall back to the sensor read. */
             g_result = *p_sensor;
         }
         else
@@ -1085,6 +1136,7 @@ static void layout_combine (void)
     g_phase = LAYOUT_DONE;
 }
 
+/** @brief Finish one layout variant and start the next. */
 static void layout_finish_variant (void)
 {
     if ((0U == g_variant) && (0U != g_has_left))
@@ -1151,9 +1203,9 @@ uint8_t bc_layout_poll (void)
             {
                 g_pick[k] = k;
             }
-            for (uint32_t letter = 0U; letter < 26U; ++letter)
+            for (uint32_t letter = 0U; letter < BC_CODE_LETTERS; ++letter)
             {
-                for (uint32_t reverse = 0U; reverse < 2U; ++reverse)
+                for (uint32_t reverse = 0U; reverse < BC_LAYOUT_DIRS; ++reverse)
                 {
                     g_fit[letter][reverse].err = BC_LAYOUT_BIG_ERR;
                     g_fit[letter][reverse].a = 0.0F;

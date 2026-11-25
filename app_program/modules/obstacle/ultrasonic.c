@@ -34,12 +34,12 @@
  *  @return false if ECHO is still high: the last pulse has not ended.
  */
 static bool wait_echo_low (void);
-/** @brief Raise TRIG for OBS_TRIG_PULSE_USEC; the only busy wait. */
 /* Kernel ms of the last trigger, for ping spacing. Ultrasonic owner task
  * only (the obstacle worker), so no lock is needed. */
 static uint32_t g_last_trigger_msec = 0U;
 static uint8_t  g_last_trigger_valid = 0U;
 
+/** @brief Raise TRIG for OBS_TRIG_PULSE_USEC; the only busy wait. */
 static void send_trigger (void);
 /** @brief Convert counted microseconds to millimetres. */
 static int32_t ticks_to_mm (UW ticks);
@@ -184,6 +184,7 @@ static bool wait_echo_low (void)
     return b_low;
 }
 
+/** @brief Send the ultrasonic trigger pulse. */
 static void send_trigger (void)
 {
     gpio_set_val(BOARD_US_TRIG_PIN, 1U);

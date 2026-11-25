@@ -15,12 +15,12 @@
 
 static void noop(void *ctx) { (void)ctx; }
 static void boundary_snapshot(void) {
-    B1_Store store;
-    B1_Motion motion = {0};
-    B1_Terrain terrain = {0};
-    B1_Obstacle obstacle = {0};
-    B1_Frame packet = {0};
-    B1_SnapshotPayload received = {0};
+    b1_store_t store;
+    b1_motion_t motion = {0};
+    b1_terrain_t terrain = {0};
+    b1_obstacle_t obstacle = {0};
+    b1_frame_t packet = {0};
+    b1_snapshot_payload_t received = {0};
     scan_plan_point_t point={0};
     point.angle_deg=-70;
     point.range_mm=4000u;
@@ -28,7 +28,7 @@ static void boundary_snapshot(void) {
     point.angle_deg=70;
     assert(point.angle_deg==70);
     assert(sizeof(scan_plan_point_t)==4u);
-    assert(sizeof(B1_OdomRecord)==10u);
+    assert(sizeof(b1_odom_record_t)==10u);
     assert(b1_store_init(&store,noop,noop,0,99u)==0);
     motion.seq = 1u; motion.ms = 150u;
     motion.left_speed_mm_s = INT16_MAX;
@@ -55,12 +55,12 @@ static void boundary_snapshot(void) {
     assert(received.obstacle_cm==1023u);
 }
 static void field_limits(void) {
-    B1_Event event={0};
-    B1_Terrain terrain={0};
-    B1_Mission mission={0};
-    B1_Obstacle obstacle={0};
-    B1_Line line={0};
-    G7_TelemetryPeers peers={0};
+    b1_event_t event={0};
+    b1_terrain_t terrain={0};
+    b1_mission_t mission={0};
+    b1_obstacle_t obstacle={0};
+    b1_line_t line={0};
+    g7_telemetry_peers_t peers={0};
     bc_wave_status_t scanner={0};
     bc_fast_adc_stats_t adc={0};
     bc_port_stats_t stats={0};
@@ -97,10 +97,10 @@ static void field_limits(void) {
     printf("V11_SIZES snapshot=%zu event=%zu odom=%zu line=%zu terrain=%zu "
            "mission=%zu obstacle=%zu store=%zu peers=%zu "
            "wave=%zu drive=%zu steering=%zu motion=%zu adc=%zu stats=%zu\n",
-           sizeof(B1_SnapshotPayload),sizeof(B1_Event),
-           sizeof(B1_OdomRecord),sizeof(B1_Line),
-           sizeof(B1_Terrain),sizeof(B1_Mission),sizeof(B1_Obstacle),
-           sizeof(B1_Store),sizeof(G7_TelemetryPeers),
+           sizeof(b1_snapshot_payload_t),sizeof(b1_event_t),
+           sizeof(b1_odom_record_t),sizeof(b1_line_t),
+           sizeof(b1_terrain_t),sizeof(b1_mission_t),sizeof(b1_obstacle_t),
+           sizeof(b1_store_t),sizeof(g7_telemetry_peers_t),
            sizeof(bc_wave_status_t),sizeof(obstacle_drive_t),
            sizeof(steering_t),sizeof(motion_status_t),sizeof(bc_fast_adc_stats_t),
            sizeof(bc_port_stats_t));

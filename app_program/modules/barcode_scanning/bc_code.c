@@ -7,11 +7,24 @@
 #define BC_CODE_WIDE_PER_SYMBOL 3U
 #define BC_CODE_RATIO_NUM 14U
 #define BC_CODE_RATIO_DEN 10U
+#define BC_CODE_GOOD_NUM 23U        /* 2.3x separation: good quality */
+#define BC_CODE_GOOD_DEN 10U        /* denominator of that ratio */
+#define BC_CODE_QUALITY_GOOD 2U     /* quality when separation < 2.3x */
+#define BC_CODE_QUALITY_STRONG 3U   /* quality before any downgrade */
+#define BC_CODE_COLOUR_MAX 5U       /* bars per symbol (spaces have 4) */
+#define BC_CODE_COLOURS 2U          /* bars and spaces alternate */
+#define BC_CODE_NARROW_LAST 2U      /* sorted index of widest narrow */
+#define BC_CODE_WIDE_FIRST 3U       /* sorted index of narrowest wide */
+#define BC_CODE_SYMBOL_STRIDE 10U   /* symbol plus its separator */
+#define BC_CODE_GAPS 2U             /* separators between symbols */
+#define BC_CODE_DIRECTIONS 2U       /* forward and reverse */
+#define BC_CODE_LETTER_OFFSET 10U   /* first element of the letter */
+#define BC_CODE_LAST_OFFSET 20U     /* first element of the stop star */
 
 /* Independent Code 39 reference: b/B=bar and s/S=space, upper is wide.
  * The symbol table is A..Z; separators at indexes 9 and 19 are narrow.
  */
-static bc_code_pattern_t const g_bc_patterns[26] =
+static bc_code_pattern_t const g_bc_patterns[BC_CODE_LETTERS] =
 {
     {0x109U}, {0x049U}, {0x148U}, {0x019U}, {0x118U}, {0x058U},
     {0x00DU}, {0x10CU}, {0x04CU}, {0x01CU}, {0x103U}, {0x043U},
@@ -20,26 +33,28 @@ static bc_code_pattern_t const g_bc_patterns[26] =
     {0x190U}, {0x0D0U}
 };
 
+/** @brief Pack nine wide/narrow element flags into a bit mask. */
 static uint16_t bc_code_mask (uint8_t const * p_wide, uint8_t offset)
 {
     uint16_t mask = 0U;
 
-    for (uint8_t index = 0U; index < 9U; ++index)
+    for (uint8_t index = 0U; index < BC_CODE_SYMBOL_ELEMENTS; ++index)
     {
         if (0U != p_wide[offset + index])
         {
-            mask |= (uint16_t)(1U << (8U - index));
+            mask |= (uint16_t)(1U << (BC_CODE_TOP_BIT - index));
         }
     }
 
     return mask;
 }
 
+/** @brief Count the set bits in a nine-element mask. */
 static uint8_t bc_code_count (uint16_t bits)
 {
     uint8_t count = 0U;
 
-    for (uint8_t index = 0U; index < 9U; ++index)
+    for (uint8_t index = 0U; index < BC_CODE_SYMBOL_ELEMENTS; ++index)
     {
         count += (uint8_t)((bits >> index) & 1U);
     }
@@ -49,7 +64,7 @@ static uint8_t bc_code_count (uint16_t bits)
 
 bool bc_code_get (uint8_t letter, bc_code_pattern_t * p_pattern)
 {
-    if ((letter >= 26U) || (0 == p_pattern))
+    if ((letter >= BC_CODE_LETTERS) || (0 == p_pattern))
     {
         return false;
     }
@@ -58,18 +73,18 @@ bool bc_code_get (uint8_t letter, bc_code_pattern_t * p_pattern)
     return true;
 }
 
-/** Classify five bars (two wide) or four spaces (one wide) per symbol.
- * Both colours have three narrow elements. Require 1.4x separation.
+/** @brief Classify five bars (two wide) or four spaces (one wide).
+ * Both colours have three narrow elements; requires 1.4x separation.
  */
 static uint8_t bc_code_colour (uint32_t const * p_width,
                                uint8_t * p_wide, uint8_t colour,
                                uint32_t * p_wide_min,
                                uint8_t * p_quality)
 {
-    uint32_t sorted[5] = {0U};
+    uint32_t sorted[BC_CODE_COLOUR_MAX] = {0U};
     uint8_t count = 0U;
 
-    for (uint8_t i = colour; i < 9U; i += 2U)
+    for (uint8_t i = colour; i < BC_CODE_SYMBOL_ELEMENTS; i += BC_CODE_COLOURS)
     {
         uint8_t slot = count;
         while ((slot > 0U) && (sorted[slot - 1U] > p_width[i]))
@@ -80,19 +95,20 @@ static uint8_t bc_code_colour (uint32_t const * p_width,
         sorted[slot] = p_width[i];
         ++count;
     }
-    uint32_t narrow_max = sorted[2U];
-    uint32_t wide_min = sorted[3U];
+    uint32_t narrow_max = sorted[BC_CODE_NARROW_LAST];
+    uint32_t wide_min = sorted[BC_CODE_WIDE_FIRST];
     if (((uint64_t)wide_min * BC_CODE_RATIO_DEN <
          (uint64_t)narrow_max * BC_CODE_RATIO_NUM) ||
         ((uint64_t)sorted[count - 1U] > (uint64_t)wide_min * 2U))
     {
         return 0U;
     }
-    if ((uint64_t)wide_min * 10U < (uint64_t)narrow_max * 23U)
+    if ((uint64_t)wide_min * BC_CODE_GOOD_DEN <
+        (uint64_t)narrow_max * BC_CODE_GOOD_NUM)
     {
-        *p_quality = 2U;
+        *p_quality = BC_CODE_QUALITY_GOOD;
     }
-    for (uint8_t i = colour; i < 9U; i += 2U)
+    for (uint8_t i = colour; i < BC_CODE_SYMBOL_ELEMENTS; i += BC_CODE_COLOURS)
     {
         p_wide[i] = (p_width[i] >= wide_min) ? 1U : 0U;
     }
@@ -105,8 +121,8 @@ bc_code_result_t bc_code_decode (uint32_t const * p_width,
 {
     bc_code_result_t result = {BC_CODE_LETTER_INVALID, 0U, 0U, 0U};
     uint8_t  wide[BC_CODE_ELEMENTS] = {0U};
-    uint32_t space_wide_min[3] = {0U};
-    uint8_t quality = 3U;
+    uint32_t space_wide_min[BC_CODE_SYMBOLS] = {0U};
+    uint8_t quality = BC_CODE_QUALITY_STRONG;
 
     if ((0 == p_width) || (0U == min_width))
     {
@@ -120,9 +136,9 @@ bc_code_result_t bc_code_decode (uint32_t const * p_width,
             return result;
         }
     }
-    for (uint8_t symbol = 0U; symbol < 3U; ++symbol)
+    for (uint8_t symbol = 0U; symbol < BC_CODE_SYMBOLS; ++symbol)
     {
-        uint8_t offset = (uint8_t)(symbol * 10U);
+        uint8_t offset = (uint8_t)(symbol * BC_CODE_SYMBOL_STRIDE);
         uint32_t bar_wide_min = 0U;
         if ((0U == bc_code_colour(&p_width[offset], &wide[offset],
                                   0U, &bar_wide_min, &quality)) ||
@@ -135,9 +151,10 @@ bc_code_result_t bc_code_decode (uint32_t const * p_width,
     /* Exclude separators from classification, but require them to be
      * narrow relative to wide spaces in both adjacent symbols.
      */
-    for (uint8_t gap = 0U; gap < 2U; ++gap)
+    for (uint8_t gap = 0U; gap < BC_CODE_GAPS; ++gap)
     {
-        uint32_t width = p_width[9U + gap * 10U];
+        uint32_t width =
+            p_width[BC_CODE_SYMBOL_ELEMENTS + gap * BC_CODE_SYMBOL_STRIDE];
         uint32_t limit =
             (space_wide_min[gap] < space_wide_min[gap + 1U]) ?
              space_wide_min[gap] : space_wide_min[gap + 1U];
@@ -148,7 +165,7 @@ bc_code_result_t bc_code_decode (uint32_t const * p_width,
         }
     }
 
-    for (uint8_t direction = 0U; direction < 2U; ++direction)
+    for (uint8_t direction = 0U; direction < BC_CODE_DIRECTIONS; ++direction)
     {
         uint8_t normalized[BC_CODE_ELEMENTS] = {0U};
 
@@ -159,13 +176,14 @@ bc_code_result_t bc_code_decode (uint32_t const * p_width,
         }
 
         uint16_t first = bc_code_mask(normalized, 0U);
-        uint16_t last = bc_code_mask(normalized, 20U);
-        uint16_t letter_mask = bc_code_mask(normalized, 10U);
+        uint16_t last = bc_code_mask(normalized, BC_CODE_LAST_OFFSET);
+        uint16_t letter_mask =
+            bc_code_mask(normalized, BC_CODE_LETTER_OFFSET);
 
         if ((BC_CODE_STAR == first) && (BC_CODE_STAR == last) &&
             (BC_CODE_WIDE_PER_SYMBOL == bc_code_count(letter_mask)))
         {
-            for (uint8_t letter = 0U; letter < 26U; ++letter)
+            for (uint8_t letter = 0U; letter < BC_CODE_LETTERS; ++letter)
             {
                 if (g_bc_patterns[letter].element_pattern == letter_mask)
                 {

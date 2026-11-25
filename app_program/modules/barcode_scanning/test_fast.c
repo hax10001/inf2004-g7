@@ -1,5 +1,5 @@
 /** @file test_fast.c
- * @brief Portable queue and scheduler tests for 4 ms barcode sampling.
+ * @brief Portable sample-queue and deadline tests for barcode sampling.
  */
 #include "test_fast.h"
 #include "bc_fastq.h"
@@ -10,10 +10,11 @@
 
 #define BC_FAST_TEST_EVENTS 12000U
 
-static int g_checks = 0;
-static int g_failures = 0;
+static int32_t g_checks = 0;
+static int32_t g_failures = 0;
 static uint32_t g_thread_errors = 0U;
 
+/** @brief Count one assertion and print its description on failure. */
 static void check (uint8_t condition, char const * p_description)
 {
     ++g_checks;
@@ -24,6 +25,7 @@ static void check (uint8_t condition, char const * p_description)
     }
 }
 
+/** @brief Deadlines keep phase and late periods are invalidated. */
 static void test_deadlines (void)
 {
     uint8_t valid = 1U;
@@ -49,6 +51,7 @@ static void test_deadlines (void)
     check(1U == valid, "wrap does not reject good sample");
 }
 
+/** @brief Queue order, overflow and post-overflow invalidation. */
 static void test_fifo_and_overflow (void)
 {
     bc_fastq_sample_t sample = {0};
@@ -81,6 +84,7 @@ static void test_fifo_and_overflow (void)
     check(1U == result.valid, "reset clears overflow state");
 }
 
+/** @brief Producer thread standing in for the capture ISR. */
 static void * producer (void * p_context)
 {
     bc_fastq_sample_t sample = {0};
@@ -99,6 +103,7 @@ static void * producer (void * p_context)
     return 0;
 }
 
+/** @brief Consumer thread standing in for the barcode worker. */
 static void * consumer (void * p_context)
 {
     bc_fastq_sample_t sample = {0};
@@ -118,12 +123,13 @@ static void * consumer (void * p_context)
     return 0;
 }
 
+/** @brief Concurrent producer and consumer lose or reorder nothing. */
 static void test_concurrency (void)
 {
     pthread_t p;
     pthread_t c;
-    int const p_status = pthread_create(&p, 0, producer, 0);
-    int const c_status = pthread_create(&c, 0, consumer, 0);
+    int32_t const p_status = pthread_create(&p, 0, producer, 0);
+    int32_t const c_status = pthread_create(&c, 0, consumer, 0);
 
     check(0 == p_status, "producer started");
     check(0 == c_status, "consumer started");
@@ -135,7 +141,7 @@ static void test_concurrency (void)
     }
 }
 
-int test_fast_run (void)
+int32_t test_fast_run(void)
 {
     test_deadlines();
     test_fifo_and_overflow();
@@ -145,6 +151,7 @@ int test_fast_run (void)
            g_checks, g_failures);
     return (0 == g_failures) ? 0 : 1;
 }
+/** @brief Test entry point: run every case and report. */
 int main (void)
 {
     return test_fast_run();

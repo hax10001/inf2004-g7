@@ -13,6 +13,41 @@
 #define BC_MATCH_LEVELS 6U
 #define BC_MATCH_BAD_SCORE (-1000000)
 #define BC_MATCH_MAX_GEOMETRY 250U
+#define BC_MATCH_DIRECTIONS 2U       /* forward and reverse reading */
+#define BC_MATCH_JOBS 52U            /* letters times directions */
+#define BC_MATCH_JOBS_PER_POLL 2U    /* jobs run per poll call */
+#define BC_MATCH_LOGGED_MODELS 2U    /* best and runner-up are logged */
+#define BC_MATCH_ANCHORS 6U          /* wide bars fitted per letter */
+#define BC_MATCH_ANCHORS_I 6         /* BC_MATCH_ANCHORS, signed */
+#define BC_MATCH_MIN_POSITIVE 6U     /* positive features to qualify */
+#define BC_MATCH_Q8_ONE 256U         /* 1.0 in Q8 fixed point */
+#define BC_MATCH_Q8_ONE_I 256        /* BC_MATCH_Q8_ONE, signed */
+#define BC_MATCH_STAR 0x094U         /* Code 39 '*' wide-element mask */
+#define BC_MATCH_FRAME_SYMBOLS 3     /* start star, letter, end star */
+#define BC_MATCH_SYMBOL_ELEMENTS 10U /* symbol elements plus the gap */
+#define BC_MATCH_CHAR_ELEMENTS 9U    /* bars and spaces in one symbol */
+#define BC_MATCH_CHAR_TOP_BIT 8U     /* mask bit of a symbol's 1st element */
+#define BC_MATCH_END_STAR_FIRST 20U  /* first element of the end star */
+#define BC_MATCH_NARROW_X16 16U      /* narrow width, 1/16 units */
+#define BC_MATCH_NARROW_X16_I 16     /* BC_MATCH_NARROW_X16, signed */
+#define BC_MATCH_HALF_NARROW 8U      /* half a narrow width, 1/16 units */
+#define BC_MATCH_HALF_NARROW_I 8     /* BC_MATCH_HALF_NARROW, signed */
+#define BC_MATCH_RADIUS_DIV 5        /* mean radius = narrow / 5 */
+#define BC_MATCH_PERCENT 100U        /* percent denominator */
+#define BC_MATCH_PERCENT_I 100       /* BC_MATCH_PERCENT, signed */
+#define BC_MATCH_PERMILLE 1000U      /* per-mille geometry error scale */
+#define BC_MATCH_NOISE_FACTOR 4U     /* anchor threshold floor, x noise */
+#define BC_MATCH_MIN_NOISE 4U        /* floor on the noise estimate */
+#define BC_MATCH_LOCAL_SPAN_PCT 35   /* diagnostic shift range, +/- % */
+#define BC_MATCH_LOCAL_STEP_PCT 5    /* diagnostic shift step, % */
+#define BC_MATCH_EVIDENCE_CAP 600    /* max |z100| from one feature */
+#define BC_MATCH_EVIDENCE_MIN 50     /* z100 of a positive feature */
+#define BC_MATCH_GEOMETRY_DIV 10     /* geometry penalty divisor */
+#define BC_MATCH_RATIO_MIN 40U       /* first wide:narrow ratio, x16 */
+#define BC_MATCH_RATIO_MAX 56U       /* last wide:narrow ratio, x16 */
+#define BC_MATCH_RATIO_STEP 8U       /* wide:narrow ratio step, x16 */
+#define BC_MATCH_SHIFT_PCT 15        /* offset nudge, % of narrow */
+#define BC_MATCH_MIN_SAMPLES 32U     /* fewest samples worth matching */
 
 typedef struct
 {
@@ -49,9 +84,9 @@ static uint8_t g_duplicate_level;
 static uint8_t g_peak_overflow;
 static uint8_t g_done = 1U;
 static bc_match_peak_t g_peaks[BC_MATCH_PEAKS];
-static bc_match_model_t g_models[26];
-static int32_t g_level_score[26];
-static uint8_t g_support[26];
+static bc_match_model_t g_models[BC_CODE_LETTERS];
+static int32_t g_level_score[BC_CODE_LETTERS];
+static uint8_t g_support[BC_CODE_LETTERS];
 static bc_match_result_t g_result;
 static uint32_t g_geometry_reject;
 static uint32_t g_clearance_reject;
@@ -62,6 +97,7 @@ static uint32_t g_read_calls;
 static uint32_t g_mean_calls;
 static uint32_t g_cached_means;
 
+/** @brief Read one capture sample through the reader callback. */
 static void match_fetch (uint32_t index, uint32_t * p_units,
                           int32_t * p_signal)
 {
@@ -69,6 +105,7 @@ static void match_fetch (uint32_t index, uint32_t * p_units,
     ++g_read_calls;
 }
 
+/** @brief Return the travel position of one capture sample. */
 static uint32_t match_position (uint32_t index)
 {
     uint32_t units = 0U;
@@ -77,6 +114,7 @@ static uint32_t match_position (uint32_t index)
     return units;
 }
 
+/** @brief Binary search for the first sample at a position. */
 static uint32_t match_lower_bound (uint32_t position)
 {
     uint32_t lo = 0U;
@@ -96,8 +134,8 @@ static uint32_t match_lower_bound (uint32_t position)
     return lo;
 }
 
-/* Prefix entries store the exact integral before every second sample.
- * An odd endpoint needs only its one remaining interval, not a rescan.
+/** @brief Signal integral up to a sample, from the prefix table.
+ * The table holds every second sample; an odd index adds one interval.
  */
 static int32_t match_integral (uint32_t index)
 {
@@ -112,18 +150,20 @@ static int32_t match_integral (uint32_t index)
     return area;
 }
 
+/** @brief Mean signal over a window; 0 if it leaves the capture. */
 static uint8_t match_mean (int32_t centre_q8, int32_t radius_q8,
                             int32_t * p_mean)
 {
     ++g_mean_calls;
     if ((centre_q8 < radius_q8) ||
-        ((uint32_t)(centre_q8 + radius_q8) > g_extent * 256U))
+        ((uint32_t)(centre_q8 + radius_q8) > g_extent * BC_MATCH_Q8_ONE))
     {
         return 0U;
     }
-    uint32_t lo = match_lower_bound((uint32_t)(centre_q8 - radius_q8) / 256U);
+    uint32_t lo = match_lower_bound(
+        (uint32_t)(centre_q8 - radius_q8) / BC_MATCH_Q8_ONE);
     uint32_t hi = match_lower_bound(
-        (uint32_t)(centre_q8 + radius_q8) / 256U + 1U);
+        (uint32_t)(centre_q8 + radius_q8) / BC_MATCH_Q8_ONE + 1U);
     if (hi <= lo)
     {
         return 0U;
@@ -160,16 +200,19 @@ static uint8_t match_mean (int32_t centre_q8, int32_t radius_q8,
     return 1U;
 }
 
-/* Diagnostic only: nearby maxima are not substituted into template scores.
- * Searching noise for a maximum must not silently become new evidence.
+/** @brief Diagnostic: strongest nearby dark peak around a narrow bar.
+ * Logged only; never fed back into the template score, so a peak found
+ * in noise cannot become evidence.
  */
 static void match_local_peak (int32_t centre, int32_t left, int32_t right,
                               int32_t radius, int32_t narrow,
                               int32_t * p_delta, int32_t * p_shift)
 {
-    for (int32_t percent = -35; percent <= 35; percent += 5)
+    for (int32_t percent = -BC_MATCH_LOCAL_SPAN_PCT;
+         percent <= BC_MATCH_LOCAL_SPAN_PCT;
+         percent += BC_MATCH_LOCAL_STEP_PCT)
     {
-        int32_t shift = narrow * percent / 100;
+        int32_t shift = narrow * percent / BC_MATCH_PERCENT_I;
         int32_t black = 0;
         int32_t white_left = 0;
         int32_t white_right = 0;
@@ -193,26 +236,29 @@ static void match_local_peak (int32_t centre, int32_t left, int32_t right,
     }
 }
 
+/** @brief Build the expected element widths and centres of a letter. */
 static void match_pattern (uint8_t letter, uint8_t reverse, uint8_t ratio,
                             uint16_t * p_width, uint32_t * p_centres)
 {
     bc_code_pattern_t pattern = {0U};
     (void)bc_code_get(letter, &pattern);
-    uint16_t masks[3] = {0x094U, pattern.element_pattern, 0x094U};
+    uint16_t masks[BC_MATCH_FRAME_SYMBOLS] = {
+        BC_MATCH_STAR, pattern.element_pattern, BC_MATCH_STAR
+    };
     for (uint32_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
     {
         uint32_t target = reverse ? BC_CODE_ELEMENTS - 1U - i : i;
-        uint32_t symbol = i / 10U;
-        uint32_t element = i % 10U;
-        uint8_t wide = (element < 9U) &&
-            (0U != (masks[symbol] & (1U << (8U - element))));
-        p_width[target] = wide ? (uint16_t)ratio : 16U;
+        uint32_t symbol = i / BC_MATCH_SYMBOL_ELEMENTS;
+        uint32_t element = i % BC_MATCH_SYMBOL_ELEMENTS;
+        uint8_t wide = (element < BC_MATCH_CHAR_ELEMENTS) &&
+            (0U != (masks[symbol] & (1U << (BC_MATCH_CHAR_TOP_BIT - element))));
+        p_width[target] = wide ? (uint16_t)ratio : BC_MATCH_NARROW_X16;
     }
     uint32_t cursor = 0U;
     uint32_t peak = 0U;
     for (uint32_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
     {
-        if (((i % 2U) == 0U) && (p_width[i] > 16U))
+        if (((i % 2U) == 0U) && (p_width[i] > BC_MATCH_NARROW_X16))
         {
             p_centres[peak] = cursor + p_width[i] / 2U;
             ++peak;
@@ -221,12 +267,14 @@ static void match_pattern (uint8_t letter, uint8_t reverse, uint8_t ratio,
     }
 }
 
+/** @brief Find the anchor peaks above the noise threshold. */
 static void match_peaks (void)
 {
-    uint32_t threshold = g_maximum * g_anchor_percent[g_level] / 100U;
-    if (threshold < g_noise * 4U)
+    uint32_t threshold = g_maximum * g_anchor_percent[g_level] /
+                         BC_MATCH_PERCENT;
+    if (threshold < g_noise * BC_MATCH_NOISE_FACTOR)
     {
-        threshold = g_noise * 4U;
+        threshold = g_noise * BC_MATCH_NOISE_FACTOR;
     }
     g_duplicate_level = (g_level > 0U) &&
                         (threshold == g_previous_threshold);
@@ -285,7 +333,7 @@ static void match_peaks (void)
             last = position;
         }
     }
-    for (uint32_t i = 0U; i < 26U; ++i)
+    for (uint32_t i = 0U; i < BC_CODE_LETTERS; ++i)
     {
         g_level_score[i] = BC_MATCH_BAD_SCORE;
     }
@@ -298,6 +346,7 @@ static void match_peaks (void)
 #endif
 }
 
+/** @brief Fit scale and offset from the anchor peaks to a letter. */
 static uint8_t match_geometry (uint32_t first, uint32_t const * p_centres,
                                uint16_t const * p_width,
                                bc_match_model_t * p_model)
@@ -306,7 +355,7 @@ static uint8_t match_geometry (uint32_t first, uint32_t const * p_centres,
     int64_t sy = 0;
     int64_t xx = 0;
     int64_t xy = 0;
-    for (uint32_t i = 0U; i < 6U; ++i)
+    for (uint32_t i = 0U; i < BC_MATCH_ANCHORS; ++i)
     {
         int64_t x = p_centres[i];
         int64_t y = g_peaks[first + i].centre;
@@ -315,16 +364,17 @@ static uint8_t match_geometry (uint32_t first, uint32_t const * p_centres,
         xx += x * x;
         xy += x * y;
     }
-    int64_t denominator = 6 * xx - sx * sx;
-    int64_t numerator = 6 * xy - sx * sy;
+    int64_t denominator = BC_MATCH_ANCHORS_I * xx - sx * sx;
+    int64_t numerator = BC_MATCH_ANCHORS_I * xy - sx * sy;
     if ((denominator <= 0) || (numerator <= 0))
     {
         return 0U;
     }
-    p_model->scale_q8 = (int32_t)(numerator * 256 / denominator);
-    p_model->offset_q8 = (int32_t)((sy * 256 -
-                                  p_model->scale_q8 * sx) / 6);
-    int32_t narrow = p_model->scale_q8 * 16;
+    p_model->scale_q8 = (int32_t)(numerator * BC_MATCH_Q8_ONE_I /
+                                  denominator);
+    p_model->offset_q8 = (int32_t)((sy * BC_MATCH_Q8_ONE_I -
+        p_model->scale_q8 * sx) / BC_MATCH_ANCHORS_I);
+    int32_t narrow = p_model->scale_q8 * BC_MATCH_NARROW_X16_I;
     if (narrow <= 0)
     {
         return 0U;
@@ -336,31 +386,37 @@ static uint8_t match_geometry (uint32_t first, uint32_t const * p_centres,
     }
     int64_t span_q8 = (int64_t)p_model->scale_q8 * total;
     int64_t end_q8 = p_model->offset_q8 + span_q8;
-    if ((span_q8 < BC_CAL_MIN_BARCODE_UNITS * 256U) ||
-        (span_q8 > BC_CAL_MAX_BARCODE_UNITS * 256U) ||
-        (p_model->offset_q8 < (int32_t)(BC_CAL_LEADING_UNITS * 256U)) ||
-        (end_q8 + BC_CAL_TRAILING_UNITS * 256U > g_extent * 256U))
+    if ((span_q8 < BC_CAL_MIN_BARCODE_UNITS * BC_MATCH_Q8_ONE) ||
+        (span_q8 > BC_CAL_MAX_BARCODE_UNITS * BC_MATCH_Q8_ONE) ||
+        (p_model->offset_q8 < (int32_t)(BC_CAL_LEADING_UNITS *
+                                         BC_MATCH_Q8_ONE)) ||
+        (end_q8 + BC_CAL_TRAILING_UNITS * BC_MATCH_Q8_ONE >
+         g_extent * BC_MATCH_Q8_ONE))
     {
         ++g_clearance_reject;
         return 0U;
     }
     /* Other strong peaks inside the predicted frame contradict its layout. */
     if (((first > 0U) &&
-         ((int64_t)g_peaks[first - 1U].centre * 256 > p_model->offset_q8)) ||
-        ((first + 6U < g_peak_count) &&
-         ((int64_t)g_peaks[first + 6U].centre * 256 < end_q8)))
+         ((int64_t)g_peaks[first - 1U].centre * BC_MATCH_Q8_ONE_I >
+          p_model->offset_q8)) ||
+        ((first + BC_MATCH_ANCHORS < g_peak_count) &&
+         ((int64_t)g_peaks[first + BC_MATCH_ANCHORS].centre *
+          BC_MATCH_Q8_ONE_I < end_q8)))
     {
         ++g_geometry_reject;
         return 0U;
     }
     uint64_t error = 0U;
-    for (uint32_t i = 0U; i < 6U; ++i)
+    for (uint32_t i = 0U; i < BC_MATCH_ANCHORS; ++i)
     {
-        int64_t residual = (int64_t)g_peaks[first + i].centre * 256 -
+        int64_t residual =
+            (int64_t)g_peaks[first + i].centre * BC_MATCH_Q8_ONE_I -
             (p_model->offset_q8 + (int64_t)p_model->scale_q8 * p_centres[i]);
         error += (uint64_t)((residual < 0) ? -residual : residual);
     }
-    p_model->geometry = (uint16_t)(error * 1000U / (6U * (uint32_t)narrow));
+    p_model->geometry = (uint16_t)(error * BC_MATCH_PERMILLE /
+        (BC_MATCH_ANCHORS * (uint32_t)narrow));
     if (p_model->geometry > BC_MATCH_MAX_GEOMETRY)
     {
         ++g_geometry_reject;
@@ -369,6 +425,7 @@ static uint8_t match_geometry (uint32_t first, uint32_t const * p_centres,
     return 1U;
 }
 
+/** @brief Score a letter against the capture at a fitted geometry. */
 static int32_t match_features (uint8_t letter, uint16_t const * p_width,
                                 bc_match_model_t * p_model, uint8_t log)
 {
@@ -377,23 +434,25 @@ static int32_t match_features (uint8_t letter, uint16_t const * p_width,
     uint32_t star_first = 0U;
     uint32_t star_last = 0U;
     int32_t score = 0;
-    int32_t radius = p_model->scale_q8 * 16 / 5;
-    if (radius < 256)
+    int32_t radius = p_model->scale_q8 * BC_MATCH_NARROW_X16_I /
+                     BC_MATCH_RADIUS_DIV;
+    if (radius < BC_MATCH_Q8_ONE_I)
     {
-        radius = 256;
+        radius = BC_MATCH_Q8_ONE_I;
     }
     for (uint32_t i = 0U; i < BC_CODE_ELEMENTS; ++i)
     {
-        if (((i % 2U) == 0U) && (16U == p_width[i]))
+        if (((i % 2U) == 0U) && (BC_MATCH_NARROW_X16 == p_width[i]))
         {
             int32_t centre = p_model->offset_q8 +
-                p_model->scale_q8 * (int32_t)(cursor + 8U);
+                p_model->scale_q8 * (int32_t)(cursor + BC_MATCH_HALF_NARROW);
             int32_t left = p_model->offset_q8 + p_model->scale_q8 *
-                ((int32_t)cursor - ((i > 0U) ? p_width[i - 1U] / 2 : 8));
+                ((int32_t)cursor - ((i > 0U) ? p_width[i - 1U] / 2
+                                    : BC_MATCH_HALF_NARROW_I));
             int32_t right = p_model->offset_q8 + p_model->scale_q8 *
-                (int32_t)(cursor + 16U +
+                (int32_t)(cursor + BC_MATCH_NARROW_X16 +
                           ((i + 1U < BC_CODE_ELEMENTS) ? p_width[i + 1U] / 2U
-                                                       : 8U));
+                                                       : BC_MATCH_HALF_NARROW));
             int32_t black = 0;
             int32_t white_left = 0;
             int32_t white_right = 0;
@@ -408,37 +467,38 @@ static int32_t match_features (uint8_t letter, uint16_t const * p_width,
                 (((int64_t)white_left * (right - centre) +
                   (int64_t)white_right * (centre - left)) / (right - left));
             int32_t delta = black - baseline;
-            int32_t evidence = delta * 100 / (int32_t)g_noise;
+            int32_t evidence = delta * BC_MATCH_PERCENT_I / (int32_t)g_noise;
             /* Bound leverage of any one feature; wide-bar spill cannot
              * dominate all the other narrow bars by arbitrary amplitude.
              */
-            if (evidence > 600)
+            if (evidence > BC_MATCH_EVIDENCE_CAP)
             {
-                evidence = 600;
+                evidence = BC_MATCH_EVIDENCE_CAP;
             }
-            if (evidence < -600)
+            if (evidence < -BC_MATCH_EVIDENCE_CAP)
             {
-                evidence = -600;
+                evidence = -BC_MATCH_EVIDENCE_CAP;
             }
             score += evidence;
-            if (evidence >= 50)
+            if (evidence >= BC_MATCH_EVIDENCE_MIN)
             {
                 ++positive;
-                star_first += (i < 9U) ? 1U : 0U;
-                star_last += (i >= 20U) ? 1U : 0U;
+                star_first += (i < BC_MATCH_CHAR_ELEMENTS) ? 1U : 0U;
+                star_last += (i >= BC_MATCH_END_STAR_FIRST) ? 1U : 0U;
             }
             if (0U != log)
             {
                 int32_t local_delta = delta;
                 int32_t local_shift = 0;
                 match_local_peak(centre, left, right, radius,
-                                  p_model->scale_q8 * 16,
+                                  p_model->scale_q8 * BC_MATCH_NARROW_X16_I,
                                   &local_delta, &local_shift);
                 tm_printf((UB *)"[BC MATCH FEATURE] letter=%c rev=%u i=%u "
                                   "u=%u black=%d white=%d delta=%d z100=%d "
                                   "local_delta=%d local_shift_pct=%d\n",
                           (INT)('A' + letter), (UINT)p_model->reverse,
-                          (UINT)i, (UINT)(centre / 256), (INT)black,
+                          (UINT)i, (UINT)(centre / BC_MATCH_Q8_ONE_I),
+                          (INT)black,
                           (INT)baseline, (INT)delta, (INT)evidence,
                           (INT)local_delta, (INT)local_shift);
             }
@@ -446,28 +506,31 @@ static int32_t match_features (uint8_t letter, uint16_t const * p_width,
         cursor += p_width[i];
     }
     p_model->positive = (uint8_t)positive;
-    p_model->eligible = (positive >= 6U) && (star_first > 0U) &&
-                        (star_last > 0U);
-    if ((positive < 6U) || (0U == star_first) || (0U == star_last))
+    p_model->eligible = (positive >= BC_MATCH_MIN_POSITIVE) &&
+                        (star_first > 0U) && (star_last > 0U);
+    if ((positive < BC_MATCH_MIN_POSITIVE) || (0U == star_first) ||
+        (0U == star_last))
     {
         ++g_weak_reject;
     }
     /* Keep weak competitors in the score ranking. Dropping them would
      * artificially inflate the winner's margin around an eligibility cut.
      */
-    return score - (int32_t)p_model->geometry / 10;
+    return score - (int32_t)p_model->geometry / BC_MATCH_GEOMETRY_DIV;
 }
 
+/** @brief Score one letter and direction against the capture. */
 static void match_job (void)
 {
-    uint8_t letter = (uint8_t)(g_job / 2U);
-    uint8_t reverse = (uint8_t)(g_job % 2U);
-    for (uint32_t first = 0U; first + 6U <= g_peak_count; ++first)
+    uint8_t letter = (uint8_t)(g_job / BC_MATCH_DIRECTIONS);
+    uint8_t reverse = (uint8_t)(g_job % BC_MATCH_DIRECTIONS);
+    for (uint32_t first = 0U; first + BC_MATCH_ANCHORS <= g_peak_count; ++first)
     {
-        for (uint8_t ratio = 40U; ratio <= 56U; ratio += 8U)
+        for (uint8_t ratio = BC_MATCH_RATIO_MIN; ratio <= BC_MATCH_RATIO_MAX;
+             ratio += BC_MATCH_RATIO_STEP)
         {
             uint16_t widths[BC_CODE_ELEMENTS] = {0U};
-            uint32_t centres[6] = {0U};
+            uint32_t centres[BC_MATCH_ANCHORS] = {0U};
             bc_match_model_t model = {0};
             match_pattern(letter, reverse, ratio, widths, centres);
             if (0U != match_geometry(first, centres, widths, &model))
@@ -476,21 +539,24 @@ static void match_job (void)
                 for (int32_t shift = -1; shift <= 1; ++shift)
                 {
                     model.offset_q8 = origin +
-                        shift * model.scale_q8 * 16 * 15 / 100;
+                        shift * model.scale_q8 * BC_MATCH_NARROW_X16_I *
+                        BC_MATCH_SHIFT_PCT / BC_MATCH_PERCENT_I;
                     model.ratio = ratio;
                     model.reverse = reverse;
                     uint64_t residual_sum = 0U;
-                    for (uint32_t i = 0U; i < 6U; ++i)
+                    for (uint32_t i = 0U; i < BC_MATCH_ANCHORS; ++i)
                     {
                         int64_t residual =
-                            (int64_t)g_peaks[first + i].centre * 256 -
+                            (int64_t)g_peaks[first + i].centre *
+                            BC_MATCH_Q8_ONE_I -
                             (model.offset_q8 +
                              (int64_t)model.scale_q8 * centres[i]);
                         residual_sum += (uint64_t)
                             ((residual < 0) ? -residual : residual);
                     }
-                    model.geometry = (uint16_t)(residual_sum * 1000U /
-                        (6U * (uint32_t)model.scale_q8 * 16U));
+                    model.geometry = (uint16_t)(residual_sum *
+                        BC_MATCH_PERMILLE / (BC_MATCH_ANCHORS *
+                        (uint32_t)model.scale_q8 * BC_MATCH_NARROW_X16));
                     model.score = BC_MATCH_BAD_SCORE;
                     if (model.geometry <= BC_MATCH_MAX_GEOMETRY)
                     {
@@ -512,13 +578,14 @@ static void match_job (void)
     ++g_job;
 }
 
+/** @brief Return the index of the best score, skipping one entry. */
 static uint32_t match_best (int32_t const * p_scores, uint32_t exclude)
 {
-    uint32_t best = 26U;
-    for (uint32_t i = 0U; i < 26U; ++i)
+    uint32_t best = BC_CODE_LETTERS;
+    for (uint32_t i = 0U; i < BC_CODE_LETTERS; ++i)
     {
         if ((i != exclude) &&
-            ((26U == best) || (p_scores[i] > p_scores[best])))
+            ((BC_CODE_LETTERS == best) || (p_scores[i] > p_scores[best])))
         {
             best = i;
         }
@@ -526,14 +593,15 @@ static uint32_t match_best (int32_t const * p_scores, uint32_t exclude)
     return best;
 }
 
+/** @brief Pick the best and runner-up letters and their margin. */
 static void match_finish (void)
 {
-    int32_t scores[26] = {0};
-    for (uint32_t i = 0U; i < 26U; ++i)
+    int32_t scores[BC_CODE_LETTERS] = {0};
+    for (uint32_t i = 0U; i < BC_CODE_LETTERS; ++i)
     {
         scores[i] = g_models[i].score;
     }
-    uint32_t best = match_best(scores, 26U);
+    uint32_t best = match_best(scores, BC_CODE_LETTERS);
     uint32_t runner = match_best(scores, best);
     int32_t margin = scores[best] -
         ((scores[runner] == BC_MATCH_BAD_SCORE) ? 0 : scores[runner]);
@@ -567,13 +635,13 @@ static void match_finish (void)
               (UINT)g_models[best].positive, (UINT)g_models[best].eligible,
               (UINT)g_geometry_reject, (UINT)g_clearance_reject,
               (UINT)g_weak_reject);
-    for (uint32_t rank = 0U; rank < 2U; ++rank)
+    for (uint32_t rank = 0U; rank < BC_MATCH_LOGGED_MODELS; ++rank)
     {
         uint32_t candidate = (0U == rank) ? best : runner;
         if (scores[candidate] != BC_MATCH_BAD_SCORE)
         {
             uint16_t widths[BC_CODE_ELEMENTS] = {0U};
-            uint32_t centres[6] = {0U};
+            uint32_t centres[BC_MATCH_ANCHORS] = {0U};
             match_pattern((uint8_t)candidate, g_models[candidate].reverse,
                           g_models[candidate].ratio, widths, centres);
 #ifndef B1_LIVE_COMMANDS
@@ -607,7 +675,7 @@ void bc_match_begin (uint32_t count, uint32_t noise,
 {
     g_read = read_sample;
     g_count = count;
-    g_noise = (noise > 4U) ? noise : 4U;
+    g_noise = (noise > BC_MATCH_MIN_NOISE) ? noise : BC_MATCH_MIN_NOISE;
     g_maximum = 0U;
     g_extent = 0U;
     g_level = 0U;
@@ -627,12 +695,12 @@ void bc_match_begin (uint32_t count, uint32_t noise,
     g_cached_means = 0U;
     gp_prefix = p_prefix;
     g_prefix_enabled = (0 != p_prefix) && (prefix_capacity >= count / 2U + 1U);
-    if ((0 == read_sample) || (count < 32U))
+    if ((0 == read_sample) || (count < BC_MATCH_MIN_SAMPLES))
     {
         g_done = 1U;
         return;
     }
-    for (uint32_t i = 0U; i < 26U; ++i)
+    for (uint32_t i = 0U; i < BC_CODE_LETTERS; ++i)
     {
         g_models[i] = (bc_match_model_t){0};
         g_models[i].score = BC_MATCH_BAD_SCORE;
@@ -671,20 +739,21 @@ void bc_match_begin (uint32_t count, uint32_t noise,
 
 uint8_t bc_match_poll (void)
 {
-    for (uint32_t work = 0U; (work < 2U) && (0U == g_done); ++work)
+    for (uint32_t work = 0U;
+         (work < BC_MATCH_JOBS_PER_POLL) && (0U == g_done); ++work)
     {
-        if ((g_peak_count >= 6U) && (0U == g_peak_overflow) &&
+        if ((g_peak_count >= BC_MATCH_ANCHORS) && (0U == g_peak_overflow) &&
             (0U == g_duplicate_level))
         {
             match_job();
         }
         else
         {
-            g_job = 52U;
+            g_job = BC_MATCH_JOBS;
         }
-        if (g_job >= 52U)
+        if (g_job >= BC_MATCH_JOBS)
         {
-            uint32_t best = match_best(g_level_score, 26U);
+            uint32_t best = match_best(g_level_score, BC_CODE_LETTERS);
             uint32_t runner = match_best(g_level_score, best);
             if ((g_level_score[best] >= APP_BARCODE_TEMPLATE_MIN_SCORE_Z100) &&
                 (g_level_score[best] > g_level_score[runner]))
@@ -706,6 +775,7 @@ uint8_t bc_match_poll (void)
     return g_done;
 }
 
+/** @brief Return the latest template-match result. */
 bc_match_result_t bc_match_result (void)
 {
     return g_result;
@@ -727,6 +797,7 @@ uint8_t bc_match_poll (void)
     return 1U;
 }
 
+/** @brief Return the latest template-match result. */
 bc_match_result_t bc_match_result (void)
 {
     bc_match_result_t result = {

@@ -6,7 +6,7 @@
 
 #include <tk/tkernel.h>
 
-/** @brief Run the original periodic IMU diagnostic when explicitly enabled. */
+/** @brief IMU task: calibrate, then sample, detect humps and lifts. */
 void task_imu_task (INT start_code, void * p_context);
 
 #endif /* TASK_IMU_H */

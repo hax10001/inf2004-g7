@@ -14,6 +14,7 @@ static volatile uint32_t g_read_index = 0U;
 static volatile uint32_t g_drop_count = 0U;
 static uint32_t g_last_drop_seen = 0U;
 
+/** @brief Full memory barrier between the ISR and the reader. */
 static void bc_fastq_barrier (void)
 {
 #if defined(__arm__) || defined(__thumb__)

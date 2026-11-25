@@ -14,14 +14,32 @@
 #include <math.h>
 #include <tm/tmonitor.h>
 
-#define IMU_SAMPLE_PERIOD_MSEC 20
-#define IMU_LOG_PERIOD_MSEC 100U
-#define IMU_SENSOR_SETTLE_MSEC 100
+#define IMU_SAMPLE_PERIOD_MSEC 20   /* IMU read period. */
+#define IMU_LOG_PERIOD_MSEC 100U    /* Debug log period. */
+#define IMU_SENSOR_SETTLE_MSEC 100  /* Wait after init before calibrating. */
+/* Calibration: samples averaged, accepted gravity range (mg), largest
+ * change from the first sample on any axis (mg), and retry delay. */
 #define IMU_CALIBRATION_SAMPLES 50
 #define IMU_CALIBRATION_MIN_MG 800
 #define IMU_CALIBRATION_MAX_MG 1200
 #define IMU_CALIBRATION_CHANGE_MG 50
 #define IMU_CALIBRATION_RETRY_MSEC 500U
+/* Accelerometer axes and their array indices. */
+#define IMU_AXES 3
+#define IMU_AXIS_X 0
+#define IMU_AXIS_Y 1
+#define IMU_AXIS_Z 2
+/* Unit scales for logging and the published heading. */
+#define IMU_MDEG_PER_DEG 1000.0F
+#define IMU_CDEG_PER_DEG 100.0F
+#define IMU_MDEG_PER_CDEG 10
+#define IMU_X10 10.0F
+/* More travel than this between IMU samples is not driving. */
+#define HUMP_MAX_STEP_MM 50.0F
+/* Largest value of the 6-bit hump travel field, mm. */
+#define HUMP_TRAVEL_MAX_MM 63U
+/* Added before truncation to round a height to the nearest mm. */
+#define HUMP_ROUND_MM 0.5F
 #if IMU_CALIBRATION_MAX_MG > 2047
 #error Calibrated gravity must fit 11 bits
 #endif
@@ -30,15 +48,15 @@
  * smoother but lags more and trims the peak; motor vibration needs some.
  */
 #define IMU_FILTER_ALPHA 0.2F
-/* A 1 cm hump under one wheel rolls the robot about 5.2 degrees
- * (asin(10 / 110)). Starting and ending at different angles stops noise
- * near one value from flickering.
- */
-/* Readings whose total acceleration is this far from the calibrated
+/* Readings whose total acceleration is this far (mg) from the calibrated
  * gravity are being shoved, not just tilted, so they are left out. Without
  * a gyroscope this is the only way to keep a jolt from reading as tilt.
  */
 #define IMU_GRAVITY_TOLERANCE_MG 50
+/* Roll, degrees, that starts and ends a hump. A 1 cm hump under one wheel
+ * rolls the robot about 5.2 degrees (asin(10 / 110)); separate start and
+ * end angles stop noise near one value from flickering.
+ */
 #define HUMP_START_DEG 3.0F
 #define HUMP_LEVEL_DEG 1.5F
 /* Samples in a row above HUMP_START_DEG that count as a real tilt, so a
@@ -49,23 +67,30 @@
  * neither counts nor resets them; only a sustained tilt starts over.
  */
 #define HUMP_LEVEL_CONFIRM_SAMPLES 15U
-/* Drop below the peak that counts as descending, ignoring jitter. */
+/* Drop below the peak, mm, that counts as descending, ignoring jitter. */
 #define HUMP_DESCENT_MM 1.5F
 /* A real hump lifts the axle: the climb (ds * sin(tilt) summed over the
- * hump) must reach HUMP_MIN_CLIMB_MM or the "hump" is discarded, and the
- * hump only counts as descending (which slows the robot downhill) once
- * the climb reaches HUMP_DESCENT_CLIMB_MM. 23 Nov recordings: real humps
- * climbed 8.4-16.4 mm; false ones from pivots, START and restarts (the
- * accelerometer reads a sideways jolt as roll) climbed 0.4-2.1 mm. */
-#define HUMP_MIN_CLIMB_MM 5.0F
+ * hump) must reach HUMP_MIN_CLIMB_MM (0 = disabled, as course humps can be
+ * under 5 mm) or the hump is discarded. It only counts as descending
+ * (which slows the robot downhill) once the climb reaches
+ * HUMP_DESCENT_CLIMB_MM, so a sideways jolt read as roll (pivots, START)
+ * never slows the robot. Real humps climb about 8-16 mm, jolts 0.4-2 mm.
+ */
+#define HUMP_MIN_CLIMB_MM 0.0F
 #define HUMP_DESCENT_CLIMB_MM 3.0F
+/* Bias subtracted from the REPORTED hump height only (HUMP DONE, last/max
+ * height, telemetry), never below 0; 0 = disabled. Detection, the travel
+ * rule, the lift discard and the descent gate use raw values. A 10 mm
+ * hump reads high by a few mm on average.
+ */
+#define HUMP_HEIGHT_BIAS_MM 2.0F
 #if (HUMP_LEVEL_CONFIRM_SAMPLES > 15U) || (HUMP_TILT_CONFIRM_SAMPLES > 3U)
 #error Hump confirmation counts exceed their bit-field widths
 #endif
-/* Hump heights are published in seven bits (terrain_snapshot). */
+/* Hump heights are published in seven bits (terrain_snapshot_t). */
 #define HUMP_PUBLISH_MAX_MM 127U
 #if WHEEL_SPACING_MM > 127
-#error Hump height fields hold at most 127 mm; widen terrain_snapshot
+#error Hump height fields hold at most 127 mm; widen terrain_snapshot_t
 #endif
 #if (APP_LIFT_STOP_HEIGHT_MM < 1) || (APP_LIFT_STOP_HEIGHT_MM > 1022)
 #error APP_LIFT_STOP_HEIGHT_MM must be 1..1022 mm
@@ -73,50 +98,49 @@
 
 typedef struct
 {
-    float    filtered[3]; /**< Smoothed axes, mg. */
+    float    filtered[IMU_AXES]; /**< Smoothed axes, mg. */
     float    tilt_deg;    /**< Size of the roll, degrees. */
     float    height_mm;
     float    peak_mm;     /**< Highest point of this hump. */
-    unsigned int gravity_mg:11; /**< 0 before calibration, <= 1200 mg. */
+    uint32_t     gravity_mg:11; /**< 0 before calibration, <= 1200 mg. */
     uint16_t rejected;    /**< Shoved samples since last log. */
     /* IMU-task owned, so packing needs no lock. Phase is 0..2; the counts
      * stop at HUMP_LEVEL_CONFIRM_SAMPLES and HUMP_TILT_CONFIRM_SAMPLES. */
-    unsigned int b_filter_ready:1;
-    unsigned int b_on_hump:1;
-    unsigned int phase:2;        /**< A terrain_hump_phase value. */
-    unsigned int level_count:4;
-    unsigned int tilted_count:2; /**< Samples in a row above start. */
-    unsigned int last_peak_mm:7; /**< 0..127, as published. */
-    unsigned int max_peak_mm:7;  /**< 0..127, as published. */
-    unsigned int hump_count:8;
-    unsigned int b_spoiled:1;    /**< Lifted during this hump. */
-    unsigned int b_was_lifted:1; /**< Lifted at the last sample. */
+    uint32_t     b_filter_ready:1;
+    uint32_t     b_on_hump:1;
+    uint32_t     phase:2;        /**< A terrain_hump_phase_t value. */
+    uint32_t     level_count:4;  /**< Level samples towards the end. */
+    uint32_t     tilted_count:2; /**< Samples in a row above start. */
+    uint32_t     last_peak_mm:7; /**< 0..127, as published. */
+    uint32_t     max_peak_mm:7;  /**< 0..127, as published. */
+    uint32_t     hump_count:8;   /**< Humps recorded since boot. */
+    uint32_t     b_spoiled:1;    /**< Lifted during this hump. */
+    uint32_t     b_was_lifted:1; /**< Lifted at the last sample. */
     /** Wheel travel during this hump, mm, saturating at 63 (only compared
      *  with HUMP_MIN_TRAVEL_MM). */
-    unsigned int travel_mm:6;
+    uint32_t     travel_mm:6;
     /** Flips on every hump recorded (HUMP DONE), so a reader sees each. */
-    unsigned int b_done_toggle:1;
+    uint32_t     b_done_toggle:1;
 } hump_state_t;
 
 static hump_state_t g_hump = {0};
-/* Hump height from the climb. The robot drives along its own body axis, so
- * every bit of axle travel ds rises ds * sin(tilt); adding that up over
- * the hump gives how high the axle actually went, whatever the hump's
- * length or slope. The body tilt alone (WHEEL_SPACING_MM * sin(tilt)) only
- * measures how far the robot is tipped: on a long hump that is the slope,
- * not the height. The larger of the two is reported, so a short bump that
- * only lifts one end still counts. IMU task only. */
-#define CLIMB_MM_PER_COUNT (219.8F / 1056.0F)
+/* Hump height from the climb. Each axle travel step ds rises
+ * ds * sin(tilt); summed over the hump this gives how high the axle went,
+ * whatever the hump's length or slope. Body tilt alone
+ * (WHEEL_SPACING_MM * sin(tilt)) gives only the slope on a long hump. The
+ * larger of the two is reported, so a short bump that lifts one end still
+ * counts. IMU task only.
+ */
+#define CLIMB_MM_PER_COUNT (219.8F / 1056.0F) /* Wheel mm per count. */
 #define CLIMB_DEG_TO_RAD 0.0174532925F
 static float   g_climb_mm      = 0.0F;
 static float   g_climb_peak_mm = 0.0F;
 static float   g_climb_up      = 1.0F; /**< Sign of the tilt when climbing. */
-static int32_t g_climb_last[2] = {0, 0};
-/* Wheel travel during the current hump, mm (saturating at 255). A hump is
- * only recorded if the robot drove over it: handling or putting it down
- * tilts it the same way with the wheels still (logged 19 Nov 15:5x, a
- * 9 mm "hump" 6 s after a lift, encoders unchanged). Stored as the
- * 6-bit hump_state_t.travel_mm. */
+static int32_t g_climb_last[ENCODER_WHEEL_COUNT] = {0, 0};
+/* Wheel travel, mm, needed during a hump for it to be recorded: handling
+ * or putting the robot down tilts it the same way with the wheels still.
+ * Compared with the 6-bit hump_state_t.travel_mm.
+ */
 #define HUMP_MIN_TRAVEL_MM 40U
 #if HUMP_MIN_TRAVEL_MM > 63U
 #error HUMP_MIN_TRAVEL_MM no longer fits the 6-bit travel field
@@ -134,8 +158,8 @@ typedef struct
 {
     uint32_t previous_time_msec;
     uint32_t last_log_msec;
-    unsigned char b_have_previous:1;
-    unsigned char b_lift_reported:1;
+    uint8_t       b_have_previous:1;
+    uint8_t       b_lift_reported:1;
 } imu_history_t;
 
 typedef struct
@@ -146,15 +170,15 @@ typedef struct
     int16_t mag_x;
     int16_t mag_y;
     int16_t mag_z;
-    unsigned int magnitude:12; /**< 0..3547 mg from signed 12-bit axes. */
-    unsigned int b_mag_ok:1;
+    uint32_t     magnitude:12; /**< 0..3547 mg from signed 12-bit axes. */
+    uint32_t     b_mag_ok:1;
 } imu_sample_t;
 
-/** @brief Retrieve the same low 32 bits of kernel operating time. */
+/** @brief Read the low 32 bits of kernel operating time, ms. */
 static bool operating_time (uint32_t * p_msec);
 /** @brief Read one sample and update history after processing it. */
 static void process_sample (ID h_device, imu_history_t * p_history);
-/** @brief Print one successful accelerometer sample in the original format. */
+/** @brief Print one successful accelerometer sample. */
 static void log_sample (uint32_t now_msec, imu_sample_t const * p_sample);
 /** @brief Average a stationary one-second window and save its angles. */
 static bool calibrate_sensor (ID h_device);
@@ -162,48 +186,44 @@ static bool calibrate_sensor (ID h_device);
 static bool calibration_sample_valid (int16_t const * p_axes,
                                       int16_t const * p_first_axes);
 /** @brief Report angles relative to the startup level reference. */
-static void log_tilt(terrain_snapshot const *p_snapshot);
+static void log_tilt(terrain_snapshot_t const *p_snapshot);
 /** @brief Low-pass filter the accelerometer axes against vibration. */
 static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes);
 /** @brief Update hump start, climb, descent and end from a valid tilt. */
-static void update_hump (terrain_snapshot const * p_snapshot);
+static void update_hump (terrain_snapshot_t const * p_snapshot);
 /** @brief Round a non-negative hump height to 0..127 whole millimetres. */
 static uint8_t round_mm (float height_mm);
 /** @brief Advance the lifted-height estimate and publish it. */
 static void update_lift (imu_sample_t const * p_sample,
                          imu_history_t * p_history,
-                         terrain_snapshot * p_snapshot);
+                         terrain_snapshot_t * p_snapshot);
 
 void task_imu_task (INT start_code, void * p_context)
 {
-    /* Casting unused arguments to void cannot alter their values. */
     (void)start_code;
     (void)p_context;
 
-    /* The kernel device name is read-only; UB preserves its string bytes. */
     ID h_device = tk_opn_dev((UB *)"iica", TD_UPDATE);
 
     if (h_device <= E_OK)
     {
-        /* UB preserves string bytes; the API does not modify the string. */
         tm_printf((UB *)"IMU: unable to open I2C0 (er=%d)\n", h_device);
         tk_slp_tsk(TMO_FEVR); /* never return from a task function */
         return;
     }
 
     for (INT attempt = 0;
-         (attempt < APP_USB_WAIT_ATTEMPTS) && (console_state() < 2U); ++attempt)
+         (attempt < APP_USB_WAIT_ATTEMPTS) &&
+         (console_state() < CONSOLE_STATE_ENUMERATED); ++attempt)
     {
         tk_dly_tsk(APP_USB_WAIT_PERIOD_MSEC);
     }
 
     tk_dly_tsk(APP_USB_SETTLE_MSEC);
-    /* UB preserves string bytes; the API does not modify the string. */
     tm_printf((UB *)"\n=== RoboPico LSM303DLHC microT test: GP16/GP17 ===\n");
 
     if (!lsm303_init(h_device))
     {
-        /* UB preserves string bytes; the API does not modify the string. */
         tm_printf((UB *)"IMU: failed to initialize accelerometer or "
                         "magnetometer\n");
         tk_cls_dev(h_device, 0);
@@ -211,10 +231,8 @@ void task_imu_task (INT start_code, void * p_context)
         return;
     }
 
-    /* UB preserves string bytes; the API does not modify the string. */
     tm_printf((UB *)"IMU initialized: accelerometer 0x19; magnetometer 0x1E\n");
 
-    /* UB views read-only string bytes; the monitor does not modify them. */
     tm_printf((UB *)"IMU: keep robot still and level for calibration\n");
     tk_dly_tsk(IMU_SENSOR_SETTLE_MSEC);
 
@@ -233,14 +251,12 @@ void task_imu_task (INT start_code, void * p_context)
         tk_dly_tsk(IMU_CALIBRATION_RETRY_MSEC);
     }
 
-    /* UB views read-only string bytes; the monitor does not modify them. */
     tm_printf((UB *)"IMU: level reference saved in RAM\n");
 
     imu_history_t history = {0};
 
     if (!operating_time(&history.previous_time_msec))
     {
-        /* UB preserves string bytes; the API does not modify the string. */
         tm_printf((UB *)"IMU: cannot read kernel operating time\n");
         tk_cls_dev(h_device, 0);
         tk_slp_tsk(TMO_FEVR); /* never return from a task function */
@@ -259,24 +275,23 @@ void task_imu_task (INT start_code, void * p_context)
 
 static bool calibrate_sensor (ID h_device)
 {
-    /* This is 3 for x,y,z axes sumof */
-    int32_t sums[3] = {0};
-    int16_t first_axes[3] = {0};
+    /* Per-axis sums of the calibration window. */
+    int32_t sums[IMU_AXES] = {0};
+    int16_t first_axes[IMU_AXES] = {0};
 
     for (INT sample = 0; sample < IMU_CALIBRATION_SAMPLES; ++sample)
     {
-        int16_t axes[3] = {0};
+        int16_t axes[IMU_AXES] = {0};
 
-        if (!lsm303_read_accel(h_device, &axes[0], &axes[1], &axes[2]))
+        if (!lsm303_read_accel(h_device, &axes[IMU_AXIS_X],
+                               &axes[IMU_AXIS_Y], &axes[IMU_AXIS_Z]))
         {
             tm_printf((UB *)"IMU: calibration I2C read failed at sample %d\n",
                       sample + 1);
             return false;
         }
-        /* This is a for loop of 3 iterations, one for each axis (X, Y, Z). */
-        /* It accumulates the sum of the axis readings */
-        /* and stores the first sample's values for later comparison. */
-        for (INT axis = 0; axis < 3; ++axis)
+        /* Sum each axis; keep the first sample for the stillness check. */
+        for (INT axis = 0; axis < IMU_AXES; ++axis)
         {
             if (0 == sample)
             {
@@ -291,8 +306,11 @@ static bool calibrate_sensor (ID h_device)
         {
             tm_printf((UB *)"IMU: calibration rejected sample %d "
                             "XYZ=(%d,%d,%d) magnitude=%d\n",
-                      sample + 1, (INT)axes[0], (INT)axes[1], (INT)axes[2],
-                      (INT)terrain_magnitude(axes[0], axes[1], axes[2]));
+                      sample + 1, (INT)axes[IMU_AXIS_X],
+                      (INT)axes[IMU_AXIS_Y], (INT)axes[IMU_AXIS_Z],
+                      (INT)terrain_magnitude(axes[IMU_AXIS_X],
+                                             axes[IMU_AXIS_Y],
+                                             axes[IMU_AXIS_Z]));
             return false;
         }
 
@@ -300,18 +318,18 @@ static bool calibrate_sensor (ID h_device)
     }
 
     /* Each average stays in the signed 12-bit range and fits int16_t. */
-    int16_t avg_x = (int16_t)(sums[0] / IMU_CALIBRATION_SAMPLES);
-    int16_t avg_y = (int16_t)(sums[1] / IMU_CALIBRATION_SAMPLES);
-    int16_t avg_z = (int16_t)(sums[2] / IMU_CALIBRATION_SAMPLES);
+    int16_t avg_x = (int16_t)(sums[IMU_AXIS_X] / IMU_CALIBRATION_SAMPLES);
+    int16_t avg_y = (int16_t)(sums[IMU_AXIS_Y] / IMU_CALIBRATION_SAMPLES);
+    int16_t avg_z = (int16_t)(sums[IMU_AXIS_Z] / IMU_CALIBRATION_SAMPLES);
 
     ER error = terrain_calibrate(avg_x, avg_y, avg_z);
 
     /* Start the smoothing filter from the level reference, not from the
      * first noisy reading, so it cannot begin with a false hump.
      */
-    g_hump.filtered[0]    = (float)avg_x;
-    g_hump.filtered[1]    = (float)avg_y;
-    g_hump.filtered[2]    = (float)avg_z;
+    g_hump.filtered[IMU_AXIS_X]    = (float)avg_x;
+    g_hump.filtered[IMU_AXIS_Y]    = (float)avg_y;
+    g_hump.filtered[IMU_AXIS_Z]    = (float)avg_z;
     g_hump.b_filter_ready = true;
     /* Calibration accepted only 800..1200 mg, so this fits int16_t. */
     g_hump.gravity_mg     = (uint16_t)terrain_magnitude(avg_x, avg_y, avg_z);
@@ -324,9 +342,8 @@ static bool calibrate_sensor (ID h_device)
     float roll_zero = 0.0F;
     float pitch_zero = 0.0F;
 
-    /* Terrain_tilt is called again to compute once for the printf readings. */
-    /* Note that terrain_calibrate already calls terrain_tilt */
-    /* internally to save the reference angles. */
+    /* Recompute the reference angles for the log; terrain_calibrate()
+     * has already saved them. */
     error = terrain_tilt(
         avg_x,
         avg_y,
@@ -348,8 +365,8 @@ static bool calibrate_sensor (ID h_device)
         (INT)avg_x,
         (INT)avg_y,
         (INT)avg_z,
-        (INT)(roll_zero * 1000.0F),
-        (INT)(pitch_zero * 1000.0F)
+        (INT)(roll_zero * IMU_MDEG_PER_DEG),
+        (INT)(pitch_zero * IMU_MDEG_PER_DEG)
     );
 
     return true;
@@ -358,7 +375,9 @@ static bool calibrate_sensor (ID h_device)
 static bool calibration_sample_valid (int16_t const * p_axes,
                                       int16_t const * p_first_axes)
 {
-    int32_t magnitude = terrain_magnitude(p_axes[0], p_axes[1], p_axes[2]);
+    int32_t magnitude = terrain_magnitude(p_axes[IMU_AXIS_X],
+                                          p_axes[IMU_AXIS_Y],
+                                          p_axes[IMU_AXIS_Z]);
 
     if ((magnitude < IMU_CALIBRATION_MIN_MG) ||
         (magnitude > IMU_CALIBRATION_MAX_MG))
@@ -366,7 +385,7 @@ static bool calibration_sample_valid (int16_t const * p_axes,
         return false;
     }
 
-    for (INT axis = 0; axis < 3; ++axis)
+    for (INT axis = 0; axis < IMU_AXES; ++axis)
     {
         int32_t difference = (int32_t)p_axes[axis] - p_first_axes[axis];
 
@@ -399,12 +418,11 @@ static void process_sample (ID h_device, imu_history_t * p_history)
 
     if (!operating_time(&now_msec))
     {
-        /* UB preserves string bytes; the API does not modify the string. */
         tm_printf((UB *)"IMU: operating-time read failed\n");
         return;
     }
 
-    /* This is reading the raw readings of accelerometer and magnetometer */
+    /* Raw accelerometer and magnetometer readings. */
     imu_sample_t sample = {0};
     bool b_accel_ok = lsm303_read_accel(
         h_device,
@@ -420,12 +438,11 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         &sample.mag_z
     );
 
-    /* This is for writing the processed readings into the terrain snapshot */
-    terrain_snapshot snapshot = {0};
+    terrain_snapshot_t snapshot = {0};
     snapshot.timestamp_msec = now_msec;
     snapshot.b_valid = false;
 
-    /* Compute the magnetic heading here */
+    /* Magnetic heading, assuming the robot is level. */
     if (sample.b_mag_ok)
     {
         float heading_deg = 0.0F;
@@ -437,7 +454,8 @@ static void process_sample (ID h_device, imu_history_t * p_history)
 
         if(heading_error == E_OK)
         {
-            snapshot.heading_centideg = (uint16_t)(heading_deg * 100.0F);
+            snapshot.heading_centideg =
+                (uint16_t)(heading_deg * IMU_CDEG_PER_DEG);
             snapshot.heading_valid = true;
         }
     }
@@ -452,14 +470,14 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         );
 
         update_lift(&sample, p_history, &snapshot);
-        /* Compute the tilt from smoothed readings: raw ones swing by */
-        /* several degrees with motor vibration. */
-        int16_t smoothed[3] = {0};
+        /* Tilt from smoothed readings: raw ones swing by several degrees
+         * with motor vibration. */
+        int16_t smoothed[IMU_AXES] = {0};
         smooth_axes(&sample, smoothed);
 
         ER tilt_error = terrain_relative_tilt(
-            smoothed[0], smoothed[1],
-            smoothed[2],
+            smoothed[IMU_AXIS_X], smoothed[IMU_AXIS_Y],
+            smoothed[IMU_AXIS_Z],
             &snapshot.roll_deg,
             &snapshot.pitch_deg
         );
@@ -474,11 +492,10 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         }
         else
         {
-            /* Invalid measurements cannot confirm completion */
+            /* Invalid measurements cannot confirm a hump's end. */
             g_hump.level_count = 0U;
         }
 
-        /* Assign the values to the snapshot for publishing */
         snapshot.onHump = g_hump.b_on_hump;
         snapshot.hump_phase = g_hump.phase;
         snapshot.height_valid = snapshot.b_valid;
@@ -488,8 +505,7 @@ static void process_sample (ID h_device, imu_history_t * p_history)
         snapshot.max_hump_height_mm = g_hump.max_peak_mm;
         snapshot.hump_done_toggle = g_hump.b_done_toggle;
 
-        /* This is for logging (printfs) the readings to the console every 100ms
-         */
+        /* Debug log every IMU_LOG_PERIOD_MSEC. */
         if ((0 != APP_IMU_DEBUG_LOG) &&
             ((now_msec - p_history->last_log_msec) >= IMU_LOG_PERIOD_MSEC))
         {
@@ -501,11 +517,11 @@ static void process_sample (ID h_device, imu_history_t * p_history)
                             "height_x10mm=%d peak_x10mm=%d count=%u "
                             "rejected=%u MAGNETOMETER: DEGREE: %d\n",
                       (UINT)g_hump.b_on_hump, (UINT)g_hump.phase,
-                      (INT)(g_hump.tilt_deg * 1000.0F),
-                      (INT)(g_hump.height_mm * 10.0F),
-                      (INT)(g_hump.peak_mm * 10.0F),
+                      (INT)(g_hump.tilt_deg * IMU_MDEG_PER_DEG),
+                      (INT)(g_hump.height_mm * IMU_X10),
+                      (INT)(g_hump.peak_mm * IMU_X10),
                       (UINT)g_hump.hump_count, (UINT)g_hump.rejected,
-                      (INT)snapshot.heading_centideg * 10);
+                      (INT)snapshot.heading_centideg * IMU_MDEG_PER_CDEG);
             tm_printf((UB *)"LIFT: height_mm=%u lifted=%u excess_mg=%d "
                             "bias_mg=%d\n",
                       (UINT)snapshot.lift_height_mm,
@@ -522,7 +538,6 @@ static void process_sample (ID h_device, imu_history_t * p_history)
     }
     else if ((now_msec - p_history->last_log_msec) >= IMU_LOG_PERIOD_MSEC)
     {
-        /* UINT preserves 32-bit time; UB preserves read-only string bytes. */
         tm_printf((UB *)"t=%u ms ACCEL=I2C_ERROR MAG=%s\n", (UINT)now_msec,
                   sample.b_mag_ok ? "OK" : "I2C_ERROR");
         p_history->last_log_msec = now_msec;
@@ -540,8 +555,9 @@ static void process_sample (ID h_device, imu_history_t * p_history)
 
 static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes)
 {
-    float const raw[3] = {(float)p_sample->axis_x, (float)p_sample->axis_y,
-                          (float)p_sample->axis_z};
+    float const raw[IMU_AXES] = {(float)p_sample->axis_x,
+                                 (float)p_sample->axis_y,
+                                 (float)p_sample->axis_z};
 
     int32_t const excess_mg = p_sample->magnitude - g_hump.gravity_mg;
     bool const    b_shoved  = g_hump.b_filter_ready &&
@@ -553,7 +569,7 @@ static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes)
         g_hump.rejected++;
     }
 
-    for (INT axis = 0; axis < 3; ++axis)
+    for (INT axis = 0; axis < IMU_AXES; ++axis)
     {
         if (!g_hump.b_filter_ready)
         {
@@ -576,7 +592,7 @@ static void smooth_axes (imu_sample_t const * p_sample, int16_t * p_axes)
     g_hump.b_filter_ready = true;
 }
 
-static void update_hump (terrain_snapshot const * p_snapshot)
+static void update_hump (terrain_snapshot_t const * p_snapshot)
 {
     uint32_t const now_msec = p_snapshot->timestamp_msec;
 
@@ -635,7 +651,6 @@ static void update_hump (terrain_snapshot const * p_snapshot)
             g_climb_mm      = 0.0F;
             g_climb_peak_mm = 0.0F;
             g_hump.travel_mm = 0U;
-            /* UB views read-only string bytes. */
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP STARTED: climbing\n");
 #endif
@@ -653,7 +668,6 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
         if (TERRAIN_HUMP_CLIMBING != g_hump.phase)
         {
-            /* UB views read-only string bytes. */
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP: climbing\n");
 #endif
@@ -664,12 +678,11 @@ static void update_hump (terrain_snapshot const * p_snapshot)
     else if ((g_hump.height_mm < (g_hump.peak_mm - HUMP_DESCENT_MM)) &&
              (g_climb_peak_mm >= HUMP_DESCENT_CLIMB_MM))
     {
-        /* Not descending before the axle has really climbed: a jolt
-         * that only tips the body must not slow the robot. */
-        /* Clearly below the top: past it and on the way down. */
+        /* Clearly below the top and the axle has really climbed: on the
+         * way down. A jolt that only tips the body must not slow the
+         * robot. */
         if (TERRAIN_HUMP_DESCENDING != g_hump.phase)
         {
-            /* UB views read-only string bytes. */
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
             tm_printf((UB *)"HUMP: descending\n");
 #endif
@@ -684,7 +697,7 @@ static void update_hump (terrain_snapshot const * p_snapshot)
 
     if (b_tilted)
     {
-        /* Tilt detected again; reset confirmation */
+        /* Tilted again: restart the level confirmation. */
         g_hump.level_count = 0U;
         return;
     }
@@ -735,7 +748,7 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         g_hump.level_count = 0U;
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
         tm_printf((UB *)"HUMP DISCARDED: no climb (climb_x10mm=%d)\n",
-                  (INT)(g_climb_peak_mm * 10.0F));
+                  (INT)(g_climb_peak_mm * IMU_X10));
 #endif
         return;
     }
@@ -746,7 +759,10 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         g_hump.peak_mm = g_climb_peak_mm;
     }
 
-    uint8_t const peak_mm = round_mm(g_hump.peak_mm);
+    float const reported_mm =
+        (g_hump.peak_mm > HUMP_HEIGHT_BIAS_MM)
+            ? (g_hump.peak_mm - HUMP_HEIGHT_BIAS_MM) : 0.0F;
+    uint8_t const peak_mm = round_mm(reported_mm);
 
     g_hump.b_on_hump    = false;
     g_hump.phase        = TERRAIN_HUMP_LEVEL;
@@ -760,11 +776,11 @@ static void update_hump (terrain_snapshot const * p_snapshot)
         g_hump.max_peak_mm = peak_mm;
     }
 
-    /* UB views read-only string bytes; tenths avoid float printing. */
+    /* Tenths avoid float printing. */
 #ifndef B1_BARCODE_TEST /* quiet barcode test log */
     tm_printf((UB *)"HUMP DONE: peak_x10mm=%d count=%u climb_x10mm=%d\n",
-              (INT)(g_hump.peak_mm * 10.0F), (UINT)g_hump.hump_count,
-              (INT)(g_climb_peak_mm * 10.0F));
+              (INT)(reported_mm * IMU_X10), (UINT)g_hump.hump_count,
+              (INT)(g_climb_peak_mm * IMU_X10));
 #endif
 }
 
@@ -780,19 +796,22 @@ static void climb_update (float tilt_signed_deg)
     {
         /* Sizes only: the drive is forward-only and the left encoder is
          * mounted mirrored. Unsigned subtraction is wrap-safe. */
-        uint32_t const dl = (uint32_t)left.count - (uint32_t)g_climb_last[0];
-        uint32_t const dr = (uint32_t)right.count - (uint32_t)g_climb_last[1];
+        uint32_t const dl =
+            (uint32_t)left.count - (uint32_t)g_climb_last[ENCODER_LEFT];
+        uint32_t const dr =
+            (uint32_t)right.count - (uint32_t)g_climb_last[ENCODER_RIGHT];
         uint32_t const sl = (dl > (uint32_t)INT32_MAX) ? (0U - dl) : dl;
         uint32_t const sr = (dr > (uint32_t)INT32_MAX) ? (0U - dr) : dr;
         float const    ds = 0.5F * (float)(sl + sr) * CLIMB_MM_PER_COUNT;
 
         /* More than 50 mm between IMU samples is not driving (lifted and
          * the wheels spun, or a stale reading): ignore it. */
-        if (ds < 50.0F)
+        if (ds < HUMP_MAX_STEP_MM)
         {
             uint32_t const travel = (uint32_t)g_hump.travel_mm + (uint32_t)ds;
 
-            g_hump.travel_mm = (travel > 63U) ? 63U : travel;
+            g_hump.travel_mm = (travel > HUMP_TRAVEL_MAX_MM) ?
+                HUMP_TRAVEL_MAX_MM : travel;
             g_climb_mm += ds * sinf(g_climb_up * tilt_signed_deg *
                                     CLIMB_DEG_TO_RAD);
             if (g_climb_mm > g_climb_peak_mm)
@@ -802,14 +821,14 @@ static void climb_update (float tilt_signed_deg)
         }
     }
 
-    g_climb_last[0] = left.count;
-    g_climb_last[1] = right.count;
+    g_climb_last[ENCODER_LEFT] = left.count;
+    g_climb_last[ENCODER_RIGHT] = right.count;
     g_climb_counts  = true;
 }
 
 static uint8_t round_mm (float height_mm)
 {
-    float const rounded = height_mm + 0.5F;
+    float const rounded = height_mm + HUMP_ROUND_MM;
 
     if (rounded >= (float)HUMP_PUBLISH_MAX_MM)
     {
@@ -822,7 +841,7 @@ static uint8_t round_mm (float height_mm)
 
 static void update_lift (imu_sample_t const * p_sample,
                          imu_history_t * p_history,
-                         terrain_snapshot * p_snapshot)
+                         terrain_snapshot_t * p_snapshot)
 {
     ir_shared_snapshot_t ir = {0};
     uint32_t ir_checked_msec = 0U;
@@ -849,7 +868,6 @@ static void update_lift (imu_sample_t const * p_sample,
 
     if (b_lifted && !p_history->b_lift_reported)
     {
-        /* UB views read-only string bytes; UINT matches %u. */
         tm_printf((UB *)"[IMU] Lifted: about %u mm off the floor\n",
                   (UINT)height_mm);
     }
@@ -859,7 +877,7 @@ static void update_lift (imu_sample_t const * p_sample,
     p_snapshot->b_lifted       = b_lifted ? 1U : 0U;
 }
 
-static void log_tilt(terrain_snapshot const *p_snapshot)
+static void log_tilt(terrain_snapshot_t const *p_snapshot)
 {
     if ((NULL == p_snapshot) || (!p_snapshot->b_valid))
     {
@@ -869,16 +887,14 @@ static void log_tilt(terrain_snapshot const *p_snapshot)
 
     tm_printf(
         (UB *)"TILT_REL_mdeg ROLL=%d PITCH=%d\n",
-        (INT)(p_snapshot->roll_deg * 1000.0F),
-        (INT)(p_snapshot->pitch_deg * 1000.0F)
+        (INT)(p_snapshot->roll_deg * IMU_MDEG_PER_DEG),
+        (INT)(p_snapshot->pitch_deg * IMU_MDEG_PER_DEG)
     );
 }
 
 static void log_sample (uint32_t now_msec, imu_sample_t const * p_sample)
 {
-    /* UB preserves read-only string bytes. UINT preserves 32-bit time;
-     * int16_t axes and 12-bit magnitude fit the 32-bit INT ABI.
-     */
+    /* int16_t axes and the 12-bit magnitude fit INT. */
     if (p_sample->b_mag_ok)
     {
         tm_printf((UB *)"t=%u ms ACCEL_mg=(%d,%d,%d) MAGNITUDE_mg=%d "

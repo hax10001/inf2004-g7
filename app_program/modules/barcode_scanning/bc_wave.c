@@ -35,7 +35,7 @@ void bc_wave_request_drop(void)
 #define BC_WAVE_MAX_GAP_USEC 20000U
 #define BC_WAVE_RUNS 256U
 #if APP_BARCODE_LAYOUT_ENABLED
-/* Larger steps: each poll of the 5 ms barcode task did ~1 ms of work. */
+/* Samples per poll; the layout path takes larger steps per 5 ms tick. */
 #define BC_WAVE_CHUNK 2048U
 #else
 #define BC_WAVE_CHUNK 256U
@@ -44,6 +44,87 @@ void bc_wave_request_drop(void)
 #define BC_WAVE_END_WHITE_UNITS (BC_CAL_MAX_BARCODE_UNITS / 12U)
 #define BC_WAVE_OFFSET_TRIALS 19U
 #define BC_WAVE_TRIALS 26U
+/* Code 39 letters A..Z: size of the per-letter vote/fit tables. */
+#define BC_WAVE_LETTERS 26U
+/* Largest 12-bit ADC code, and the mask that keeps a 12-bit reading. */
+#define BC_WAVE_ADC_MAX 4095U
+#define BC_WAVE_ADC_MASK 0x0FFFU
+/* ADC readings at or beyond these are counted as saturated. */
+#define BC_WAVE_ADC_LOW_SAT 4U
+#define BC_WAVE_ADC_HIGH_SAT 4091U
+/* Largest values held by 8-bit and 16-bit fields; 16-bit time range. */
+#define BC_WAVE_U8_MAX 255U
+#define BC_WAVE_U16_MAX 65535U
+#define BC_WAVE_U16_RANGE 65536U
+/* Microseconds per millisecond. */
+#define BC_WAVE_US_PER_MS 1000U
+/* Integer square root: top bit shift, iterations, bits per step. */
+#define BC_WAVE_SQRT_TOP_SHIFT 30U
+#define BC_WAVE_SQRT_STEPS 16U
+#define BC_WAVE_SQRT_BIT_STEP 2U
+/* Navigation guard window after a capture is frozen. */
+#define BC_WAVE_SCAN_GUARD_USEC 600000U
+/* Startup white reuse tolerance above the saved sigma. */
+#define BC_WAVE_STARTUP_MARGIN 8U
+/* Clearance band around white: sigmas plus a fixed margin. */
+#define BC_WAVE_CLEAR_SIGMAS 3U
+#define BC_WAVE_CLEAR_MARGIN 24U
+/* Capture trigger above white: sigmas plus a fixed margin. */
+#define BC_WAVE_TRIGGER_SIGMAS 3U
+#define BC_WAVE_TRIGGER_MARGIN 8U
+/* Largest per-row left-wheel step held by the 4-bit field. */
+#define BC_WAVE_LEFT_STEP_MAX 15U
+/* End-of-pass tail filter: keep 3 parts old level out of 4. */
+#define BC_WAVE_TAIL_KEEP 3U
+#define BC_WAVE_TAIL_DIV 4U
+/* wave_freeze() reasons. */
+#define BC_WAVE_FREEZE_FULL 1U     /* Buffer full. */
+#define BC_WAVE_FREEZE_DISTANCE 2U /* Distance limit reached. */
+#define BC_WAVE_FREEZE_TIMEOUT 3U  /* Time limit reached. */
+#define BC_WAVE_FREEZE_END 4U      /* White after the barcode. */
+/* Width fit over start, letter and stop symbols (3 x 9 elements). */
+#define BC_WAVE_FIT_SYMBOLS 3U
+#define BC_WAVE_FIT_ELEMENTS 27U
+#define BC_WAVE_SYMBOL_ELEMENTS 9U
+#define BC_WAVE_SYMBOL_PITCH 10U   /* Nine elements plus the gap. */
+#define BC_WAVE_COLOURS 2U         /* Bars and spaces alternate. */
+#define BC_WAVE_BARS_PER_SYMBOL 5U /* Most same-colour elements. */
+#define BC_WAVE_NARROW_PER_COLOUR 3U
+#define BC_WAVE_LAST_BAR_SLOT 4U   /* Second wide bar when sorted. */
+#define BC_WAVE_PERCENT 100U
+/* Contrast thresholds after the fixed offsets: 15%, 25%, ... */
+#define BC_WAVE_CONTRAST_BASE_PCT 15U
+#define BC_WAVE_CONTRAST_STEP_PCT 10U
+/* Smallest noise level, in ADC codes. */
+#define BC_WAVE_MIN_NOISE 4U
+/* Hysteresis is at most a quarter of the threshold. */
+#define BC_WAVE_HYST_DIVISOR 4U
+/* Barcode-like check: a bar ends below 3/8 of the peak. */
+#define BC_WAVE_OFF_NUM 3U
+#define BC_WAVE_OFF_DEN 8U
+/* Legacy replay: one slot per BC_SCAN_ERROR_* code (0..8). */
+#define BC_WAVE_SCAN_ERROR_SLOTS 9U
+/* Legacy replay: longest sample gap for a filtered edge. */
+#define BC_WAVE_EDGE_MAX_GAP_USEC 8000U
+/* Segmentation result: only this many runner-up votes allowed. */
+#define BC_WAVE_MAX_RUNNER_VOTES 2U
+/* Result source codes; index the sources[] log text. */
+#define BC_WAVE_SOURCE_SEGMENT 1U
+#define BC_WAVE_SOURCE_TEMPLATE 2U
+#define BC_WAVE_SOURCE_CONFLICT 3U
+#define BC_WAVE_SOURCE_LAYOUT 4U
+#define BC_WAVE_SOURCE_COUNT 5U
+/* Buffered vs legacy comparison codes; index comparisons[]. */
+#define BC_WAVE_CMP_SAME 1U
+#define BC_WAVE_CMP_BUFFERED 2U
+#define BC_WAVE_CMP_LEGACY 3U
+#define BC_WAVE_CMP_DISAGREE 4U
+#define BC_WAVE_CMP_COUNT 5U
+/* bc_code_result_t quality of a published result. */
+#define BC_WAVE_QUALITY_MARGINAL 1U
+#define BC_WAVE_QUALITY_GOOD 2U
+/* B1 test log: period of the waiting-for-white report. */
+#define BC_WAVE_CLEAR_REPORT_USEC 2000000U
 
 typedef enum
 {
@@ -118,10 +199,10 @@ static uint32_t g_envelope_tail;
 static uint32_t g_envelope_next;
 static uint32_t g_run_width[BC_WAVE_RUNS];
 static uint8_t g_run_black[BC_WAVE_RUNS];
-static uint32_t g_widths[26][BC_CODE_ELEMENTS];
-static uint16_t g_fit[26];
-static uint8_t g_reverse[26];
-static uint8_t g_votes[26];
+static uint32_t g_widths[BC_WAVE_LETTERS][BC_CODE_ELEMENTS];
+static uint16_t g_fit[BC_WAVE_LETTERS];
+static uint8_t g_reverse[BC_WAVE_LETTERS];
+static uint8_t g_votes[BC_WAVE_LETTERS];
 static uint16_t const g_offsets[BC_WAVE_OFFSET_TRIALS] = {
     8U, 16U, 24U, 32U, 48U, 64U, 96U, 128U, 192U, 256U,
     384U, 512U, 768U, 1024U, 1280U, 1536U, 2048U, 2560U, 3200U
@@ -154,7 +235,7 @@ static uint64_t g_white_sum;
 static uint64_t g_white_square;
 static uint32_t g_white_mean;
 static uint32_t g_white_sigma;
-static uint32_t g_white_min = 4095U;
+static uint32_t g_white_min = BC_WAVE_ADC_MAX;
 static uint32_t g_white_max;
 static uint32_t g_gap_max;
 static uint32_t g_invalid;
@@ -178,16 +259,16 @@ static uint32_t g_left_units;
 static uint32_t g_row_left_units;
 static uint32_t g_white_rejects;
 static uint32_t g_capture_seen_usec;
-static uint8_t g_white_dark;              /* last learn refused as dark */
-/* White learned at the first arming after boot (APP_BARCODE_KEEP_STARTUP_
- * WHITE). 12-bit ADC values; worker task only. Replaced only by an
- * explicit recalibration request. */
+static uint8_t g_white_dark;              /* Last learn refused as dark. */
+/* White learned at the first arming after boot (when
+ * APP_BARCODE_KEEP_STARTUP_WHITE). 12-bit ADC values; worker task only.
+ * Replaced only by an explicit recalibration request. */
 #if APP_BARCODE_KEEP_STARTUP_WHITE
 static uint16_t g_startup_white_mean;
 static uint16_t g_startup_white_sigma;
 #endif
 static uint8_t g_startup_white_valid;
-static uint32_t g_dark_adc;               /* reading that was refused */
+static uint32_t g_dark_adc;               /* Reading that was refused. */
 static volatile uint32_t g_relearn_requested;
 /* Last finished pass, for MQTT diagnostics. */
 static uint8_t g_last_valid;
@@ -248,6 +329,7 @@ void bc_wave_set_suppressed (uint8_t b_suppressed)
     g_suppressed = (0U != b_suppressed) ? 1U : 0U;
 }
 
+/** @brief Ask the scanner to rearm after a pass. */
 void bc_wave_request_rearm (void)
 {
     /* Only the barcode worker changes scan state. START never rearms. */
@@ -297,8 +379,8 @@ void bc_wave_status (bc_wave_status_t * p_status)
         /* Processing, reporting or dumping a recorded pass. */
     }
     p_status->state = state;
-    p_status->white_rejects = (uint8_t)((g_white_rejects > 255U) ?
-                                        255U : g_white_rejects);
+    p_status->white_rejects = (uint8_t)((g_white_rejects > BC_WAVE_U8_MAX) ?
+                                        BC_WAVE_U8_MAX : g_white_rejects);
     /* Not on white: report the dark reading, not the stale baseline. */
     p_status->white_mean = (uint16_t)((BC_WAVE_STATE_NOT_WHITE == state) ?
                                       g_dark_adc : g_white_mean);
@@ -310,6 +392,7 @@ void bc_wave_status (bc_wave_status_t * p_status)
     p_status->last_process_ms = g_last_process_ms;
 }
 
+/** @brief Rearm the capture once a pass is complete. */
 static void wave_rearm_completed_capture (void)
 {
     if (g_phase != BC_WAVE_DONE || g_rearm_requested == 0U)
@@ -327,9 +410,9 @@ static void wave_rearm_completed_capture (void)
     g_white_count = 0U;
     g_white_sum = 0U;
     g_white_square = 0U;
-    /* Keep previous measured white baseline while waiting for clearance.
-     * Reset it only after the sensor has actually left the printed symbol. */
-    g_white_min = 4095U;
+    /* Keep the measured white baseline while waiting for clearance; reset
+     * it only after the sensor has left the printed symbol. */
+    g_white_min = BC_WAVE_ADC_MAX;
     g_white_max = 0U;
     g_gap_max = 0U;
     g_invalid = 0U;
@@ -349,16 +432,18 @@ static void wave_rearm_completed_capture (void)
                     "motor hold released\n");
 }
 
+/** @brief Read one buffered capture row. */
 static bc_wave_row_t const * wave_row (uint32_t index)
 {
     return &g_rows[(g_start + index) % BC_WAVE_CAPACITY];
 }
 
+/** @brief Integer square root. */
 static uint32_t wave_sqrt (uint32_t value)
 {
     uint32_t result = 0U;
-    uint32_t bit = 1U << 30U;
-    for (uint32_t i = 0U; i < 16U; ++i)
+    uint32_t bit = 1U << BC_WAVE_SQRT_TOP_SHIFT;
+    for (uint32_t i = 0U; i < BC_WAVE_SQRT_STEPS; ++i)
     {
         if (value >= result + bit)
         {
@@ -369,7 +454,7 @@ static uint32_t wave_sqrt (uint32_t value)
         {
             result >>= 1U;
         }
-        bit >>= 2U;
+        bit >>= BC_WAVE_SQRT_BIT_STEP;
     }
     return result;
 }
@@ -396,6 +481,7 @@ static void wave_drop_capture (void)
               (UINT)APP_BARCODE_MIN_DARK_UNITS);
 }
 
+/** @brief Freeze the capture buffer for decoding. */
 static void wave_freeze (uint8_t reason)
 {
 #ifndef B1_LIVE_COMMANDS
@@ -404,17 +490,18 @@ static void wave_freeze (uint8_t reason)
 #endif
     g_freeze_usec = encoder_now_usec();
     (void)bc_port_nav_captured(g_trigger_msec +
-                               (g_last_usec - g_trigger_usec) / 1000U);
-    g_scan_guard_until_usec = g_freeze_usec + 600000U;
-    g_capture_msec = (g_last_usec - g_trigger_usec) / 1000U;
+                               (g_last_usec - g_trigger_usec) /
+                               BC_WAVE_US_PER_MS);
+    g_scan_guard_until_usec = g_freeze_usec + BC_WAVE_SCAN_GUARD_USEC;
+    g_capture_msec = (g_last_usec - g_trigger_usec) / BC_WAVE_US_PER_MS;
     g_freeze_reason = reason;
     g_start = (g_write + BC_WAVE_CAPACITY - g_count) % BC_WAVE_CAPACITY;
     g_index = 0U;
     g_trial = 0U;
-    for (uint32_t i = 0U; i < 26U; ++i)
+    for (uint32_t i = 0U; i < BC_WAVE_LETTERS; ++i)
     {
         g_votes[i] = 0U;
-        g_fit[i] = 65535U;
+        g_fit[i] = BC_WAVE_U16_MAX;
     }
     g_legacy = (bc_code_result_t){BC_CODE_LETTER_INVALID, 0U, 0U, 0U};
     g_phase = BC_WAVE_SMOOTH;
@@ -442,8 +529,9 @@ static void wave_use_startup_white (void)
 
     uint32_t const reference = g_startup_white_mean;
     /* Must stay well inside the capture trigger (3 sigma + 8 above white):
-     * a looser match let lighter floor read as barcode ink. */
-    uint32_t const tolerance = (uint32_t)g_startup_white_sigma + 8U;
+     * a looser match lets lighter floor read as barcode ink. */
+    uint32_t const tolerance = (uint32_t)g_startup_white_sigma +
+                               BC_WAVE_STARTUP_MARGIN;
     uint32_t const difference = (g_white_mean > reference) ?
         g_white_mean - reference : reference - g_white_mean;
 
@@ -469,7 +557,8 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
          * barcode ink. Repeated black/white oscillation resets the guard.
          * Consecutive valid samples on the old white baseline are required.
          */
-        uint32_t tolerance = g_white_sigma * 3U + 24U;
+        uint32_t tolerance = g_white_sigma * BC_WAVE_CLEAR_SIGMAS +
+                             BC_WAVE_CLEAR_MARGIN;
         uint32_t adc = p_sample->adc_raw;
         uint32_t difference = (adc > g_white_mean) ?
             adc - g_white_mean : g_white_mean - adc;
@@ -536,8 +625,8 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
             {
                 ++g_backward;
             }
-            /* Match the existing forward-only travel estimate and expose
-             * backward increments in logs instead of hiding their presence.
+            /* Travel is forward-only; backward increments are counted for
+             * the logs rather than hidden.
              */
             uint64_t step = (uint64_t)((dl > 0) ? dl : 0) +
                             (uint64_t)((dr > 0) ? dr : 0);
@@ -570,12 +659,12 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
         else
         {
             uint32_t adc = p_sample->adc_raw;
-            if ((adc <= 4U) || (adc >= 4091U))
+            if ((adc <= BC_WAVE_ADC_LOW_SAT) || (adc >= BC_WAVE_ADC_HIGH_SAT))
             {
                 ++g_saturated;
             }
             if ((BC_WAVE_LEARN == g_phase) &&
-                ((APP_BARCODE_ADC_BLACK_HIGH ? adc : 4095U - adc) >
+                ((APP_BARCODE_ADC_BLACK_HIGH ? adc : BC_WAVE_ADC_MAX - adc) >
                  BC_WAVE_WHITE_MAX_DARKNESS))
             {
                 /* Dark sample (line, barcode, junction): white is learned
@@ -589,7 +678,7 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
                 g_white_count = 0U;
                 g_white_sum = 0U;
                 g_white_square = 0U;
-                g_white_min = 4095U;
+                g_white_min = BC_WAVE_ADC_MAX;
                 g_white_max = 0U;
             }
             else if (BC_WAVE_LEARN == g_phase)
@@ -615,7 +704,7 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
                     g_white_sigma = wave_sqrt(variance);
                     {
                         uint32_t const darkness = APP_BARCODE_ADC_BLACK_HIGH ?
-                            g_white_mean : 4095U - g_white_mean;
+                            g_white_mean : BC_WAVE_ADC_MAX - g_white_mean;
                         if (darkness > BC_WAVE_WHITE_MAX_DARKNESS)
                         {
                             /* Not white: learn again (reported by poll). */
@@ -628,7 +717,7 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
                             g_white_count = 0U;
                             g_white_sum = 0U;
                             g_white_square = 0U;
-                            g_white_min = 4095U;
+                            g_white_min = BC_WAVE_ADC_MAX;
                             g_white_max = 0U;
                         }
                         else
@@ -642,13 +731,15 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
             }
             bc_wave_row_t * const p_row = &g_rows[g_write];
             p_row->units = g_units;
-            p_row->adc = (uint16_t)(adc & 0x0FFFU);
+            p_row->adc = (uint16_t)(adc & BC_WAVE_ADC_MASK);
             {
                 /* Per-row left-wheel step: the layout decoder rebuilds
                  * distance at the sensor from it. 4 bits is ~3x the
                  * fastest 2 ms step. */
                 uint32_t step = g_left_units - g_row_left_units;
-                p_row->left_step = (uint16_t)((step > 15U) ? 15U : step);
+                p_row->left_step = (uint16_t)
+                    ((step > BC_WAVE_LEFT_STEP_MAX) ?
+                     BC_WAVE_LEFT_STEP_MAX : step);
                 g_row_left_units = g_left_units;
             }
             p_row->usec = (uint16_t)g_clock_usec;
@@ -657,7 +748,8 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
             {
                 ++g_count;
             }
-            uint32_t trigger = g_white_sigma * 3U + 8U;
+            uint32_t trigger = g_white_sigma * BC_WAVE_TRIGGER_SIGMAS +
+                               BC_WAVE_TRIGGER_MARGIN;
             uint32_t difference = (adc > g_white_mean) ?
                                    adc - g_white_mean : g_white_mean - adc;
             uint8_t black_side = APP_BARCODE_ADC_BLACK_HIGH ?
@@ -674,7 +766,7 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
             {
                 g_trigger_units = g_units;
                 g_trigger_usec = p_sample->time_usec;
-                g_trigger_msec = (uint32_t)(g_clock_usec / 1000U);
+                g_trigger_msec = (uint32_t)(g_clock_usec / BC_WAVE_US_PER_MS);
                 g_last_signal_units = g_units;
                 g_tail_level = adc;
                 ++g_sequence;
@@ -686,7 +778,8 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
                 /* Light causal smoothing only for the end-of-pass check.
                  * Full-resolution raw ADC remains in the saved waveform.
                  */
-                g_tail_level = (g_tail_level * 3U + adc) / 4U;
+                g_tail_level = (g_tail_level * BC_WAVE_TAIL_KEEP + adc) /
+                               BC_WAVE_TAIL_DIV;
                 uint32_t tail_difference = (g_tail_level > g_white_mean) ?
                     g_tail_level - g_white_mean :
                     g_white_mean - g_tail_level;
@@ -710,7 +803,7 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
         {
             /* Clearance exceeds the widest nominal internal space for
              * the configured maximum 3:1 Code 39 print span. It is not
-             * the legacy 60-unit quiet zone, which could cut inside a code.
+             * the legacy 60-unit quiet zone, which can cut inside a code.
              */
             if ((0U != APP_BARCODE_MIN_DARK_UNITS) &&
                 ((g_units - g_last_signal_units) >= BC_WAVE_END_WHITE_UNITS) &&
@@ -724,26 +817,27 @@ void bc_wave_sample (bc_fastq_sample_t const * p_sample)
                      ((g_units - g_last_signal_units) >=
                       BC_WAVE_END_WHITE_UNITS))
             {
-                wave_freeze(4U);
+                wave_freeze(BC_WAVE_FREEZE_END);
             }
             else if (g_count >= BC_WAVE_CAPACITY)
             {
-                wave_freeze(1U);
+                wave_freeze(BC_WAVE_FREEZE_FULL);
             }
             else if ((g_units - g_trigger_units) >=
                      BC_CAL_MAX_BARCODE_UNITS + 2U * BC_CAL_TRAILING_UNITS)
             {
-                wave_freeze(2U);
+                wave_freeze(BC_WAVE_FREEZE_DISTANCE);
             }
             else if ((uint32_t)(p_sample->time_usec - g_trigger_usec) >=
                      BC_WAVE_MAX_USEC)
             {
-                wave_freeze(3U);
+                wave_freeze(BC_WAVE_FREEZE_TIMEOUT);
             }
         }
     }
 }
 
+/** @brief Smooth the captured waveform. */
 static void wave_smooth (void)
 {
     uint32_t end = g_index + BC_WAVE_CHUNK;
@@ -755,7 +849,7 @@ static void wave_smooth (void)
         for (uint32_t j = lo; j <= hi; ++j)
         {
             uint32_t adc = wave_row(j)->adc;
-            sum += APP_BARCODE_ADC_BLACK_HIGH ? adc : 4095U - adc;
+            sum += APP_BARCODE_ADC_BLACK_HIGH ? adc : BC_WAVE_ADC_MAX - adc;
         }
         g_smooth[g_index] = (uint16_t)(sum / (hi - lo + 1U));
     }
@@ -769,6 +863,7 @@ static void wave_smooth (void)
     }
 }
 
+/** @brief Track the black/white envelope of the waveform. */
 static void wave_envelope (void)
 {
     uint8_t upper = (BC_WAVE_UPPER == g_phase);
@@ -815,7 +910,7 @@ static void wave_envelope (void)
         {
             g_floor[g_index] = extreme;
 #if APP_BARCODE_LAYOUT_ENABLED
-            g_contrast[g_index] = 0U; /* upper envelope not computed */
+            g_contrast[g_index] = 0U; /* Upper envelope not computed. */
 #endif
         }
     }
@@ -826,7 +921,7 @@ static void wave_envelope (void)
         g_envelope_tail = 0U;
         g_envelope_next = 0U;
 #if APP_BARCODE_LAYOUT_ENABLED
-        /* Only the old segmentation search used the upper envelope. */
+        /* Only the segmentation search needs the upper envelope. */
         (void)upper;
         g_phase = BC_WAVE_LEGACY;
 #else
@@ -835,18 +930,20 @@ static void wave_envelope (void)
     }
 }
 
+/** @brief Fit the bar widths of one candidate. */
 static uint16_t wave_fit (uint32_t const * p_width)
 {
     uint32_t error = 0U;
-    for (uint32_t symbol = 0U; symbol < 3U; ++symbol)
+    for (uint32_t symbol = 0U; symbol < BC_WAVE_FIT_SYMBOLS; ++symbol)
     {
-        for (uint32_t colour = 0U; colour < 2U; ++colour)
+        for (uint32_t colour = 0U; colour < BC_WAVE_COLOURS; ++colour)
         {
-            uint32_t sorted[5] = {0U};
+            uint32_t sorted[BC_WAVE_BARS_PER_SYMBOL] = {0U};
             uint32_t count = 0U;
-            for (uint32_t i = colour; i < 9U; i += 2U)
+            for (uint32_t i = colour; i < BC_WAVE_SYMBOL_ELEMENTS;
+                 i += BC_WAVE_COLOURS)
             {
-                uint32_t width = p_width[symbol * 10U + i];
+                uint32_t width = p_width[symbol * BC_WAVE_SYMBOL_PITCH + i];
                 uint32_t slot = count;
                 while ((slot > 0U) && (sorted[slot - 1U] > width))
                 {
@@ -856,27 +953,30 @@ static uint16_t wave_fit (uint32_t const * p_width)
                 sorted[slot] = width;
                 ++count;
             }
-            uint32_t narrow = (sorted[0] + sorted[1] + sorted[2]) / 3U;
-            uint32_t wide = sorted[3];
-            if (5U == count)
+            uint32_t narrow = (sorted[0] + sorted[1] + sorted[2]) /
+                              BC_WAVE_NARROW_PER_COLOUR;
+            uint32_t wide = sorted[BC_WAVE_NARROW_PER_COLOUR];
+            if (BC_WAVE_BARS_PER_SYMBOL == count)
             {
-                wide = (wide + sorted[4]) / 2U;
+                wide = (wide + sorted[BC_WAVE_LAST_BAR_SLOT]) / 2U;
             }
             for (uint32_t i = 0U; i < count; ++i)
             {
-                uint32_t centre = (i < 3U) ? narrow : wide;
+                uint32_t centre = (i < BC_WAVE_NARROW_PER_COLOUR) ?
+                                  narrow : wide;
                 uint32_t delta = (sorted[i] > centre) ?
                                   sorted[i] - centre : centre - sorted[i];
                 if (0U != centre)
                 {
-                    error += delta * 100U / centre;
+                    error += delta * BC_WAVE_PERCENT / centre;
                 }
             }
         }
     }
-    return (uint16_t)(error / 27U);
+    return (uint16_t)(error / BC_WAVE_FIT_ELEMENTS);
 }
 
+/** @brief Evaluate one candidate decode. */
 static void wave_candidate (uint32_t start)
 {
     uint32_t span = 0U;
@@ -911,6 +1011,7 @@ static void wave_candidate (uint32_t start)
     }
 }
 
+/** @brief Search the capture for a valid Code 39 pass. */
 static void wave_search (void)
 {
     g_run_count = 0U;
@@ -924,17 +1025,20 @@ static void wave_search (void)
         uint32_t value = g_smooth[i] - g_floor[i];
         uint32_t threshold = (g_trial < BC_WAVE_OFFSET_TRIALS) ?
             g_offsets[g_trial] :
-            g_contrast[i] * (15U + (g_trial - BC_WAVE_OFFSET_TRIALS) * 10U)
-            / 100U;
-        uint32_t noise = (g_white_sigma > 4U) ? g_white_sigma : 4U;
+            g_contrast[i] * (BC_WAVE_CONTRAST_BASE_PCT +
+                             (g_trial - BC_WAVE_OFFSET_TRIALS) *
+                             BC_WAVE_CONTRAST_STEP_PCT)
+            / BC_WAVE_PERCENT;
+        uint32_t noise = (g_white_sigma > BC_WAVE_MIN_NOISE) ?
+                         g_white_sigma : BC_WAVE_MIN_NOISE;
         if (threshold < noise)
         {
             threshold = noise;
         }
         uint32_t hysteresis = noise / 2U;
-        if (hysteresis > threshold / 4U)
+        if (hysteresis > threshold / BC_WAVE_HYST_DIVISOR)
         {
-            hysteresis = threshold / 4U;
+            hysteresis = threshold / BC_WAVE_HYST_DIVISOR;
         }
         uint8_t next = black;
         if (value >= threshold + hysteresis)
@@ -992,7 +1096,7 @@ static void wave_search (void)
     if ((0U == duplicate_floor) && (0U != g_trial_mask) &&
         (0U == (g_trial_mask & (g_trial_mask - 1U))))
     {
-        for (uint32_t i = 0U; i < 26U; ++i)
+        for (uint32_t i = 0U; i < BC_WAVE_LETTERS; ++i)
         {
             if (0U != (g_trial_mask & (1U << i)))
             {
@@ -1008,7 +1112,9 @@ static void wave_search (void)
               (UINT)(g_trial >= BC_WAVE_OFFSET_TRIALS),
               (UINT)((g_trial < BC_WAVE_OFFSET_TRIALS) ?
                       g_offsets[g_trial] :
-                      15U + (g_trial - BC_WAVE_OFFSET_TRIALS) * 10U),
+                      BC_WAVE_CONTRAST_BASE_PCT +
+                      (g_trial - BC_WAVE_OFFSET_TRIALS) *
+                      BC_WAVE_CONTRAST_STEP_PCT),
               (UINT)g_run_count, (UINT)g_run_overflow,
               (UINT)g_trial_frames, (UINT)g_trial_mask);
 #endif
@@ -1025,6 +1131,7 @@ static void wave_search (void)
 }
 
 #if APP_BARCODE_TEMPLATE_ENABLED
+/** @brief Reader callback for the template matcher. */
 static void wave_match_read (uint32_t index, uint32_t * p_units,
                               int32_t * p_signal)
 {
@@ -1034,6 +1141,7 @@ static void wave_match_read (uint32_t index, uint32_t * p_units,
 #endif
 
 #if APP_BARCODE_LAYOUT_ENABLED
+/** @brief Reader callback for the layout matcher. */
 static void wave_layout_read (uint32_t index, uint32_t * p_units,
                               uint32_t * p_left_step, int32_t * p_signal)
 {
@@ -1044,6 +1152,7 @@ static void wave_layout_read (uint32_t index, uint32_t * p_units,
 }
 #endif
 
+/** @brief Run the edge-based decoder on the capture. */
 static void wave_legacy (void)
 {
     bc_scan_config_t const config = {
@@ -1056,9 +1165,9 @@ static void wave_legacy (void)
     uint8_t previous = 0U;
     uint32_t elapsed_usec = 0U;
     g_legacy_edges = 0U;
-    uint32_t rejected[9] = {0U};
-    /* Use original ADC, original fixed hysteresis and the existing
-     * two-observation rule. Retain the first valid legacy detection.
+    uint32_t rejected[BC_WAVE_SCAN_ERROR_SLOTS] = {0U};
+    /* Raw ADC, fixed hysteresis and the two-observation rule. Retain the
+     * first valid legacy detection.
      */
     for (uint32_t i = 0U; i + 1U < g_count; ++i)
     {
@@ -1091,14 +1200,14 @@ static void wave_legacy (void)
         }
         uint16_t gap = (uint16_t)(wave_row(i + 1U)->usec - wave_row(i)->usec);
         if ((raw != stable) && (!APP_BARCODE_EDGE_FILTER_ENABLED ||
-            ((next == raw) && (gap <= 8000U))))
+            ((next == raw) && (gap <= BC_WAVE_EDGE_MAX_GAP_USEC))))
         {
             stable = raw;
             ++g_legacy_edges;
         }
         previous = raw;
         uint8_t event = bc_scan_feed(&scan, stable, wave_row(i)->units,
-                                     elapsed_usec / 1000U, 1U);
+                                     elapsed_usec / BC_WAVE_US_PER_MS, 1U);
         if (BC_SCAN_EVENT_NONE != event)
         {
             uint32_t widths[BC_CODE_ELEMENTS] = {0U};
@@ -1118,7 +1227,7 @@ static void wave_legacy (void)
                     error = BC_SCAN_ERROR_PATTERN;
                 }
             }
-            if ((error > 0U) && (error < 9U))
+            if ((error > 0U) && (error < BC_WAVE_SCAN_ERROR_SLOTS))
             {
                 ++rejected[error];
             }
@@ -1129,10 +1238,12 @@ static void wave_legacy (void)
                       "code2=%u code3=%u code5=%u code7=%u\n",
               (UINT)g_sequence, (UINT)g_legacy.valid, (UINT)g_legacy.letter,
               (UINT)g_legacy.reverse, (UINT)g_legacy_edges,
-              (UINT)scan.run_count, (UINT)rejected[2], (UINT)rejected[3],
-              (UINT)rejected[5], (UINT)rejected[7]);
+              (UINT)scan.run_count, (UINT)rejected[BC_SCAN_ERROR_WIDTH],
+              (UINT)rejected[BC_SCAN_ERROR_OVERFLOW],
+              (UINT)rejected[BC_SCAN_ERROR_DISTANCE],
+              (UINT)rejected[BC_SCAN_ERROR_PATTERN]);
 #if APP_BARCODE_LAYOUT_ENABLED
-    /* The layout decoder replaces the 26-threshold segmentation vote. */
+    /* The layout decoder runs instead of the segmentation vote. */
     g_phase = BC_WAVE_LAYOUT_INIT;
 #else
     g_phase = BC_WAVE_SEARCH;
@@ -1145,7 +1256,7 @@ static void wave_estimate (bc_match_result_t const * p_match,
                            uint8_t conflict)
 {
     char const * reason = "weak_evidence";
-    uint8_t available = (p_match->letter < 26U) &&
+    uint8_t available = (p_match->letter < BC_WAVE_LETTERS) &&
                         (p_match->score_z100 > 0) &&
                         (p_match->positive > 0U);
     if ((0U != g_adc_errors) || (g_gap_max > BC_WAVE_MAX_GAP_USEC))
@@ -1160,7 +1271,7 @@ static void wave_estimate (bc_match_result_t const * p_match,
     }
     else if (0U == available)
     {
-        reason = (p_match->letter < 26U) ? "insufficient_evidence" :
+        reason = (p_match->letter < BC_WAVE_LETTERS) ? "insufficient_evidence" :
                                          "no_template_fit";
     }
     if (0U != available)
@@ -1171,7 +1282,7 @@ static void wave_estimate (bc_match_result_t const * p_match,
                           "support=%u positive=%u eligible=%u "
                           "reason=%s published=0\n",
                   (UINT)g_sequence, (INT)('A' + p_match->letter),
-                  (INT)((p_match->runner_letter < 26U) ?
+                  (INT)((p_match->runner_letter < BC_WAVE_LETTERS) ?
                         'A' + p_match->runner_letter : '?'),
                   (INT)p_match->score_z100, (INT)p_match->runner_score_z100,
                   (INT)p_match->margin_z100, (UINT)p_match->reverse,
@@ -1199,9 +1310,10 @@ static uint8_t wave_barcode_like (uint32_t * p_bars, uint32_t * p_widest)
             peak = value;
         }
     }
-    uint32_t const noise = (g_white_sigma > 4U) ? g_white_sigma : 4U;
+    uint32_t const noise = (g_white_sigma > BC_WAVE_MIN_NOISE) ?
+                           g_white_sigma : BC_WAVE_MIN_NOISE;
     uint32_t const on = peak / 2U;
-    uint32_t const off = peak * 3U / 8U;
+    uint32_t const off = peak * BC_WAVE_OFF_NUM / BC_WAVE_OFF_DEN;
     uint32_t bars = 0U;
     uint32_t widest = 0U;
     uint32_t start = 0U;
@@ -1235,35 +1347,40 @@ static uint8_t wave_barcode_like (uint32_t * p_bars, uint32_t * p_widest)
 }
 
 #if APP_BARCODE_LAYOUT_ENABLED
+/** @brief Log the layout-matcher estimate. */
 static void wave_layout_print (bc_layout_result_t const * p_layout)
 {
     tm_printf((UB *)"[BC LAYOUT] pass=%u valid=%u letter=%c reverse=%u "
                       "distance=%s reason=%s other=%c runner=%c bars=%u "
                       "err_centi=%u module_x10=%u gap_permille=%u\n",
               (UINT)g_sequence, (UINT)p_layout->valid,
-              (INT)((p_layout->letter < 26U) ? 'A' + p_layout->letter : '?'),
+              (INT)((p_layout->letter < BC_WAVE_LETTERS) ?
+                    'A' + p_layout->letter : '?'),
               (UINT)p_layout->reverse,
               (0U != p_layout->variant) ? "sensor" : "centre",
               bc_layout_reason_text(p_layout->reason),
-              (INT)((p_layout->other < 26U) ? 'A' + p_layout->other : '-'),
-              (INT)((p_layout->runner < 26U) ? 'A' + p_layout->runner : '-'),
+              (INT)((p_layout->other < BC_WAVE_LETTERS) ?
+                    'A' + p_layout->other : '-'),
+              (INT)((p_layout->runner < BC_WAVE_LETTERS) ?
+                    'A' + p_layout->runner : '-'),
               (UINT)p_layout->bars, (UINT)p_layout->err_centi,
               (UINT)p_layout->module_x10, (UINT)p_layout->gap_permille);
 }
 #endif
 
+/** @brief Log the decode outcome of a pass. */
 static void wave_report (void)
 {
     uint32_t best = 0U;
     uint32_t runner = 0U;
-    for (uint32_t i = 1U; i < 26U; ++i)
+    for (uint32_t i = 1U; i < BC_WAVE_LETTERS; ++i)
     {
         if (g_votes[i] > g_votes[best])
         {
             best = i;
         }
     }
-    for (uint32_t i = 0U; i < 26U; ++i)
+    for (uint32_t i = 0U; i < BC_WAVE_LETTERS; ++i)
     {
         if ((i != best) && (g_votes[i] > runner))
         {
@@ -1272,25 +1389,25 @@ static void wave_report (void)
     }
     uint8_t valid = (g_votes[best] >= APP_BARCODE_WAVE_MIN_VOTES) &&
                     (g_votes[best] >= 2U * (runner + 1U)) &&
-                    (runner < 2U) &&
+                    (runner < BC_WAVE_MAX_RUNNER_VOTES) &&
                     (0U == g_adc_errors) &&
                     (g_gap_max <= BC_WAVE_MAX_GAP_USEC);
     uint8_t selected_reverse = g_reverse[best];
-    uint8_t source = valid ? 1U : 0U;
+    uint8_t source = valid ? BC_WAVE_SOURCE_SEGMENT : 0U;
 #if APP_BARCODE_TEMPLATE_ENABLED
     bc_match_result_t matched = bc_match_result();
     if (0U != matched.valid)
     {
         if ((0U != valid) && (best != matched.letter))
         {
-            source = 3U;
+            source = BC_WAVE_SOURCE_CONFLICT;
             valid = 0U;
         }
         else if (0U == valid)
         {
             best = matched.letter;
             selected_reverse = matched.reverse;
-            source = 2U;
+            source = BC_WAVE_SOURCE_TEMPLATE;
             valid = 1U;
         }
     }
@@ -1299,25 +1416,26 @@ static void wave_report (void)
     valid = valid && (0U == g_adc_errors) &&
             (g_gap_max <= BC_WAVE_MAX_GAP_USEC);
     uint8_t comparison = 0U; /* neither */
-    if (3U == source)
+    if (BC_WAVE_SOURCE_CONFLICT == source)
     {
-        comparison = 4U;
+        comparison = BC_WAVE_CMP_DISAGREE;
     }
     else if ((0U != valid) && (0U != g_legacy.valid))
     {
-        comparison = (best == g_legacy.letter) ? 1U : 4U;
-        if (4U == comparison)
+        comparison = (best == g_legacy.letter) ?
+                     BC_WAVE_CMP_SAME : BC_WAVE_CMP_DISAGREE;
+        if (BC_WAVE_CMP_DISAGREE == comparison)
         {
             valid = 0U;
         }
     }
     else if (0U != valid)
     {
-        comparison = 2U; /* buffered only */
+        comparison = BC_WAVE_CMP_BUFFERED; /* buffered only */
     }
     else if (0U != g_legacy.valid)
     {
-        comparison = 3U; /* legacy only */
+        comparison = BC_WAVE_CMP_LEGACY; /* legacy only */
     }
 #if APP_BARCODE_LAYOUT_ENABLED
     {
@@ -1331,14 +1449,14 @@ static void wave_report (void)
             best = layout.letter;
             selected_reverse = layout.reverse;
         }
-        source = 4U;
+        source = BC_WAVE_SOURCE_LAYOUT;
         g_last_reason = layout.reason;
     }
 #endif
-    char const * const comparisons[5] = {
+    char const * const comparisons[BC_WAVE_CMP_COUNT] = {
         "neither", "both_same", "buffered_only", "legacy_only", "disagree"
     };
-    char const * const sources[5] = {
+    char const * const sources[BC_WAVE_SOURCE_COUNT] = {
         "none", "segmentation", "template", "conflict", "layout"
     };
     tm_printf((UB *)"[BC WAVE RESULT] pass=%u valid=%u letter=%u "
@@ -1347,26 +1465,29 @@ static void wave_report (void)
                       "busy_samples=%u capture_ms=%u process_ms=%u\n",
               (UINT)g_sequence, (UINT)valid,
               (UINT)((0U != valid) ? best : BC_CODE_LETTER_INVALID),
-              (INT)(((0U != g_votes[best]) || (2U == source) ||
+              (INT)(((0U != g_votes[best]) ||
+                     (BC_WAVE_SOURCE_TEMPLATE == source) ||
                      (0U != valid)) ? 'A' + best : '?'),
               (UINT)selected_reverse, (UINT)g_votes[best], (UINT)runner,
               (UINT)g_fit[best], comparisons[comparison], sources[source],
               (UINT)g_busy_samples, (UINT)g_capture_msec,
-              (UINT)((encoder_now_usec() - g_freeze_usec) / 1000U));
+              (UINT)((encoder_now_usec() - g_freeze_usec) / BC_WAVE_US_PER_MS));
     {
         uint32_t const process_ms =
-            (encoder_now_usec() - g_freeze_usec) / 1000U;
+            (encoder_now_usec() - g_freeze_usec) / BC_WAVE_US_PER_MS;
         g_last_valid = valid;
         g_last_letter = (uint8_t)((0U != valid) ?
                                   best : BC_CODE_LETTER_INVALID);
-        g_last_process_ms = (uint16_t)((process_ms > 65535U) ?
-                                       65535U : process_ms);
+        g_last_process_ms = (uint16_t)((process_ms > BC_WAVE_U16_MAX) ?
+                                       BC_WAVE_U16_MAX : process_ms);
         g_last_sequence = (uint16_t)g_sequence;
     }
     if (0U != valid)
     {
         bc_code_result_t result = {
-            (uint8_t)best, (uint8_t)((2U == source) ? 1U : 2U),
+            (uint8_t)best,
+            (uint8_t)((BC_WAVE_SOURCE_TEMPLATE == source) ?
+                      BC_WAVE_QUALITY_MARGINAL : BC_WAVE_QUALITY_GOOD),
             selected_reverse, 1U
         };
         ER error = bc_port_publish_buffered(&result, g_trigger_msec);
@@ -1374,13 +1495,13 @@ static void wave_report (void)
                   (UINT)g_sequence, error);
 #ifndef B1_LIVE_COMMANDS
         for (uint32_t i = 0U;
-             (1U == source) && (i < BC_CODE_ELEMENTS); ++i)
+             (BC_WAVE_SOURCE_SEGMENT == source) && (i < BC_CODE_ELEMENTS); ++i)
         {
             tm_printf((UB *)"[BC WAVE WIDTH] pass=%u i=%u units=%u\n",
                       (UINT)g_sequence, (UINT)i, (UINT)g_widths[best][i]);
         }
 #endif
-        if (2U == source)
+        if (BC_WAVE_SOURCE_TEMPLATE == source)
         {
             tm_printf((UB *)"[BC WAVE TEMPLATE] Analog template accepted; "
                               "no measured 29-run widths claimed\n");
@@ -1401,7 +1522,7 @@ static void wave_report (void)
                       (UINT)g_ignored, (UINT)like_bars, (UINT)like_widest);
         }
         uint8_t error_code = BC_SCAN_ERROR_PATTERN;
-        if (g_freeze_reason == 3U)
+        if (g_freeze_reason == BC_WAVE_FREEZE_TIMEOUT)
         {
             error_code = BC_SCAN_ERROR_TIMEOUT;
         }
@@ -1418,7 +1539,7 @@ static void wave_report (void)
         tm_printf((UB *)"[BARCODE] Buffered pass unconfirmed; "
                           "failure counter published to MQTT\n");
 #if APP_BARCODE_TEMPLATE_ENABLED && APP_BARCODE_ESTIMATES_ENABLED
-        wave_estimate(&matched, (uint8_t)(4U == comparison));
+        wave_estimate(&matched, (uint8_t)(BC_WAVE_CMP_DISAGREE == comparison));
 #endif
     }
     (void)bc_port_nav_finish();
@@ -1430,7 +1551,7 @@ static void wave_report (void)
     tm_printf((UB *)"[BC WAVE RAW BEGIN] pass=%u rows=%u origin_units=%u "
                       "time_valid=%u\n",
               (UINT)g_sequence, (UINT)g_count, (UINT)wave_row(0U)->units,
-              (UINT)(g_gap_max < 65536U));
+              (UINT)(g_gap_max < BC_WAVE_U16_RANGE));
 #ifdef B1_BARCODE_TEST
     tm_printf((UB *)"[BC WAVE RAW COLUMNS] "
                       "pass,i,dt_us,units,adc,smooth,floor,contrast,left\n");
@@ -1453,6 +1574,7 @@ static void wave_report (void)
 }
 
 #if APP_BARCODE_WAVE_DUMP_ENABLED
+/** @brief Dump the captured waveform to the console. */
 static void wave_dump (void)
 {
     /* Bounded output, after collection and result publication. Samples,
@@ -1506,7 +1628,7 @@ static void wave_dump (void)
 void bc_wave_poll (void)
 {
     static bc_wave_phase_t reported = BC_WAVE_REPORT;
-    if (g_cancel_requested)
+    if (0U != g_cancel_requested)
     {
         /* Only the worker touches phase/buffers. Every decoder call is
          * incremental and has returned before this point. */
@@ -1586,7 +1708,7 @@ void bc_wave_poll (void)
     {
         /* Shows whether samples still arrive while waiting for white. */
         uint32_t const now = encoder_now_usec();
-        if ((uint32_t)(now - g_clear_report_usec) >= 2000000U)
+        if ((uint32_t)(now - g_clear_report_usec) >= BC_WAVE_CLEAR_REPORT_USEC)
         {
             g_clear_report_usec = now;
             tm_printf((UB *)"[BC WAVE CLEAR] waiting for white: run=%u/%u "
@@ -1711,6 +1833,7 @@ uint8_t bc_wave_navigation_guard_active(void)
 {
     return 0U;
 }
+/** @brief Ask the scanner to rearm after a pass. */
 void bc_wave_request_rearm (void)
 {
 }
@@ -1731,7 +1854,7 @@ void bc_wave_status (bc_wave_status_t * p_status)
     {
         *p_status = (bc_wave_status_t){0U};
         p_status->state = BC_WAVE_STATE_OFF;
-        p_status->last_letter = 31U;
+        p_status->last_letter = BC_CODE_LETTER_INVALID;
     }
 }
 

@@ -25,7 +25,7 @@ static line_follow_action_t g_last_action = LINE_FORWARD;
 static float g_left_rpm, g_right_rpm;
 static obstacle_drive_t g_bypass_drive;
 static uint32_t g_now = 100U;
-static terrain_snapshot g_terrain = {.b_valid=true};
+static terrain_snapshot_t g_terrain = {.b_valid=true};
 static uint8_t g_ir_left, g_ir_right, g_scan_pending, g_capture, g_guard;
 static uint8_t g_scan_letter, g_scan_action;
 static uint16_t g_scan_seq;
@@ -37,9 +37,9 @@ static bool g_calibrated = true;
 static uint16_t g_output_pwm;
 void motor_last_command(uint16_t *l,uint16_t *r)
 {*l=g_output_pwm;*r=g_output_pwm;}
-ER terrain_get_snapshot(terrain_snapshot *s) {*s=g_terrain;return E_OK;}
+ER terrain_get_snapshot(terrain_snapshot_t *s) {*s=g_terrain;return E_OK;}
 void motion_reset_run(void) {}
-void motion_observe_terrain(terrain_snapshot const *s,uint32_t now)
+void motion_observe_terrain(terrain_snapshot_t const *s,uint32_t now)
 {(void)s;(void)now;}
 uint8_t motion_downhill_fault(void) {return g_governor_fault;}
 bool obstacle_has_fault(void) {return g_obstacle_fault;}
@@ -68,13 +68,13 @@ static bool g_model_cancel = false;
 static bool g_cancel_pending = false;
 void g7_nav_clear_decoded(void)
 {++g_decoded_clears;if(g_model_cancel)g_cancel_pending=true;}
-int g7_nav_begin_run(void)
+int32_t g7_nav_begin_run(void)
 {return (g_model_cancel&&(g_cancel_pending||!g_barcode_ready))?0:1;}
 /* Mid-run handoff: does not wait for the scanner. */
 static bool g_handoff_fail = false;
 static unsigned int g_continue_calls = 0U;
-int g7_nav_continue_run(void) {++g_continue_calls;return g_handoff_fail?0:1;}
-int g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
+int32_t g7_nav_continue_run(void) {++g_continue_calls;return g_handoff_fail?0:1;}
+int32_t g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
                      uint32_t *ms,uint32_t *done,uint8_t *pending)
 {
     *l=g_scan_letter;*a=g_scan_action;*s=g_scan_seq;*ms=g_now-100U;
@@ -82,7 +82,7 @@ int g7_nav_take_scan(uint8_t *l,uint8_t *a,uint16_t *s,
     *pending=g_scan_pending;
     int result=g_scan_result;g_scan_result=0;return result;
 }
-int g7_nav_take_decoded(uint8_t *l,uint8_t *a,uint16_t *s)
+int32_t g7_nav_take_decoded(uint8_t *l,uint8_t *a,uint16_t *s)
 {(void)l;(void)a;(void)s;return 0;}
 void encoder_read(encoder_wheel_t wheel,encoder_sample_t *out)
 {(void)wheel;*out=(encoder_sample_t){.count=g_encoder_count};}
@@ -257,7 +257,7 @@ static void v15_cycles(void)
     nav_init(&g_navigation,&repeat);
     g_force_busy=false;g_connected=1U;g_obstacle_fault=false;
     g_obstacle_blocked=false;g_ir_left=0U;g_ir_right=0U;
-    g_now=100U;g_terrain=(terrain_snapshot){.b_valid=true};
+    g_now=100U;g_terrain=(terrain_snapshot_t){.b_valid=true};
     remote_publish_state(state);
     for (unsigned run=0;run<10;run++)
     {
@@ -415,7 +415,7 @@ static void v15_cycles(void)
     assert(g7_controller_remote_blockers() & 8U);
     g_calibrated=true;
     /* Brief outage retains control; prolonged outage stops with sign=0. */
-    g_terrain=(terrain_snapshot){.b_valid=true};
+    g_terrain=(terrain_snapshot_t){.b_valid=true};
     g_ir_left=g_ir_right=0U;g_scan_result=0;g_guard=0U;
     nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
     state=cycle(ROBOT_LINE_FOLLOWING,&history);
@@ -434,7 +434,7 @@ static void mailbox_contention(void)
     robot_state_t state=ROBOT_LINE_FOLLOWING;
     g_connected=1U;g_obstacle_fault=false;g_obstacle_blocked=false;
     g_governor_fault=0U;g_scan_result=0;g_guard=0U;g_barcode_ready=1U;
-    g_terrain=(terrain_snapshot){.b_valid=true};
+    g_terrain=(terrain_snapshot_t){.b_valid=true};
     g_ir_left=g_ir_right=0U;g_remote_lock_misses=0U;
     nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
     remote_publish_state(state);
@@ -480,7 +480,7 @@ static void scan_suppression(void)
         NAV_CENTRE,NAV_TURN,NAV_REACQUIRE,NAV_RESUME};
     g_connected=1U;g_obstacle_fault=false;g_obstacle_blocked=false;
     g_governor_fault=0U;g_scan_result=0;g_guard=0U;
-    g_terrain=(terrain_snapshot){.b_valid=true};g_ir_left=g_ir_right=0U;
+    g_terrain=(terrain_snapshot_t){.b_valid=true};g_ir_left=g_ir_right=0U;
     for (unsigned i=0U;i<sizeof(states)/sizeof(states[0]);i++)
     {
         nav_forget(&g_navigation);nav_start(&g_navigation,g_now);
@@ -509,7 +509,7 @@ static robot_state_t lift_run(controller_history_t *history)
     g_connected=1U;g_obstacle_fault=false;g_obstacle_blocked=false;
     g_governor_fault=0U;g_scan_result=0;g_guard=0U;g_barcode_ready=1U;
     g_model_cancel=false;g_cancel_pending=false;
-    g_terrain=(terrain_snapshot){.b_valid=true};
+    g_terrain=(terrain_snapshot_t){.b_valid=true};
     g_ir_left=g_ir_right=0U;g_control.fault=0U;
     g_terrain.b_floor_contact=1U;
     nav_forget(&g_navigation);nav_start(&g_navigation,g_now);

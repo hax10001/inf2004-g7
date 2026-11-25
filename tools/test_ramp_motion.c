@@ -69,7 +69,7 @@ static void run(float gravity,float pitch)
     for (unsigned i=0;i<1600;i++)
     {
         advance(gravity);
-        terrain_snapshot s={.b_valid=true,.height_valid=true,
+        terrain_snapshot_t s={.b_valid=true,.height_valid=true,
             .pitch_deg=pitch,.timestamp_msec=now_us/1000U,
             .onHump=gravity>0,.hump_phase=gravity>0 ?
                 TERRAIN_HUMP_DESCENDING:TERRAIN_HUMP_LEVEL};
@@ -106,7 +106,7 @@ static void run(float gravity,float pitch)
         for (unsigned i=0;i<10;i++)
         {
             advance(gravity);
-            terrain_snapshot s={.b_valid=true,.height_valid=true,
+            terrain_snapshot_t s={.b_valid=true,.height_valid=true,
                 .pitch_deg=pitch,.timestamp_msec=now_us/1000U,
                 .onHump=gravity>0,.hump_phase=gravity>0 ?
                     TERRAIN_HUMP_DESCENDING:TERRAIN_HUMP_LEVEL};
@@ -141,7 +141,7 @@ static void transitions(void)
     {
         bool const descending=i>=100 && i<350;
         advance(descending?8.0f:0.0f);
-        terrain_snapshot s={.b_valid=true,.height_valid=true,
+        terrain_snapshot_t s={.b_valid=true,.height_valid=true,
             .onHump=descending,.hump_phase=descending ?
                 TERRAIN_HUMP_DESCENDING:TERRAIN_HUMP_LEVEL,
             .timestamp_msec=now_us/1000U};
@@ -179,7 +179,7 @@ static void transitions(void)
     for(unsigned i=0;i<7;i++)
     {
         advance(0.0f);
-        terrain_snapshot s={.b_valid=true,.height_valid=true,.onHump=true,
+        terrain_snapshot_t s={.b_valid=true,.height_valid=true,.onHump=true,
             .hump_phase=TERRAIN_HUMP_DESCENDING,
             .timestamp_msec=now_us/1000U};
         motion_observe_terrain(&s,now_us/1000U);

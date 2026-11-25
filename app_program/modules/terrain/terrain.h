@@ -13,8 +13,8 @@ typedef struct
 {
     float roll_zero_deg;
     float pitch_zero_deg;
-    unsigned char b_valid:1; /**< 1-bit validity under calibration mutex. */
-} terrain_calibration;
+    uint8_t       b_valid:1; /**< 1-bit validity under calibration mutex. */
+} terrain_calibration_t;
 
 /** @brief Where the robot is on a hump. */
 typedef enum
@@ -22,7 +22,7 @@ typedef enum
     TERRAIN_HUMP_LEVEL,
     TERRAIN_HUMP_CLIMBING,   /**< Estimated height rising. */
     TERRAIN_HUMP_DESCENDING  /**< Estimated height falling. */
-} terrain_hump_phase;
+} terrain_hump_phase_t;
 
 /** @brief A snapshot of the current terrain state. */
 typedef struct
@@ -32,28 +32,28 @@ typedef struct
     /* One 32-bit word. A hump is at most the wheel spacing (110 mm), so
      * seven bits (0..127) hold each height; the lifted height is
      * 0..1022 mm in ten bits, as on the telemetry wire. */
-    unsigned int hump_height_mm:7;      /**< Current estimate. */
-    unsigned int last_hump_height_mm:7; /**< Peak of the last hump. */
-    unsigned int max_hump_height_mm:7;  /**< Highest hump this run. */
-    unsigned int lift_height_mm:10;     /**< Estimated height off floor. */
+    uint32_t     hump_height_mm:7;      /**< Current estimate. */
+    uint32_t     last_hump_height_mm:7; /**< Peak of the last hump. */
+    uint32_t     max_hump_height_mm:7;  /**< Highest hump this run. */
+    uint32_t     lift_height_mm:10;     /**< Estimated height off floor. */
     /** At or above APP_LIFT_STOP_HEIGHT_MM with no floor under the line
      *  sensors. Not latched here: the controller latches its stop. */
-    unsigned int b_lifted:1;
+    uint32_t     b_lifted:1;
     uint32_t timestamp_msec;
     uint16_t heading_centideg;    /**< 0..36000 when heading_valid. */
     /* Three phases and six flags in eight bits. The terrain task
      * publishes and the consumers read copies under the terrain mutex. */
-    unsigned char hump_phase:2;
-    unsigned char onHump:1;
-    unsigned char height_valid:1;
-    unsigned char b_valid:1;
-    unsigned char heading_valid:1;
+    uint8_t       hump_phase:2;
+    uint8_t       onHump:1;
+    uint8_t       height_valid:1;
+    uint8_t       b_valid:1;
+    uint8_t       heading_valid:1;
     /** A fresh IR sample has at least one white line sensor. */
-    unsigned char b_floor_contact:1;
+    uint8_t       b_floor_contact:1;
     /** Flips each time a hump is recorded (HUMP DONE); discarded humps
      *  leave it unchanged. */
-    unsigned char hump_done_toggle:1;
-} terrain_snapshot;
+    uint8_t       hump_done_toggle:1;
+} terrain_snapshot_t;
 
 /** @brief Initialise subsystem resources; device open remains task-owned. */
 ER terrain_init (void);
@@ -67,7 +67,7 @@ int32_t terrain_magnitude (int16_t axis_x, int16_t axis_y, int16_t axis_z);
  */
 ER terrain_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                  float *p_roll_deg, float *p_pitch_deg);
-/** @brief Compute current angles relative to the saved startupreference. */
+/** @brief Compute current angles relative to the saved startup reference. */
 ER terrain_relative_tilt (int16_t axis_x, int16_t axis_y, int16_t axis_z,
                           float *p_roll_deg, float *p_pitch_deg);
 /** @brief Save averaged stationary axes as the startup reference, once.
@@ -78,17 +78,17 @@ ER terrain_calibrate (int16_t axis_x, int16_t axis_y, int16_t axis_z);
 bool terrain_is_calibrated (void);
 /** @brief Height of one wheel above the other, from the roll angle. */
 float terrain_hump_height (float roll_deg);
-/** @brief Compute the magnetic heading based on the magnetometer readings. */
+/** @brief Magnetic heading, degrees 0..360, assuming the robot is level. */
 ER terrain_heading_level(int16_t mag_x, int16_t mag_y, float *p_heading_deg);
 /** @brief Publish a new terrain snapshot.
  * @note Thread-safe. Called by the IMU task.
  */
-ER terrain_publish_snapshot (terrain_snapshot const *p_snapshot);
+ER terrain_publish_snapshot (terrain_snapshot_t const *p_snapshot);
 
 /** @brief Get the current terrain snapshot.
  * @note Thread-safe. Called by snapshot consumers.
  */
-ER terrain_get_snapshot (terrain_snapshot *p_snapshot);
+ER terrain_get_snapshot (terrain_snapshot_t *p_snapshot);
 #endif /* TERRAIN_H */
 
 /*** end of file ***/

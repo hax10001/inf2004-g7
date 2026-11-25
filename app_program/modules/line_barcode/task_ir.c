@@ -1,5 +1,5 @@
 /** @file task_ir.c
- * @brief Periodic sampling; GPIO operations remain in the IR driver.
+ * @brief Periodic IR sampling task; GPIO access is in drivers/ir.c.
  */
 #include "task_ir.h"
 #include "ir_shared.h"
@@ -73,7 +73,7 @@ void task_ir_task (INT start_code, void * p_context)
 #if BC_CAL_READY
         if (error >= E_OK)
         {
-            /* One-time timer arm: 2 ms scanner owns subsequent samples. */
+            /* Arms the barcode timer once; the 2 ms scanner then samples. */
             (void)bc_setup_sample((uint8_t)barcode_raw, 0U);
         }
 #endif

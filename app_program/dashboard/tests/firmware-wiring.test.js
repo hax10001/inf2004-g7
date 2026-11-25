@@ -21,6 +21,8 @@ test('firmware event observes validated letter and does not send motor command',
  const peer=read('app_program/modules/telemetry/telemetry_peers.c');
  assert.match(peer,/bc_port_peek/);
  assert.match(peer,/BC_PORT_VALID_FLAG/);
- assert.match(peer,/event_kind=1u/);
+ assert.match(peer,/event_kind=B1_EVT_BARCODE;/);
+ assert.match(read('app_program/modules/telemetry/buddy1.h'),
+   /#define B1_EVT_BARCODE 1u\b/);
  assert.match(peer,/\[BARCODE\] Decoded/);
 });

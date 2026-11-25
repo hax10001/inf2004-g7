@@ -17,9 +17,9 @@
 
 static int32_t g_left_count = 0;
 static int32_t g_right_count = 0;
-static int g_print_count = 0;
-static int g_fail = 0;
-static int g_checks = 0;
+static int32_t g_print_count = 0;
+static int32_t g_fail = 0;
+static int32_t g_checks = 0;
 static char g_last_message[128];
 static uint32_t g_time = 0U;
 static uint8_t gb_stale_edge = 0U;
@@ -35,6 +35,7 @@ static void check (uint8_t ok, char const * p_name)
     }
 }
 
+/** @brief Host stub for tk_cre_sem() (test double). */
 ID tk_cre_sem (T_CSEM const * p_config)
 {
     check((1 == p_config->isemcnt) && (1 == p_config->maxsem) &&
@@ -42,9 +43,10 @@ ID tk_cre_sem (T_CSEM const * p_config)
     return 7;
 }
 
+/** @brief Host stub for tk_wai_sem() (test double). */
 ER tk_wai_sem (ID semaphore, INT count, TMO timeout)
 {
-    int rc;
+    int32_t rc;
     if ((7 != semaphore) || (1 != count))
     {
         return E_OBJ;
@@ -54,6 +56,7 @@ ER tk_wai_sem (ID semaphore, INT count, TMO timeout)
     return (0 == rc) ? E_OK : E_OBJ;
 }
 
+/** @brief Host stub for tk_sig_sem() (test double). */
 ER tk_sig_sem (ID semaphore, INT count)
 {
     if ((7 != semaphore) || (1 != count))
@@ -63,6 +66,7 @@ ER tk_sig_sem (ID semaphore, INT count)
     return (0 == pthread_mutex_unlock(&g_test_mutex)) ? E_OK : E_OBJ;
 }
 
+/** @brief Host stub for encoder_read() (test double). */
 void encoder_read (encoder_wheel_t wheel, encoder_sample_t * p_sample)
 {
     p_sample->count = (ENCODER_LEFT == wheel) ?
@@ -71,11 +75,13 @@ void encoder_read (encoder_wheel_t wheel, encoder_sample_t * p_sample)
         ((0U != gb_stale_edge) ? 200000U : 0U);
 }
 
+/** @brief Host stub for encoder_now_usec() (test double). */
 uint32_t encoder_now_usec (void)
 {
     return g_time * 1000U;
 }
 
+/** @brief Host stub for tm_printf() (test double). */
 INT tm_printf (UB const * p_format, ...)
 {
     va_list args;
@@ -105,6 +111,7 @@ static void tick (uint32_t units, uint8_t b_black)
     } while (remaining > 0U);
 }
 
+/** @brief Feed one nine-element symbol as encoder ticks. */
 static void send_symbol (uint16_t pattern)
 {
     for (uint8_t i = 0U; i < 9U; ++i)
@@ -123,6 +130,7 @@ typedef struct
     uint32_t errors;
 } test_reader_t;
 
+/** @brief Reader thread: peeks must always return a coherent result. */
 static void * test_reader (void * p_arg)
 {
     test_reader_t * p_reader = (test_reader_t *)p_arg;
@@ -140,6 +148,7 @@ static void * test_reader (void * p_arg)
     return 0;
 }
 
+/** @brief Concurrent readers see no torn results. */
 static void test_parallel_reads (uint16_t sequence)
 {
     pthread_t workers[3];
@@ -159,6 +168,7 @@ static void test_parallel_reads (uint16_t sequence)
     }
 }
 
+/** @brief A complete scan publishes, peeks and acknowledges a letter. */
 static void test_full_scan (void)
 {
     bc_port_config_t cfg = {
@@ -208,6 +218,7 @@ static void test_full_scan (void)
     check(sizeof(bc_port_result_t) == 8U, "compact result eight bytes");
 }
 
+/** @brief Invalid capture inputs are rejected. */
 static void test_input_rejections (void)
 {
     bc_port_result_t result = {0U, 0U, 0U};
@@ -264,7 +275,7 @@ static void test_input_rejections (void)
     check(stats.stale_edge > 0U, "stale edge counter");
 }
 
-/** A rejected scan may be superseded without a controller rejection ACK. */
+/** @brief A rejected scan is superseded without a rejection ACK. */
 static void test_rejection_does_not_block_letter (void)
 {
     bc_port_result_t previous = {0};
@@ -307,6 +318,7 @@ static void test_rejection_does_not_block_letter (void)
     check(E_OK == bc_port_ack(current.sequence), "valid F ACK works");
 }
 
+/** @brief Capture at 4 ms intervals cannot fabricate a letter. */
 static void test_four_millisecond_capture (void)
 {
     bc_port_result_t result = {0U, 0U, 0U};
@@ -338,11 +350,12 @@ static void test_four_millisecond_capture (void)
     check(E_PAR == bc_port_stats(0), "diagnostics null rejected");
 }
 
+/** @brief Input-error reports are rate limited. */
 static void test_input_report_throttle (void)
 {
     uint32_t usec = g_time * 1000U;
     check(E_OK == bc_port_clear(), "clear before repeated input errors");
-    int before = g_print_count;
+    int32_t before = g_print_count;
     for (uint8_t i = 0U; i < 2U; ++i)
     {
         usec += 4000U;
@@ -356,6 +369,7 @@ static void test_input_report_throttle (void)
           "repeated input errors do not flood console");
 }
 
+/** @brief Timing stays valid across microsecond counter wrap. */
 static void test_microsecond_wrap (void)
 {
     bc_port_result_t result = {0};
@@ -372,7 +386,7 @@ static void test_microsecond_wrap (void)
           "ordinary 4 ms gap across wrap remains valid");
 }
 
-int test_port_run (void)
+int32_t test_port_run(void)
 {
     test_full_scan();
     test_input_rejections();
@@ -385,6 +399,7 @@ int test_port_run (void)
     return g_fail;
 }
 
+/** @brief Test entry point: run every case and report. */
 int main (void)
 {
     return (test_port_run() == 0) ? 0 : 1;

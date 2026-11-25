@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-/** @brief Configure the tested PWM settings and zero all outputs. */
+/** @brief Configure motor PWM and zero all outputs. */
 void motor_init (void);
 /** @brief Zero all motor outputs (wheels coast). */
 void motor_stop (void);
@@ -20,14 +20,15 @@ void motor_brake (void);
  * @param right_pwm Right compare count, between zero and MOTOR_PWM_WRAP.
  */
 void motor_set_forward (uint32_t left_pwm, uint32_t right_pwm);
-/* Positive = forward PWM; negative = proportional short-brake/coast PWM.
- * Negative values never select reverse drive. Controller owner only. */
+/** @brief Positive = forward PWM; negative = proportional short-brake or
+ * coast PWM, never reverse drive. Controller task only. */
 void motor_set_regulated(int32_t left_pwm, int32_t right_pwm);
-/** Signed per-wheel PWM for bounded, controller-owned turns. */
+/** @brief Signed per-wheel PWM for bounded, controller-owned turns. */
 void motor_set_directional (int32_t left_pwm, int32_t right_pwm);
-/** Last PWM compare counts requested by the motor owner, not wheel motion. */
-void motor_last_command (uint16_t * left, uint16_t * right);
+/** @brief Last requested PWM compare counts (not measured wheel motion). */
+void motor_last_command (uint16_t * p_left, uint16_t * p_right);
 
+/* PWM counter top: duty counts run 0..MOTOR_PWM_WRAP. */
 #define MOTOR_PWM_WRAP 12499U
 
 #endif /* MOTOR_H */
