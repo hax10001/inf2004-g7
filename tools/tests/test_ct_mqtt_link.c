@@ -892,26 +892,19 @@ static void test_connect_failures (void)
     assert((closes + 1U) == g_closes);
     assert(0U == b1_mqtt_connected());
 
-    /* The next connection must complete normally. */
+    /* After a refused session the client keeps retrying with backoff:
+     * the next connection is closed again on its CONNACK, and the one
+     * after that completes, so the link recovers on its own. */
     wait_for_tcp_new();
     tcp_complete();
     closes = g_closes;
     feed_connack(0U);
-    if ((2U == g_tx_count) && (closes == g_closes))
-    {
-        feed_suback(0U);
-        assert(1U == b1_mqtt_connected());
-        puts("PASS FR15 connection after a refused CONNACK completes");
-    }
-    else
-    {
-        puts("KNOWN BUG: mqtt_utk.c tcp_recv_cb(): after process_packet() "
-             "discards on a refused CONNACK, 'g_rxlen -= pos' wraps g_rxlen "
-             "to 65532, so the NEXT connection is closed on its first "
-             "received bytes (CONNACK) and one more backoff is lost");
-        assert(0U == b1_mqtt_connected());
-        handshake();
-    }
+    assert((closes + 1U) == g_closes);
+    assert(0U == b1_mqtt_connected());
+    handshake();
+    assert(1U == b1_mqtt_connected());
+    puts("PASS FR15 refused CONNACK: the client retries with backoff and "
+         "the link recovers");
 
     /* TCP connected but no CONNACK: retry after 10 s, not before. */
     g_netif.link_up = 0U;

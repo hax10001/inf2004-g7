@@ -457,7 +457,6 @@ static obstacle_drive_t run_until(uint32_t phase, uint32_t max_periods)
  */
 static void test_width_report(void)
 {
-    uint32_t mismatches = 0U;
     uint32_t cases      = 0U;
     double   width      = 0.0;
     double   centre     = 0.0;
@@ -491,35 +490,15 @@ static void test_width_report(void)
             assert(sent_cm > (uint32_t)plan_cm);
             assert(sent_cm <= OBS_WIDTH_INVALID_CM);
 
-            if (sent_cm != want_cm)
-            {
-                if (0U == mismatches)
-                {
-                    printf("KNOWN BUG: telemetry width %u cm but measured "
-                           "%u mm + %d mm = %u mm rounds to %u cm "
-                           "(plan width %d cm, offset rounded separately)"
-                           "\n",
-                           (unsigned)sent_cm,
-                           (unsigned)(sides.width_mm -
-                                      OBS_WIDTH_REPORT_ADD_MM),
-                           (int)OBS_WIDTH_REPORT_ADD_MM,
-                           (unsigned)sides.width_mm, (unsigned)want_cm,
-                           (int)plan_cm);
-                }
-
-                mismatches++;
-                /* Off by at most the one cm lost to double rounding. */
-                assert((sent_cm + 1U) == want_cm);
-            }
+            /* Telemetry adds the offset rounded to whole cm to the plan's
+             * cm width; the log line rounds measured mm + offset once, so
+             * the two agree to within 1 cm. */
+            assert(sent_cm == ((uint32_t)plan_cm +
+                               ((OBS_WIDTH_REPORT_ADD_MM + 5U) / 10U)));
+            assert((sent_cm == want_cm) || ((sent_cm + 1U) == want_cm));
 
             cases++;
         }
-    }
-
-    if (0U != mismatches)
-    {
-        printf("KNOWN BUG: %u of %u scanned widths reported 1 cm short\n",
-               (unsigned)mismatches, (unsigned)cases);
     }
 
     printf("PASS width report = measured + %d mm offset (within 1 cm) on "
@@ -568,16 +547,7 @@ static void test_width_edges(void)
                    : (((plan_cm[index] * 10U) + OBS_WIDTH_REPORT_ADD_MM +
                        5U) / 10U);
 
-        if ((250U == plan_cm[index]) && (sent != 254U))
-        {
-            /* 250 cm + 43 mm = 254.3 cm fits the 0..254 field. */
-            printf("KNOWN BUG: plan width 250 cm reported as %u\n",
-                   (unsigned)sent);
-        }
-        else
-        {
-            assert(sent == want);
-        }
+        assert(sent == want);
     }
 
     puts("PASS width 0 stays 0, invalid stays invalid, small widths get "

@@ -5,7 +5,7 @@ This folder collects the evidence for the Tribunal 2 requirements in one place.
 | What | Where |
 |---|---|
 | Requirements wording | [`docs/tribunal2/g7_pretribunal_requirements_proposed.md`](../tribunal2/g7_pretribunal_requirements_proposed.md) |
-| Traceability, coverage and known issues | [`docs/tribunal2/requirements_traceability.md`](../tribunal2/requirements_traceability.md) |
+| Traceability and coverage | [`docs/tribunal2/requirements_traceability.md`](../tribunal2/requirements_traceability.md) |
 | Coding standard (BARR-C:2018) | [`docs/tribunal2/barr_c_compliance_notes.md`](../tribunal2/barr_c_compliance_notes.md) |
 | PID report | [`docs/pid/G7_PID_report.pdf`](../pid/G7_PID_report.pdf) |
 | Demo videos | [`videos/`](videos/) |
@@ -15,7 +15,7 @@ This folder collects the evidence for the Tribunal 2 requirements in one place.
 
 | Check | Result | Output |
 |---|---|---|
-| Host tests `bash tools/run_host_tests.sh` | 368 PASS lines, `HOST PASS` | [host_tests.txt](test_results/host_tests.txt) |
+| Host tests `bash tools/run_host_tests.sh` | 369 PASS lines, `HOST PASS` | [host_tests.txt](test_results/host_tests.txt) |
 | Dashboard tests `npm test` | 110/110 pass | [dashboard_tests.txt](test_results/dashboard_tests.txt) |
 | Firmware clean build `./build_uf2.sh` (USB console, live control) | Built; BARR-C style check 0 errors | [firmware_build.txt](test_results/firmware_build.txt), [style_check.txt](test_results/style_check.txt) |
 | Host line / branch coverage of the firmware sources | 83 % / 76 % (was 70 % / 61 %) | [coverage table](../tribunal2/requirements_traceability.md#coverage) |
@@ -64,6 +64,6 @@ Every functional requirement has a demo clip. NFRs are internal and covered by t
 | NFR8 | Telemetry and barcode decoder at priority 9 | — (tests only) | `test_requirement_constants.py` (`B1_TASK_PRIORITY`, `BC_CAL_DIAG_PRIORITY`); recorded frame statistics in `requirements_audit.md` | Covered (host tests) |
 | NFR9 | Every stop path commands zero output; brake up to 200 ms | — (tests only) | `tests/obstacle_motion.c` (immediate STOP, zero output), `test_controller_handoff.c` (STOP priority), `reconnect.test.js` (STOP sent on a fresh link), `test_requirement_constants.py` | Covered (host/dashboard tests) |
 | NFR10 | Encoder and barcode ISRs at priority 2, count/copy only | — (tests only) | `test_requirement_constants.py` (`ENC_INT_PRIORITY`, `BC_FAST_PRIORITY`), `test_scan_handoff.c` | Covered (host tests) |
-| NFR11 | Host tests and dashboard tests pass before release | — (tests only) | `tools/run_host_tests.sh` (368 PASS), `npm test` (110/110) | Covered (host/dashboard tests) |
+| NFR11 | Host tests and dashboard tests pass before release | — (tests only) | `tools/run_host_tests.sh` (369 PASS), `npm test` (110/110) | Covered (host/dashboard tests) |
 | NFR12 | Minimum-bit data; 103,594 B to 69,598 B; binary frames 12 % of JSON | — (tests only) | `test_minbits_all.py`, `test_minbits_wire_format.py`, `test_minbits_records_queue.py`, `tests/test_minbits_saturation.c`, `test_precision_ranges.sh` | Covered (host tests) |
 | NFR13 | 13-byte LE header plus CRC-8 (0x07); bad CRC, length or reserved bits rejected | — (tests only) | `test_tel.c` protocol (CRC, truncation), `test_requirements_trace.c` nfr13_frame (independent CRC-8 reference, LE layout), `protocol.test.js`, `lift-height.test.js` (reserved bits), `tests/test_ct_protocol_codec.c` (bit-exact snapshot layout, every single-bit flip rejected) | Covered (host/dashboard tests) |

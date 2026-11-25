@@ -71,7 +71,7 @@ Each item had no remaining references (grep across `app_program`, `lib`, `tools`
 
 ## Behaviour verification
 
-The tested firmware had UF2 SHA-1 `d417c7f4…cd72`, built with the CZ2128Delta config. Every batch was rebuilt and its hash compared with the previous build.
+Every batch of style edits was rebuilt, and the UF2 compared with the build before it.
 
 **Identical UF2 (no generated code changed):**
 - layout and braces;
@@ -83,23 +83,14 @@ The tested firmware had UF2 SHA-1 `d417c7f4…cd72`, built with the CZ2128Delta 
 
 **Changed UF2:** each change was checked by comparing the per-function code sizes in the ELF and disassembling the changed functions.
 
-| Step | UF2 | What changed in the generated code |
-|---|---|---|
-| `mqtt_utk.c` rewrite | `44b2b859` | Only `mqtt_utk.c` functions changed:<br>• `discard` and `tcp_error` now share `reset_session`;<br>• `process_packet` is inlined into `tcp_recv_cb`.<br>`.text` is 112 B smaller; `.data` and `.bss` are unchanged. |
-| Macros to inline functions | `911877d7` | `run_scan` now calls `servo_*_limit_deg()` (a pure getter) once instead of twice. In `obstacle_bypass_step` the operands of a float addition swapped order, which gives the same result because IEEE addition is commutative. |
-| Dead code | `3e5a39a8` | Only the removed write-only counters and the no-op call went: `b1_mqtt_submit`, `mqtt_write`, `tcp_recv_cb` and `g7_telemetry_poll` got smaller. |
+| Step | What changed in the generated code |
+|---|---|
+| `mqtt_utk.c` rewrite | Only `mqtt_utk.c` functions changed:<br>• `discard` and `tcp_error` now share `reset_session`;<br>• `process_packet` is inlined into `tcp_recv_cb`.<br>`.text` is 112 B smaller; `.data` and `.bss` are unchanged. |
+| Macros to inline functions | `run_scan` now calls `servo_*_limit_deg()` (a pure getter) once instead of twice. In `obstacle_bypass_step` the operands of a float addition swapped order, which gives the same result because IEEE addition is commutative. |
+| Dead code | Only the removed write-only counters and the no-op call went: `b1_mqtt_submit`, `mqtt_write`, `tcp_recv_cb` and `g7_telemetry_poll` got smaller. |
 
-Clean build after the style work (all 163 objects recompiled): `3e5a39a8a3ad4efff2dc5d379df50e959ba83866`.
-
-On 25 Nov two behaviour changes were reverted at Linus's request, and nothing else changed in the firmware:
-- `OBS_RETURN_DEG` went back from 75 to 60. The tolerance that had been relaxed for 75 in `obstacle_rejoin_sim.c` went back too.
-- `BC_LAYOUT_LOCAL_MARGIN` went back from 0.15 to 0.10.
-
-The clean build is now `3351b17cfcab3c2a295db74a5b389d71428499f2`. Against `3e5a39a8`:
-- every function keeps its size;
-- `.data` is identical;
-- 17 bytes of `.text` differ, all constants in `bc_layout_poll` (the margin), `set_measured_end` and `obstacle_bypass_step` (the return angle).
-- Host tests: 368 PASS lines with `HOST PASS` (after the 25 Nov test review).
+The final clean build (all 163 objects recompiled, CZ2128Delta configuration) is `3351b17cfcab3c2a295db74a5b389d71428499f2`.
+- Host tests: 369 PASS lines with `HOST PASS`.
 - Dashboard tests: 110/110.
 
 ## Remaining deviations

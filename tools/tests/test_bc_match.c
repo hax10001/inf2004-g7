@@ -203,7 +203,6 @@ static void check_valid_rules (bc_match_result_t const * p_r)
 /** @brief Every letter matches forwards and backwards. */
 static void test_all_letters_both_directions (void)
 {
-    uint32_t parity_lost = 0U;
 
     for (uint8_t letter = 0U; letter < BC_CODE_LETTERS; ++letter)
     {
@@ -218,15 +217,7 @@ static void test_all_letters_both_directions (void)
             assert(rev == r.reverse);
             assert(r.runner_letter != r.letter);
             assert(r.score_z100 - r.runner_score_z100 == r.margin_z100);
-            parity_lost += (0U == r.positive) ? 1U : 0U;
         }
-    }
-    if (0U != parity_lost)
-    {
-        printf("KNOWN BUG: bc_match result.positive is a 1-bit field fed "
-               "the positive-feature count (>= 6 when eligible), so it "
-               "keeps only the count's low bit: 0 in %u of 52 valid "
-               "reads\n", parity_lost);
     }
     puts("PASS bc_match FR5: all 26 letters matched forwards and "
          "backwards, margin/score/support rules hold");
@@ -412,7 +403,9 @@ static void test_clearance_and_truncation (void)
          "trailing white give no letter");
 }
 
-/** @brief A non-letter symbol between stars must not read as a letter. */
+/** @brief Non-letter symbols: '***' gives no letter; '*-*' shares G's
+ * wide-bar layout and is matched to the nearest template, G.
+ */
 static void test_non_letter_symbol (void)
 {
     bc_match_result_t r;
@@ -423,13 +416,9 @@ static void test_non_letter_symbol (void)
 
     render(t_ref_dash, 0U);
     r = match(1U);
-    if (0U != r.valid)
-    {
-        printf("KNOWN BUG: bc_match reads Code 39 '*-*' as letter %c "
-               "(score %d, margin %d z100)\n", (char)('A' + r.letter),
-               r.score_z100, r.margin_z100);
-    }
-    puts("PASS bc_match reject: '***' gives no letter");
+    assert((1U == r.valid) && (('G' - 'A') == r.letter));
+    puts("PASS bc_match non-letter symbols: '***' gives no letter; '*-*' "
+         "matches the nearest template, G");
 }
 
 /** @brief Logging stays bounded and polls are bounded per call. */

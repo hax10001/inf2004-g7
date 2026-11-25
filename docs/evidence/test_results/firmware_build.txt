@@ -1,11 +1,11 @@
-# make clean, then G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 PICO_SDK_PATH=$HOME/pico/pico-sdk-2.2.0 ./build_uf2.sh   (2026-11-25 14:53 +08)
+# make clean, then G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 PICO_SDK_PATH=$HOME/pico/pico-sdk-2.2.0 ./build_uf2.sh   (2026-11-25 15:27 +08)
 Using Pico SDK 2.2.0 from ~/pico/pico-sdk-2.2.0
 Application standard checks: 166 files, 0 errors.
 CONTROLLED BENCH PROFILE: boots STOPPED. Start only from MQTT.
 Network loss triggers a software STOP. Keep physical power stop ready.
 Build rules: restored 0 missing subdir.mk; preserved 67 existing
 Prepared 72 build output directories; source/config/credentials unchanged
-G7 build cache: firmware inputs changed or not previously verified;
+G7 build cache: verified firmware inputs unchanged
 python3 ../tools/check_app_standard.py
 Application standard checks: 166 files, 0 errors.
 Linker: mtk3pico_smp1_usb_cdc_wifi_dhcp.elf

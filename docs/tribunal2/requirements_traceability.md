@@ -7,7 +7,7 @@ Demo videos are in [`docs/evidence/videos/`](../evidence/videos/).
 
 | Suite | Command | Result (25 Nov) |
 |---|---|---|
-| Host tests (also runs the style check and the dashboard suite) | `bash tools/run_host_tests.sh` | 368 PASS lines, ends `HOST PASS` |
+| Host tests (also runs the style check and the dashboard suite) | `bash tools/run_host_tests.sh` | 369 PASS lines, ends `HOST PASS` |
 | Dashboard tests | `cd app_program/dashboard && npm test` | 110 / 110 |
 | Firmware build (runs the style check first) | `G7_CONSOLE=usb_cdc G7_LIVE_CONTROL=1 PICO_SDK_PATH="$HOME/pico/pico-sdk-2.2.0" ./build_uf2.sh` | builds, 0 style errors |
 
@@ -45,7 +45,7 @@ Host tests compile the real firmware sources (`app_program/...`, `lib/libnet/lwi
 | NFR8 | Telemetry and barcode decoder at priority 9 | `test_requirement_constants.py` (`B1_TASK_PRIORITY`, `BC_CAL_DIAG_PRIORITY`); recorded frame statistics in `requirements_audit.md` | — | Covered (host tests) |
 | NFR9 | Every stop path commands zero output; brake up to 200 ms | `tests/obstacle_motion.c` (immediate STOP, zero output), `test_controller_handoff.c` (STOP priority), `reconnect.test.js` (STOP sent on a fresh link), `test_requirement_constants.py` | — | Covered (host/dashboard tests) |
 | NFR10 | Encoder and barcode ISRs at priority 2, count/copy only | `test_requirement_constants.py` (`ENC_INT_PRIORITY`, `BC_FAST_PRIORITY`), `test_scan_handoff.c` | — | Covered (host tests) |
-| NFR11 | Host tests and dashboard tests pass before release | `tools/run_host_tests.sh` (368 PASS), `npm test` (110/110) | — | Covered (host/dashboard tests) |
+| NFR11 | Host tests and dashboard tests pass before release | `tools/run_host_tests.sh` (369 PASS), `npm test` (110/110) | — | Covered (host/dashboard tests) |
 | NFR12 | Minimum-bit data; 103,594 B to 69,598 B; binary frames 12 % of JSON | `test_minbits_all.py`, `test_minbits_wire_format.py`, `test_minbits_records_queue.py`, `tests/test_minbits_saturation.c`, `test_precision_ranges.sh` | — | Covered (host tests) |
 | NFR13 | 13-byte LE header plus CRC-8 (0x07); bad CRC, length or reserved bits rejected | `test_tel.c` protocol (CRC, truncation), `test_requirements_trace.c` nfr13_frame (independent CRC-8 reference, LE layout), `protocol.test.js`, `lift-height.test.js` (reserved bits), `tests/test_ct_protocol_codec.c` (bit-exact snapshot layout, every single-bit flip rejected) | — | Covered (host/dashboard tests) |
 
@@ -96,21 +96,6 @@ Line and branch coverage of the team's firmware sources over the whole host suit
 | Wi-Fi join and the CYW43 radio (`lib/libwifi`) | Needs the radio. | Video FR01 (connect), FR15 (link loss stop). The MQTT client is tested with stub lwIP in `test_ct_mqtt_link.c`. |
 | End-to-end line following, barcode reading and obstacle passing on the real track | Sensor noise, friction and lighting. | Videos FR04, FR05/FR06, FR09/FR10, FR14. Host simulations cover the control logic (`line_follow_sim.c`, `obstacle_rejoin_sim.c`). |
 | Barcode scanner state machine on live ADC data (`bc_wave.c` 48 %, `bc_port.c` 50 %) | The rest of their paths need the 2 ms ISR stream and console. | `test_scanner_ready.c` and `test_scan_handoff.c` run the real state machine. The decoders it calls are covered 95–100 %. |
-
-## Firmware issues found by the new tests
-
-The tests print a `KNOWN BUG:` line for each of these instead of failing, so the suite stays green and the issue stays visible. The firmware was not changed (behaviour is frozen):
-
-1. **Telemetry width off by 1 cm.** In `obstacle.c` `handle_plan()`, the telemetry width rounds the measured width and the 43 mm offset separately. In 51 of 139 simulated scans it is 1 cm below the `[OBS] Object` log value.
-2. **`'*-*'` read as G.** `bc_layout.c` and `bc_match.c` both accept the non-letter Code 39 symbol `'*-*'` as **G**, because there is no absolute fit check. `bc_code.c` correctly refuses it. Only letters are printed on the course.
-3. **Some clean reads refused.** `bc_layout.c` refuses a few clean prints at some blur levels: N backwards, Q backwards, H forwards, M backwards. It refuses rather than misreads.
-4. **`result.variant` never set.** `bc_layout.c` never sets `result.variant`, so the barcode log always says "centre".
-5. **Link drop after a refused CONNACK.** In `mqtt_utk.c` `tcp_recv_cb()`, a refused CONNACK leaves the receive length wrapped. The next connection is then dropped at its CONNACK, costing one extra backoff period before the link recovers.
-
-Observations that are not marked as bugs:
-- A clock failure in a full controller period is reported as "IMU lost" (source 10).
-- Stops inside the obstacle bypass publish no fault source.
-- A refused SUBACK is never retried.
 
 ## Videos
 

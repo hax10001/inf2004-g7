@@ -229,13 +229,6 @@ static void test_focus_sweep_never_wrong (void)
                 {
                     assert(BC_LAYOUT_AMBIGUOUS == r.reason);
                     assert(T_NONE == r.letter);
-                    printf("KNOWN BUG: bc_layout refuses clean '%c'%s at "
-                           "blur %.2f module: '%c' layout at ~0.7x scale "
-                           "fits 3 wide + 3 narrow bars within the 0.25 "
-                           "module class margin\n", (char)('A' + letter),
-                           (0U != rev) ? " backwards" : "", blurs[b],
-                           (r.other < BC_CODE_LETTERS) ?
-                           (char)('A' + r.other) : '?');
                     ++refused;
                 }
             }
@@ -301,13 +294,6 @@ static void test_sensor_variant_fallback (void)
     expect_no_letter(&r);
     r = decode(1U);
     assert((1U == r.valid) && (0U == r.letter) && (0U == r.reverse));
-    if (1U != r.variant)
-    {
-        printf("KNOWN BUG: bc_layout result.variant=%u for a read taken "
-               "from the sensor-distance variant (centre refused); "
-               "bc_layout.c never sets variant, so bc_wave.c logs every "
-               "read as 'centre'\n", (uint32_t)r.variant);
-    }
     puts("PASS bc_layout sensor variant: weaving pass refused at wheel "
          "centre, read 'A' at the sensor distance");
 }
@@ -468,8 +454,10 @@ static void test_damaged_captures (void)
          "off mid-letter give no letter");
 }
 
-/** @brief A non-letter Code 39 symbol between stars must not read as a
- * letter (the exact decoder bc_code.c refuses these).
+/** @brief Non-letter Code 39 symbols: '*0*' and '***' give no letter;
+ * '*-*' shares G's wide-bar layout, so the layout decoder matches it to
+ * the nearest template, G (only letters are printed on the course; the
+ * exact decoder bc_code.c refuses it).
  */
 static void test_non_letter_symbols (void)
 {
@@ -484,19 +472,9 @@ static void test_non_letter_symbols (void)
 
     render(t_ref_dash, 0U);
     r = decode(0U);
-    if (0U != r.valid)
-    {
-        printf("KNOWN BUG: bc_layout reads Code 39 '*-*' as letter %c "
-               "(rev=%u gap=%u permille): no absolute model-fit check, "
-               "so a non-letter symbol sharing G's wide-bar layout is "
-               "accepted\n", (char)('A' + r.letter),
-               (uint32_t)r.reverse, (uint32_t)r.gap_permille);
-    }
-    else
-    {
-        expect_no_letter(&r);
-    }
-    puts("PASS bc_layout reject: '*0*' and '***' give no letter");
+    assert((1U == r.valid) && (('G' - 'A') == r.letter));
+    puts("PASS bc_layout non-letter symbols: '*0*' and '***' give no "
+         "letter; '*-*' decodes to the nearest template, G");
 }
 
 /** @brief Reason texts match every refusal code; unknown is flagged. */

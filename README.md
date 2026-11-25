@@ -136,7 +136,7 @@ error.
 
 | Suite | Command | Current result |
 |---|---|---|
-| Firmware host tests (no robot needed; also runs the dashboard suite) | `bash tools/run_host_tests.sh` | 368 PASS lines, ends with `HOST PASS` |
+| Firmware host tests (no robot needed; also runs the dashboard suite) | `bash tools/run_host_tests.sh` | 369 PASS lines, ends with `HOST PASS` |
 | Dashboard | `cd app_program/dashboard && npm test` | 110 / 110 |
 | Style check (also run by every build) | `python3 tools/check_app_standard.py` | 166 files (firmware and tests), 0 errors |
 
