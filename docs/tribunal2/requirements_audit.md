@@ -52,7 +52,7 @@ ODOM payload: left Δmm (int16), right Δmm (int16) and source seq (uint16).
 - Decoded in `app_program/dashboard/server/protocol.js:50`.
 
 Distance checkpoints are never sent.
-- `B1_Motion.checkpoint` and `cumulative_mm` exist (`modules/telemetry/buddy1.h:21-25`), and the store would send a CHECKPOINT frame if the flag were set (`buddy1.c:76-77, 181-184`).
+- `b1_motion_t.checkpoint` and `cumulative_mm` exist (`modules/telemetry/buddy1.h:21-25`), and the store would send a CHECKPOINT frame if the flag were set (`buddy1.c:76-77, 181-184`).
 - But the only producer never sets either field (`telemetry_peers.c:61-80`).
 - The dashboard's checkpoint check (`server/state.js:303-304`) therefore never runs on a real robot.
 
