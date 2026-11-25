@@ -84,8 +84,21 @@ Requirements:
 Wi-Fi and broker settings are compiled in from two private headers that git
 ignores: `config/wifi_credentials.h` (SSID and password) and
 `config/wifi_secrets.h` (broker IP and MQTT login). They are never committed.
-`./setup_dashboard.sh` creates them with a wizard and points the broker
-address at this Mac. `config/wifi_credentials.example.h` shows the format.
+`./setup_dashboard.sh` creates both with a wizard and points the broker
+address at this Mac. To create them by hand instead:
+- copy `config/wifi_credentials.example.h` to `config/wifi_credentials.h`,
+  fill in the SSID and password, and set `UTK_WIFI_CREDENTIALS_SET` to 1;
+- write `config/wifi_secrets.h` with the broker address and MQTT login:
+
+```c
+#ifndef WIFI_SECRETS_H
+#define WIFI_SECRETS_H
+#define B1_BROKER_IPV4 "192.168.1.10" /* the Mac running the dashboard */
+#define B1_BROKER_PORT 1883
+#define B1_MQTT_USER ""                /* as in .lan-secrets.json, if any */
+#define B1_MQTT_PASSWORD ""
+#endif
+```
 
 ```bash
 ./setup_dashboard.sh
